@@ -75,6 +75,8 @@ def execute_command(command, params):
         return cmd_delete_shot(params)
     elif command == "reorder":
         return cmd_reorder(params)
+    elif command == "sync_scenes":
+        return cmd_sync_scenes(params)
     else:
         raise ValueError(f"Unknown command: {command}")
 
@@ -199,3 +201,53 @@ def cmd_reorder(params):
     """Reorder shots (placeholder for VSE sync in Phase 3)."""
     shot_ids = params.get("shot_ids", [])
     return {"reordered": len(shot_ids)}
+
+
+def cmd_sync_scenes(params):
+    """Sync Blender scenes with DB. Blender file is authority."""
+    import os
+    import sys
+    addon_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    if addon_dir not in sys.path:
+        sys.path.insert(0, addon_dir)
+
+    # Import sync function from __init__
+    import importlib
+    init_mod = sys.modules.get("__init__")
+    if not init_mod:
+        # Try to find the addon module
+        for name, mod in sys.modules.items():
+            if hasattr(mod, '_sync_scenes_with_db'):
+                init_mod = mod
+                break
+
+    if init_mod and hasattr(init_mod, '_sync_scenes_with_db'):
+        removed, orphans = init_mod._sync_scenes_with_db()
+        return {"removed": removed, "orphans": len(orphans)}
+    else:
+        # Fallback: do it inline
+        from core.db import get_db_path, delete_shot, get_all_shots
+
+        blend_path = bpy.data.filepath
+        blend_dir = os.path.dirname(blend_path)
+        blend_name = os.path.splitext(os.path.basename(blend_path))[0]
+        project_dir = os.path.join(blend_dir, f"{blend_name}_storyboard")
+
+        if not os.path.exists(project_dir):
+            return {"removed": 0, "orphans": 0}
+
+        db_path = get_db_path(project_dir)
+        shots = get_all_shots(db_path)
+        existing_scenes = {s.name for s in bpy.data.scenes}
+        removed = 0
+
+        for shot in shots:
+            if shot["scene_name"] not in existing_scenes:
+                delete_shot(db_path, shot["id"])
+                shot_dir = os.path.join(project_dir, "shots", shot["id"])
+                if os.path.exists(shot_dir):
+                    import shutil
+                    shutil.rmtree(shot_dir)
+                removed += 1
+
+        return {"removed": removed, "orphans": 0}

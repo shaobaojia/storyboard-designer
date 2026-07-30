@@ -22,10 +22,77 @@ if addon_dir not in sys.path:
 
 from core.db import init_db, get_db_path, create_shot, update_shot, delete_shot, get_all_shots, get_shot
 from core.server import start_server, stop_server, get_server
+from core.db import init_db, get_db_path, create_shot, update_shot, delete_shot, get_all_shots, get_shot
+from core.server import start_server, stop_server, get_server
 from core.queue import queue_command, ensure_timer
 
 
-# --- Project Management ---
+def _get_project_dir():
+    """Auto-derive project dir from blend file path."""
+    blend_path = bpy.data.filepath
+    if not blend_path:
+        return None
+    blend_dir = os.path.dirname(blend_path)
+    blend_name = os.path.splitext(os.path.basename(blend_path))[0]
+    return os.path.join(blend_dir, f"{blend_name}_storyboard")
+
+
+def _sync_scenes_with_db():
+    """
+    Sync Blender scenes with DB records.
+    Blender file is authority: remove DB records for missing scenes.
+    Returns (removed_count, orphan_scenes)
+    """
+    project_dir = _get_project_dir()
+    if not project_dir or not os.path.exists(project_dir):
+        return 0, []
+
+    db_path = get_db_path(project_dir)
+    if not os.path.exists(db_path):
+        return 0, []
+
+    shots = get_all_shots(db_path)
+    removed = 0
+    orphan_scenes = []
+
+    # Build set of existing scene names
+    existing_scenes = {s.name for s in bpy.data.scenes}
+
+    # Remove DB records for missing scenes
+    for shot in shots:
+        if shot["scene_name"] not in existing_scenes:
+            print(f"[Storyboard] Removing orphan DB record: {shot['name']} (scene={shot['scene_name']})")
+            delete_shot(db_path, shot["id"])
+            # Clean up shot files
+            shot_dir = os.path.join(project_dir, "shots", shot["id"])
+            if os.path.exists(shot_dir):
+                import shutil
+                shutil.rmtree(shot_dir)
+            removed += 1
+
+    # Find scenes not in DB (potential manual imports)
+    db_scene_names = {s["scene_name"] for s in get_all_shots(db_path)}
+    for scene_name in existing_scenes:
+        if scene_name.startswith("Shot_") and scene_name not in db_scene_names:
+            orphan_scenes.append(scene_name)
+
+    return removed, orphan_scenes
+
+
+class STORYBOARD_OT_sync_scenes(bpy.types.Operator):
+    """Sync Blender scenes with storyboard database"""
+    bl_idname = "storyboard.sync_scenes"
+    bl_label = "Sync Scenes"
+    bl_options = {'REGISTER'}
+
+    def execute(self, context):
+        removed, orphans = _sync_scenes_with_db()
+        msg = f"Removed {removed} orphan records"
+        if orphans:
+            msg += f", found {len(orphans)} unmanaged scenes"
+        self.report({'INFO'}, msg)
+        return {'FINISHED'}
+
 
 class STORYBOARD_OT_init_project(bpy.types.Operator):
     """Initialize storyboard project in current blend file directory"""
@@ -34,26 +101,25 @@ class STORYBOARD_OT_init_project(bpy.types.Operator):
     bl_options = {'REGISTER'}
 
     def execute(self, context):
-        blend_path = bpy.data.filepath
-        if not blend_path:
+        project_dir = _get_project_dir()
+        if not project_dir:
             self.report({'ERROR'}, "Save blend file first")
             return {'CANCELLED'}
 
-        project_dir = os.path.dirname(blend_path)
+        os.makedirs(project_dir, exist_ok=True)
         db_path = init_db(os.path.join(project_dir, "shots.db"))
 
-        # Create project.json
+        # Create project.json if not exists
         project_json = os.path.join(project_dir, "project.json")
         if not os.path.exists(project_json):
             with open(project_json, "w") as f:
                 json.dump({
-                    "name": os.path.basename(project_dir),
+                    "name": os.path.splitext(os.path.basename(bpy.data.filepath))[0],
                     "fps": context.scene.render.fps,
                     "resolution_x": context.scene.render.resolution_x,
                     "resolution_y": context.scene.render.resolution_y,
                 }, f, indent=2)
 
-        context.scene.storyboard_project_dir = project_dir
         self.report({'INFO'}, f"Project initialized: {project_dir}")
         return {'FINISHED'}
 
@@ -65,9 +131,9 @@ class STORYBOARD_OT_start_server(bpy.types.Operator):
     bl_options = {'REGISTER'}
 
     def execute(self, context):
-        project_dir = context.scene.storyboard_project_dir
+        project_dir = _get_project_dir()
         if not project_dir:
-            self.report({'ERROR'}, "Init project first")
+            self.report({'ERROR'}, "Save blend file first")
             return {'CANCELLED'}
 
         server = start_server(project_dir, port=8089)
@@ -105,9 +171,9 @@ class STORYBOARD_OT_create_shot(bpy.types.Operator):
     )
 
     def execute(self, context):
-        project_dir = context.scene.storyboard_project_dir
+        project_dir = _get_project_dir()
         if not project_dir:
-            self.report({'ERROR'}, "Init project first")
+            self.report({'ERROR'}, "Save blend file first")
             return {'CANCELLED'}
 
         # Create scene
@@ -153,9 +219,9 @@ class STORYBOARD_OT_render_shot(bpy.types.Operator):
     bl_options = {'REGISTER'}
 
     def execute(self, context):
-        project_dir = context.scene.storyboard_project_dir
+        project_dir = _get_project_dir()
         if not project_dir:
-            self.report({'ERROR'}, "Init project first")
+            self.report({'ERROR'}, "Save blend file first")
             return {'CANCELLED'}
 
         scene = context.scene
@@ -208,9 +274,9 @@ class STORYBOARD_OT_render_all(bpy.types.Operator):
     bl_options = {'REGISTER'}
 
     def execute(self, context):
-        project_dir = context.scene.storyboard_project_dir
+        project_dir = _get_project_dir()
         if not project_dir:
-            self.report({'ERROR'}, "Init project first")
+            self.report({'ERROR'}, "Save blend file first")
             return {'CANCELLED'}
 
         db_path = get_db_path(project_dir)
@@ -237,9 +303,9 @@ class STORYBOARD_OT_delete_shot(bpy.types.Operator):
     bl_options = {'REGISTER', 'UNDO'}
 
     def execute(self, context):
-        project_dir = context.scene.storyboard_project_dir
+        project_dir = _get_project_dir()
         if not project_dir:
-            self.report({'ERROR'}, "Init project first")
+            self.report({'ERROR'}, "Save blend file first")
             return {'CANCELLED'}
 
         scene = context.scene
@@ -280,11 +346,13 @@ class STORYBOARD_PT_panel(bpy.types.Panel):
         scene = context.scene
 
         # Project status
-        project_dir = scene.storyboard_project_dir
-        if project_dir:
+        project_dir = _get_project_dir()
+        if project_dir and os.path.exists(project_dir):
             layout.label(text=f"Project: {os.path.basename(project_dir)}", icon='FILE_FOLDER')
+        elif project_dir:
+            layout.label(text="Project not initialized", icon='ERROR')
         else:
-            layout.label(text="No project", icon='ERROR')
+            layout.label(text="Save blend file first", icon='ERROR')
 
         row = layout.row(align=True)
         row.operator("storyboard.init_project", icon='FILE_NEW')
@@ -305,6 +373,7 @@ class STORYBOARD_PT_panel(bpy.types.Panel):
         layout.operator("storyboard.render_shot", icon='RENDER_STILL')
         layout.operator("storyboard.render_all", icon='RENDER_ANIMATION')
         layout.operator("storyboard.delete_shot", icon='TRASH')
+        layout.operator("storyboard.sync_scenes", icon='FILE_REFRESH')
 
         layout.separator()
 
@@ -319,6 +388,7 @@ class STORYBOARD_PT_panel(bpy.types.Panel):
 # --- Registration ---
 
 classes = (
+    STORYBOARD_OT_sync_scenes,
     STORYBOARD_OT_init_project,
     STORYBOARD_OT_start_server,
     STORYBOARD_OT_stop_server,
@@ -334,20 +404,11 @@ def register():
     for cls in classes:
         bpy.utils.register_class(cls)
 
-    bpy.types.Scene.storyboard_project_dir = StringProperty(
-        name="Project Directory",
-        description="Storyboard project root directory",
-        default="",
-        subtype='DIR_PATH'
-    )
-
 
 def unregister():
     stop_server()
     for cls in reversed(classes):
         bpy.utils.unregister_class(cls)
-
-    del bpy.types.Scene.storyboard_project_dir
 
 
 if __name__ == "__main__":

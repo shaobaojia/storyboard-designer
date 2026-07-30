@@ -139,6 +139,11 @@ class StoryboardHTTPServer:
                                           shot_type=data.get("type", "3d"))
                     self._send_json({"status": "ok", "id": shot_id})
 
+                elif path == "/api/sync":
+                    # Queue sync command to Blender
+                    queue_command("sync_scenes", {})
+                    self._send_json({"status": "ok", "message": "sync queued"})
+
                 elif path == "/api/reorder":
                     shot_ids = data.get("shot_ids", [])
                     reorder_shots(db_path, shot_ids)

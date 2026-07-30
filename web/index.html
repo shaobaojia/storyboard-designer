@@ -123,6 +123,8 @@
     <div class="header">
         <h1>Storyboard Grid</h1>
         <div class="actions">
+            <button onclick="createShot()">Create Shot</button>
+            <button onclick="syncScenes()">Sync DB</button>
             <button onclick="refresh()">Refresh</button>
             <button onclick="openTimeline()">Timeline</button>
         </div>
@@ -197,11 +199,13 @@
 
         function dragOver(e) {
             e.preventDefault();
+            e.stopPropagation();
             e.dataTransfer.dropEffect = 'move';
             const card = e.target.closest('.shot-card');
             if (card && card !== dragSrcEl) {
                 card.classList.add('drag-over');
             }
+            return false;
         }
 
         function dragLeave(e) {
@@ -211,6 +215,7 @@
 
         function drop(e) {
             e.preventDefault();
+            e.stopPropagation();
             const card = e.target.closest('.shot-card');
             if (card && card !== dragSrcEl) {
                 card.classList.remove('drag-over');
@@ -218,12 +223,17 @@
                 const dstId = card.dataset.id;
                 reorderShots(srcId, dstId);
             }
+            return false;
         }
 
         function dragEnd(e) {
+            if (dragSrcEl) {
+                dragSrcEl.classList.remove('dragging');
+            }
             document.querySelectorAll('.shot-card').forEach(c => {
                 c.classList.remove('dragging', 'drag-over');
             });
+            dragSrcEl = null;
         }
 
         async function reorderShots(srcId, dstId) {
@@ -278,19 +288,34 @@
 
             switch(action) {
                 case 'open':
-                    // TODO: send remote command to Blender
-                    console.log('Open shot:', shot.name);
+                    await fetch(`/api/shot/${contextShotId}`, {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({action: 'open'})
+                    });
                     break;
                 case 'rerender':
-                    // TODO: send remote command to Blender
-                    console.log('Re-render shot:', shot.name);
+                    await fetch(`/api/shot/${contextShotId}`, {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({action: 'rerender'})
+                    });
+                    // Refresh after delay to show new thumbnail
+                    setTimeout(fetchShots, 2000);
                     break;
                 case 'duplicate':
-                    // TODO: send remote command to Blender
-                    console.log('Duplicate shot:', shot.name);
+                    const newName = prompt('New shot name:', shot.name + '_copy');
+                    if (newName) {
+                        await fetch(`/api/shot/${contextShotId}`, {
+                            method: 'POST',
+                            headers: {'Content-Type': 'application/json'},
+                            body: JSON.stringify({action: 'duplicate', new_name: newName})
+                        });
+                        setTimeout(fetchShots, 1000);
+                    }
                     break;
                 case 'delete':
-                    if (confirm(`Delete ${shot.name}?`)) {
+                    if (confirm(`Delete ${shot.name}? This will remove the scene and files.`)) {
                         await fetch(`/api/shot/${contextShotId}`, {
                             method: 'POST',
                             headers: {'Content-Type': 'application/json'},
@@ -304,6 +329,31 @@
 
         function refresh() { fetchShots(); }
         function openTimeline() { alert('Timeline view - Phase 2'); }
+
+        async function createShot() {
+            const name = prompt('Shot name:', `SH${String(shots.length + 1).padStart(3, '0')}`);
+            if (!name) return;
+            const duration = parseFloat(prompt('Duration (seconds):', '2.0')) || 2.0;
+            const type = prompt('Type (3d/2d/mixed):', '3d') || '3d';
+
+            await fetch('/api/shots', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    name: name,
+                    scene_name: `Shot_${name}`,
+                    duration: duration,
+                    type: type
+                })
+            });
+            fetchShots();
+        }
+
+        async function syncScenes() {
+            await fetch('/api/sync', {method: 'POST'});
+            alert('Sync queued. Blender will clean orphan records.');
+            setTimeout(fetchShots, 1000);
+        }
 
         // Init
         fetchShots();
