@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Storyboard Grid</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: #1a1a1a;
+            color: #e0e0e0;
+            padding: 16px;
+        }
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 16px;
+            padding-bottom: 12px;
+            border-bottom: 1px solid #333;
+        }
+        .header h1 { font-size: 18px; font-weight: 600; }
+        .header .actions button {
+            background: #333;
+            border: none;
+            color: #e0e0e0;
+            padding: 6px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-left: 8px;
+            font-size: 13px;
+        }
+        .header .actions button:hover { background: #444; }
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 12px;
+        }
+        .shot-card {
+            background: #252525;
+            border-radius: 8px;
+            overflow: hidden;
+            cursor: grab;
+            transition: transform 0.15s, box-shadow 0.15s;
+            position: relative;
+        }
+        .shot-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+        }
+        .shot-card.dragging {
+            opacity: 0.5;
+            cursor: grabbing;
+        }
+        .shot-card.drag-over {
+            border: 2px dashed #4a9eff;
+        }
+        .shot-thumb {
+            width: 100%;
+            aspect-ratio: 16/9;
+            object-fit: cover;
+            background: #333;
+            display: block;
+        }
+        .shot-info {
+            padding: 8px 10px;
+        }
+        .shot-name {
+            font-size: 13px;
+            font-weight: 600;
+            margin-bottom: 2px;
+        }
+        .shot-meta {
+            font-size: 11px;
+            color: #888;
+            display: flex;
+            justify-content: space-between;
+        }
+        .shot-type {
+            display: inline-block;
+            padding: 1px 5px;
+            border-radius: 3px;
+            font-size: 10px;
+            text-transform: uppercase;
+        }
+        .shot-type.3d { background: #2d5a2d; }
+        .shot-type.2d { background: #5a4a2d; }
+        .shot-type.mixed { background: #4a2d5a; }
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: #666;
+        }
+        .empty-state p { margin-top: 12px; }
+        .context-menu {
+            position: fixed;
+            background: #2a2a2a;
+            border: 1px solid #444;
+            border-radius: 6px;
+            padding: 4px 0;
+            min-width: 140px;
+            z-index: 1000;
+            box-shadow: 0 4px 16px rgba(0,0,0,0.5);
+        }
+        .context-menu button {
+            display: block;
+            width: 100%;
+            padding: 8px 14px;
+            background: none;
+            border: none;
+            color: #e0e0e0;
+            text-align: left;
+            cursor: pointer;
+            font-size: 13px;
+        }
+        .context-menu button:hover { background: #3a3a3a; }
+        .context-menu button.danger { color: #ff6b6b; }
+        .context-menu button.danger:hover { background: #4a2a2a; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>Storyboard Grid</h1>
+        <div class="actions">
+            <button onclick="refresh()">Refresh</button>
+            <button onclick="openTimeline()">Timeline</button>
+        </div>
+    </div>
+
+    <div id="grid" class="grid">
+        <div class="empty-state">
+            <p>Loading shots...</p>
+        </div>
+    </div>
+
+    <div id="contextMenu" class="context-menu" style="display:none;">
+        <button onclick="menuAction('open')">Open Shot</button>
+        <button onclick="menuAction('rerender')">Re-render</button>
+        <button onclick="menuAction('duplicate')">Duplicate</button>
+        <button class="danger" onclick="menuAction('delete')">Delete</button>
+    </div>
+
+    <script>
+        let shots = [];
+        let dragSrcEl = null;
+        let contextShotId = null;
+
+        async function fetchShots() {
+            try {
+                const res = await fetch('/api/shots');
+                const data = await res.json();
+                if (data.status === 'ok') {
+                    shots = data.shots;
+                    renderGrid();
+                }
+            } catch (e) {
+                console.error('Failed to fetch shots:', e);
+                document.getElementById('grid').innerHTML =
+                    '<div class="empty-state"><p>Failed to load shots. Is the server running?</p></div>';
+            }
+        }
+
+        function renderGrid() {
+            const grid = document.getElementById('grid');
+            if (shots.length === 0) {
+                grid.innerHTML = '<div class="empty-state"><p>No shots yet. Create one in Blender.</p></div>';
+                return;
+            }
+
+            grid.innerHTML = shots.map(shot => `
+                <div class="shot-card" draggable="true" data-id="${shot.id}"
+                     ondragstart="dragStart(event)" ondragover="dragOver(event)"
+                     ondragleave="dragLeave(event)" ondrop="drop(event)"
+                     ondragend="dragEnd(event)" oncontextmenu="showContextMenu(event, '${shot.id}')">
+                    ${shot.thumb_path
+                        ? `<img class="shot-thumb" src="/shots/${shot.id}/thumb.jpg" loading="lazy" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%22320%22 height=%22180%22><rect fill=%22%23333%22 width=%22320%22 height=%22180%22/><text fill=%22%23666%22 x=%2250%25%22 y=%2250%25%22 text-anchor=%22middle%22>No image</text></svg>'">`
+                        : `<div class="shot-thumb" style="display:flex;align-items:center;justify-content:center;color:#666;">No render</div>`
+                    }
+                    <div class="shot-info">
+                        <div class="shot-name">${shot.name}</div>
+                        <div class="shot-meta">
+                            <span>${shot.duration.toFixed(1)}s</span>
+                            <span class="shot-type ${shot.type}">${shot.type}</span>
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        // Drag and drop
+        function dragStart(e) {
+            dragSrcEl = e.target.closest('.shot-card');
+            e.dataTransfer.effectAllowed = 'move';
+            dragSrcEl.classList.add('dragging');
+        }
+
+        function dragOver(e) {
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'move';
+            const card = e.target.closest('.shot-card');
+            if (card && card !== dragSrcEl) {
+                card.classList.add('drag-over');
+            }
+        }
+
+        function dragLeave(e) {
+            const card = e.target.closest('.shot-card');
+            if (card) card.classList.remove('drag-over');
+        }
+
+        function drop(e) {
+            e.preventDefault();
+            const card = e.target.closest('.shot-card');
+            if (card && card !== dragSrcEl) {
+                card.classList.remove('drag-over');
+                const srcId = dragSrcEl.dataset.id;
+                const dstId = card.dataset.id;
+                reorderShots(srcId, dstId);
+            }
+        }
+
+        function dragEnd(e) {
+            document.querySelectorAll('.shot-card').forEach(c => {
+                c.classList.remove('dragging', 'drag-over');
+            });
+        }
+
+        async function reorderShots(srcId, dstId) {
+            const srcIdx = shots.findIndex(s => s.id === srcId);
+            const dstIdx = shots.findIndex(s => s.id === dstId);
+            if (srcIdx === -1 || dstIdx === -1) return;
+
+            // Swap in local array
+            const [moved] = shots.splice(srcIdx, 1);
+            shots.splice(dstIdx, 0, moved);
+
+            // Update seq numbers
+            const shotIds = shots.map(s => s.id);
+
+            // Send to server
+            try {
+                await fetch('/api/reorder', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({shot_ids: shotIds})
+                });
+            } catch (e) {
+                console.error('Reorder failed:', e);
+            }
+
+            renderGrid();
+        }
+
+        // Context menu
+        function showContextMenu(e, shotId) {
+            e.preventDefault();
+            contextShotId = shotId;
+            const menu = document.getElementById('contextMenu');
+            menu.style.display = 'block';
+            menu.style.left = e.pageX + 'px';
+            menu.style.top = e.pageY + 'px';
+        }
+
+        function hideContextMenu() {
+            document.getElementById('contextMenu').style.display = 'none';
+            contextShotId = null;
+        }
+
+        document.addEventListener('click', hideContextMenu);
+
+        async function menuAction(action) {
+            if (!contextShotId) return;
+            hideContextMenu();
+
+            const shot = shots.find(s => s.id === contextShotId);
+            if (!shot) return;
+
+            switch(action) {
+                case 'open':
+                    // TODO: send remote command to Blender
+                    console.log('Open shot:', shot.name);
+                    break;
+                case 'rerender':
+                    // TODO: send remote command to Blender
+                    console.log('Re-render shot:', shot.name);
+                    break;
+                case 'duplicate':
+                    // TODO: send remote command to Blender
+                    console.log('Duplicate shot:', shot.name);
+                    break;
+                case 'delete':
+                    if (confirm(`Delete ${shot.name}?`)) {
+                        await fetch(`/api/shot/${contextShotId}`, {
+                            method: 'POST',
+                            headers: {'Content-Type': 'application/json'},
+                            body: JSON.stringify({action: 'delete'})
+                        });
+                        fetchShots();
+                    }
+                    break;
+            }
+        }
+
+        function refresh() { fetchShots(); }
+        function openTimeline() { alert('Timeline view - Phase 2'); }
+
+        // Init
+        fetchShots();
+        // Auto-refresh every 5s
+        setInterval(fetchShots, 5000);
+    </script>
+</body>
+</html>
