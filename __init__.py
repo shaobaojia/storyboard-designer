@@ -41,18 +41,20 @@ def _sync_scenes_with_db():
     """
     Sync Blender scenes with DB records.
     Blender file is authority: remove DB records for missing scenes.
-    Returns (removed_count, orphan_scenes)
+    Also deduplicate: keep only latest record per scene_name.
+    Returns (removed_count, orphan_scenes, dedup_count)
     """
     project_dir = _get_project_dir()
     if not project_dir or not os.path.exists(project_dir):
-        return 0, []
+        return 0, [], 0
 
     db_path = get_db_path(project_dir)
     if not os.path.exists(db_path):
-        return 0, []
+        return 0, [], 0
 
     shots = get_all_shots(db_path)
     removed = 0
+    deduped = 0
     orphan_scenes = []
 
     # Build set of existing scene names
@@ -70,13 +72,43 @@ def _sync_scenes_with_db():
                 shutil.rmtree(shot_dir)
             removed += 1
 
+    # Deduplicate: keep only latest record per scene_name
+    shots = get_all_shots(db_path)
+    scene_map = {}
+    for shot in shots:
+        scene_name = shot["scene_name"]
+        if scene_name not in scene_map:
+            scene_map[scene_name] = shot
+        else:
+            # Keep the one with later updated_at
+            existing = scene_map[scene_name]
+            if shot["updated_at"] > existing["updated_at"]:
+                # Remove old one
+                print(f"[Storyboard] Deduplicating: removing older record for {scene_name} (id={existing['id'][:8]})")
+                delete_shot(db_path, existing["id"])
+                shot_dir = os.path.join(project_dir, "shots", existing["id"])
+                if os.path.exists(shot_dir):
+                    import shutil
+                    shutil.rmtree(shot_dir)
+                scene_map[scene_name] = shot
+                deduped += 1
+            else:
+                # Remove current one
+                print(f"[Storyboard] Deduplicating: removing older record for {scene_name} (id={shot['id'][:8]})")
+                delete_shot(db_path, shot["id"])
+                shot_dir = os.path.join(project_dir, "shots", shot["id"])
+                if os.path.exists(shot_dir):
+                    import shutil
+                    shutil.rmtree(shot_dir)
+                deduped += 1
+
     # Find scenes not in DB (potential manual imports)
     db_scene_names = {s["scene_name"] for s in get_all_shots(db_path)}
     for scene_name in existing_scenes:
         if scene_name.startswith("Shot_") and scene_name not in db_scene_names:
             orphan_scenes.append(scene_name)
 
-    return removed, orphan_scenes
+    return removed, orphan_scenes, deduped
 
 
 class STORYBOARD_OT_sync_scenes(bpy.types.Operator):
@@ -86,8 +118,10 @@ class STORYBOARD_OT_sync_scenes(bpy.types.Operator):
     bl_options = {'REGISTER'}
 
     def execute(self, context):
-        removed, orphans = _sync_scenes_with_db()
+        removed, orphans, deduped = _sync_scenes_with_db()
         msg = f"Removed {removed} orphan records"
+        if deduped:
+            msg += f", deduped {deduped} duplicates"
         if orphans:
             msg += f", found {len(orphans)} unmanaged scenes"
         self.report({'INFO'}, msg)
@@ -137,7 +171,8 @@ class STORYBOARD_OT_start_server(bpy.types.Operator):
             return {'CANCELLED'}
 
         server = start_server(project_dir, port=8089)
-        ensure_timer()  # Start main thread queue consumer
+        # Register timer in main thread BEFORE starting server thread
+        ensure_timer()
         self.report({'INFO'}, f"Server on 127.0.0.1:8089")
         return {'FINISHED'}
 
@@ -201,8 +236,8 @@ class STORYBOARD_OT_create_shot(bpy.types.Operator):
                               camera=cam_obj.name, duration=self.duration,
                               shot_type=self.shot_type)
 
-        # Create shot directory
-        shot_dir = os.path.join(project_dir, "shots", shot_id)
+        # Create shot directory with readable name: {shot_name}_{shot_id}/
+        shot_dir = os.path.join(project_dir, "shots", f"{self.shot_name}_{shot_id}")
         os.makedirs(shot_dir, exist_ok=True)
 
         self.report({'INFO'}, f"Created shot: {self.shot_name} ({shot_id})")

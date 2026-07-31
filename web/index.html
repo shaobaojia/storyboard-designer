@@ -176,7 +176,7 @@
                      ondragleave="dragLeave(event)" ondrop="drop(event)"
                      ondragend="dragEnd(event)" oncontextmenu="showContextMenu(event, '${shot.id}')">
                     ${shot.thumb_path
-                        ? `<img class="shot-thumb" src="/shots/${shot.id}/thumb.jpg" loading="lazy" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%22320%22 height=%22180%22><rect fill=%22%23333%22 width=%22320%22 height=%22180%22/><text fill=%22%23666%22 x=%2250%25%22 y=%2250%25%22 text-anchor=%22middle%22>No image</text></svg>'">`
+                        ? `<img class="shot-thumb" src="/shots/${shot.name}_${shot.id}/thumb.jpg" loading="lazy" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%22320%22 height=%22180%22><rect fill=%22%23333%22 width=%22320%22 height=%22180%22/><text fill=%22%23666%22 x=%2250%25%22 y=%2250%25%22 text-anchor=%22middle%22>No image</text></svg>'">`
                         : `<div class="shot-thumb" style="display:flex;align-items:center;justify-content:center;color:#666;">No render</div>`
                     }
                     <div class="shot-info">

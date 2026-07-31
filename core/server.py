@@ -13,7 +13,9 @@ from .db import (
     init_db, get_db_path, create_shot, update_shot,
     delete_shot, get_shot, get_all_shots, reorder_shots
 )
-from .queue import queue_command
+import core.queue
+
+_all_servers = []
 
 
 class StoryboardHTTPServer:
@@ -36,17 +38,21 @@ class StoryboardHTTPServer:
             return
 
         handler = self._make_handler()
-        self.server = HTTPServer(("127.0.0.1", self.port), handler)
+        self.server = HTTPServer(("0.0.0.0", self.port), handler)
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
         self.running = True
+        _all_servers.append(self)
         print(f"[Storyboard] HTTP server started on 127.0.0.1:{self.port}")
 
     def stop(self):
         """Stop HTTP server."""
         if self.server:
-            self.server.shutdown()
-            self.server.server_close()
+            try:
+                self.server.shutdown()
+                self.server.server_close()
+            except Exception:
+                pass
             self.running = False
             print("[Storyboard] HTTP server stopped")
 
@@ -93,14 +99,36 @@ class StoryboardHTTPServer:
                         self._send_json({"status": "error", "message": "not found"}, 404)
 
                 elif path.startswith("/shots/"):
-                    # Serve shot images
+                    # Serve shot images - support both old (id) and new (name_id) dir naming
                     rel_path = path.lstrip("/")
                     filepath = os.path.join(project_dir, rel_path)
-                    if path.endswith(".png"):
-                        self._send_file(filepath, "image/png")
-                    elif path.endswith(".jpg") or path.endswith(".jpeg"):
-                        self._send_file(filepath, "image/jpeg")
+                    if os.path.exists(filepath):
+                        if path.endswith(".png"):
+                            self._send_file(filepath, "image/png")
+                        elif path.endswith(".jpg") or path.endswith(".jpeg"):
+                            self._send_file(filepath, "image/jpeg")
+                        else:
+                            self.send_error(404)
                     else:
+                        # Try to find by shot_id in any directory
+                        parts = rel_path.split("/")
+                        if len(parts) >= 3:
+                            shot_id_or_name = parts[1]
+                            filename = parts[2]
+                            shots_dir = os.path.join(project_dir, "shots")
+                            if os.path.exists(shots_dir):
+                                for d in os.listdir(shots_dir):
+                                    # Match by id (old) or name_id (new)
+                                    if d == shot_id_or_name or d.endswith(f"_{shot_id_or_name}"):
+                                        filepath = os.path.join(shots_dir, d, filename)
+                                        if os.path.exists(filepath):
+                                            if filename.endswith(".png"):
+                                                self._send_file(filepath, "image/png")
+                                            elif filename.endswith(".jpg") or filename.endswith(".jpeg"):
+                                                self._send_file(filepath, "image/jpeg")
+                                            else:
+                                                self.send_error(404)
+                                            return
                         self.send_error(404)
 
                 elif path == "/" or path == "/index.html":
@@ -130,18 +158,33 @@ class StoryboardHTTPServer:
                     data = {}
 
                 if path == "/api/shots":
-                    # Create new shot
+                    # Create new shot - also create Blender scene via queue
                     name = data.get("name", f"SH{len(get_all_shots(db_path))+1:03d}")
-                    scene_name = data.get("scene_name", name)
+                    scene_name = data.get("scene_name", f"Shot_{name}")
                     shot_id = create_shot(db_path, name, scene_name,
                                           camera=data.get("camera", ""),
                                           duration=data.get("duration", 2.0),
                                           shot_type=data.get("type", "3d"))
+                    # Queue Blender scene creation
+                    try:
+                        import importlib
+                        queue_mod = importlib.import_module("core.queue")
+                        queue_mod.queue_command("create_shot_scene", {
+                            "shot_name": name,
+                            "scene_name": scene_name,
+                            "duration": data.get("duration", 2.0),
+                            "shot_type": data.get("type", "3d")
+                        })
+                        print(f"[Storyboard] Queued create_shot_scene for {name}")
+                    except Exception as e:
+                        print(f"[Storyboard] Queue error: {e}")
+                        import traceback
+                        traceback.print_exc()
                     self._send_json({"status": "ok", "id": shot_id})
 
                 elif path == "/api/sync":
                     # Queue sync command to Blender
-                    queue_command("sync_scenes", {})
+                    core.queue.queue_command("sync_scenes", {})
                     self._send_json({"status": "ok", "message": "sync queued"})
 
                 elif path == "/api/reorder":
@@ -158,7 +201,14 @@ class StoryboardHTTPServer:
                         self._send_json({"status": "ok"})
 
                     elif action == "delete":
+                        shot = get_shot(db_path, shot_id)
+                        if not shot:
+                            self._send_json({"status": "error", "message": "not found"}, 404)
+                            return
                         delete_shot(db_path, shot_id)
+                        core.queue.queue_command("delete_shot", {
+                            "scene_name": shot["scene_name"]
+                        })
                         self._send_json({"status": "ok"})
 
                     elif action == "open":
@@ -166,7 +216,7 @@ class StoryboardHTTPServer:
                         if not shot:
                             self._send_json({"status": "error", "message": "not found"}, 404)
                             return
-                        queue_command("open_shot", {"scene_name": shot["scene_name"]})
+                        core.queue.queue_command("open_shot", {"scene_name": shot["scene_name"]})
                         self._send_json({"status": "ok", "message": "queued"})
 
                     elif action == "rerender":
@@ -174,7 +224,7 @@ class StoryboardHTTPServer:
                         if not shot:
                             self._send_json({"status": "error", "message": "not found"}, 404)
                             return
-                        queue_command("rerender_shot", {
+                        core.queue.queue_command("rerender_shot", {
                             "scene_name": shot["scene_name"],
                             "shot_id": shot_id,
                             "project_dir": project_dir
@@ -187,7 +237,7 @@ class StoryboardHTTPServer:
                             self._send_json({"status": "error", "message": "not found"}, 404)
                             return
                         new_name = data.get("new_name", f"{shot['name']}_copy")
-                        queue_command("duplicate_shot", {
+                        core.queue.queue_command("duplicate_shot", {
                             "scene_name": shot["scene_name"],
                             "new_name": new_name,
                             "project_dir": project_dir
@@ -208,10 +258,15 @@ _server_instance = None
 
 
 def start_server(project_dir, port=8089):
-    """Start the global HTTP server instance."""
+    """Start the global HTTP server instance. Kills ALL previous instances first."""
     global _server_instance
-    if _server_instance and _server_instance.running:
-        _server_instance.stop()
+    # Kill every tracked instance, including zombies from hot reloads
+    for srv in list(_all_servers):
+        try:
+            srv.stop()
+        except Exception:
+            pass
+    _all_servers.clear()
     _server_instance = StoryboardHTTPServer(project_dir, port)
     _server_instance.start()
     return _server_instance
