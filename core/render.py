@@ -11,18 +11,63 @@ import bpy
 def render_shot_files(scene, shot_dir, thumb_width=320):
     """Render still.png and thumb.jpg for a scene into shot_dir.
 
-    Must be called from the Blender main thread (uses bpy.ops.render.render).
+    Uses viewport OpenGL render ("视图渲染图像") — WYSIWYG, what you see in
+    the viewport is what you get. Requires a valid 3D viewport context, so
+    must be called from the Blender main thread with a window.
 
     Returns dict with still_path and thumb_path.
     """
     os.makedirs(shot_dir, exist_ok=True)
 
-    # Render still
+    # Viewport OpenGL render (拍屏, "视图渲染图像") — matches what user sees
     still_path = os.path.join(shot_dir, "still.png")
     scene.render.image_settings.file_format = 'PNG'
     scene.render.filepath = still_path
-    scene.render.engine = 'BLENDER_WORKBENCH'
-    bpy.ops.render.render(write_still=True, scene=scene.name)
+
+    # opengl render needs a 3D viewport area. Force camera view so it renders
+    # the scene's camera angle, not whatever the viewport happens to show.
+    view3d_area = None
+    view3d_region = None
+    try:
+        for area in bpy.context.window.screen.areas:
+            if area.type == 'VIEW_3D':
+                view3d_area = area
+                for region in area.regions:
+                    if region.type == 'WINDOW':
+                        view3d_region = region
+                        break
+                break
+    except Exception:
+        pass
+
+    if view3d_area and view3d_region and scene.camera:
+        # Force camera view for render.opengl (it reads the real viewport).
+        # Setting region_3d.view_perspective directly works; view3d.view_camera()
+        # operator fails inside temp_override with poll error.
+        space = view3d_area.spaces.active
+        old_perspective = space.region_3d.view_perspective
+
+        space.region_3d.view_perspective = 'CAMERA'
+        view3d_area.tag_redraw()
+
+        with bpy.context.temp_override(
+            area=view3d_area,
+            region=view3d_region,
+            scene=scene,
+        ):
+            bpy.ops.render.opengl(write_still=True)
+
+        space.region_3d.view_perspective = old_perspective
+        view3d_area.tag_redraw()
+    elif view3d_area and view3d_region:
+        # No camera set, render perspective as-is
+        with bpy.context.temp_override(area=view3d_area, region=view3d_region, scene=scene):
+            bpy.ops.render.opengl(write_still=True)
+    else:
+        # No 3D viewport available (e.g. MCP thread, no window): fall back to
+        # standard workbench render so the call doesn't fail outright
+        scene.render.engine = 'BLENDER_WORKBENCH'
+        bpy.ops.render.render(write_still=True, scene=scene.name)
 
     # Generate thumbnail
     thumb_path = os.path.join(shot_dir, "thumb.jpg")

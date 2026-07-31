@@ -109,7 +109,11 @@ def cmd_open_shot(params):
 
 
 def cmd_rerender_shot(params):
-    """Re-render a shot (still + thumb)."""
+    """Re-render a shot (still + thumb) via viewport OpenGL (拍屏).
+
+    Switches the active scene to the target first so the viewport shows the
+    correct scene — opengl renders whatever the viewport is looking at.
+    """
     scene_name = params.get("scene_name")
     shot_id = params.get("shot_id")
     project_dir = params.get("project_dir")
@@ -131,8 +135,25 @@ def cmd_rerender_shot(params):
     shot = next((s for s in shots if s["id"] == shot_id), None)
     shot_name = shot["name"] if shot else shot_id
 
+    # Switch active scene to target so viewport OpenGL renders the right scene
+    prev_scene = None
+    try:
+        if bpy.context.window:
+            prev_scene = bpy.context.window.scene
+            bpy.context.window.scene = scene
+    except Exception:
+        pass
+
     shot_dir = os.path.join(project_dir, "shots", f"{shot_name}_{shot_id}")
-    paths = render_shot_files(scene, shot_dir)
+    try:
+        paths = render_shot_files(scene, shot_dir)
+    finally:
+        # Restore previous scene
+        try:
+            if prev_scene and bpy.context.window:
+                bpy.context.window.scene = prev_scene
+        except Exception:
+            pass
 
     update_shot(db_path, shot_id,
                 still_path=paths["still_path"],
@@ -141,7 +162,7 @@ def cmd_rerender_shot(params):
 
 
 def cmd_duplicate_shot(params):
-    """Duplicate a shot's scene."""
+    """Duplicate a shot's scene as a fully independent copy (not linked)."""
     scene_name = params.get("scene_name")
     new_name = params.get("new_name")
     project_dir = params.get("project_dir")
@@ -150,16 +171,43 @@ def cmd_duplicate_shot(params):
     if not scene:
         raise ValueError(f"Scene not found: {scene_name}")
 
-    # Duplicate scene - use Shot_{new_name} convention
-    new_scene = scene.copy()
-    new_scene.name = f"Shot_{new_name}" if new_name else f"{scene_name}_copy"
+    # Full copy: independent data, not linked duplicate.
+    # scene.copy() produces a linked duplicate (shares object data, shows red
+    # in outliner). We want a fully independent copy: duplicate the scene via
+    # bpy.ops.scene.new(type='FULL_COPY') equivalent done manually.
+    target_name = f"Shot_{new_name}" if new_name else f"{scene_name}_copy"
 
-    # Duplicate camera
-    if scene.camera:
-        new_cam = scene.camera.copy()
-        new_cam.data = scene.camera.data.copy()
-        new_scene.collection.objects.link(new_cam)
-        new_scene.camera = new_cam
+    # Save current active scene to restore later
+    prev_active = None
+    try:
+        prev_active = bpy.context.window.scene if bpy.context.window else None
+    except Exception:
+        pass
+
+    # Use operator for a true full copy (independent datablocks)
+    try:
+        if bpy.context.window:
+            bpy.context.window.scene = scene
+        bpy.ops.scene.new(type='FULL_COPY')
+        new_scene = bpy.context.window.scene if bpy.context.window else bpy.data.scenes[-1]
+        new_scene.name = target_name
+    except Exception:
+        # Fallback (no window context): scene.copy() linked dup — still better
+        # than nothing, but note it shares data
+        new_scene = scene.copy()
+        new_scene.name = target_name
+        if scene.camera:
+            new_cam = scene.camera.copy()
+            new_cam.data = scene.camera.data.copy()
+            new_scene.collection.objects.link(new_cam)
+            new_scene.camera = new_cam
+
+    # Restore previous active scene
+    try:
+        if prev_active and bpy.context.window:
+            bpy.context.window.scene = prev_active
+    except Exception:
+        pass
 
     # Create DB record
     import os
