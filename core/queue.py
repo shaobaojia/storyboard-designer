@@ -274,13 +274,14 @@ def cmd_sync_scenes(params):
 
     if init_mod and hasattr(init_mod, '_sync_scenes_with_db'):
         result = init_mod._sync_scenes_with_db()
-        # Compatible with both 2-tuple and 3-tuple returns
-        if len(result) == 3:
-            removed, orphans, deduped = result
-        else:
-            removed, orphans = result
-            deduped = 0
-        return {"removed": removed, "orphans": len(orphans), "deduped": deduped}
+        # Index-based extraction, compatible with any tuple size
+        removed = result[0] if len(result) > 0 else 0
+        orphans = result[1] if len(result) > 1 else []
+        deduped = result[2] if len(result) > 2 else 0
+        dirs_removed = result[3] if len(result) > 3 else 0
+        dirs_migrated = result[4] if len(result) > 4 else 0
+        return {"removed": removed, "orphans": len(orphans), "deduped": deduped,
+                "dirs_removed": dirs_removed, "dirs_migrated": dirs_migrated}
     else:
         # Fallback: do it inline
         from core.db import get_db_path, delete_shot, get_all_shots
