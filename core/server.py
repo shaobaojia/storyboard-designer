@@ -215,7 +215,10 @@ class StoryboardHTTPServer:
                             return
                         delete_shot(db_path, shot_id)
                         _queue("delete_shot", {
-                            "scene_name": shot["scene_name"]
+                            "scene_name": shot["scene_name"],
+                            "shot_name": shot["name"],
+                            "shot_id": shot_id,
+                            "project_dir": project_dir,
                         })
                         self._send_json({"status": "ok"})
 

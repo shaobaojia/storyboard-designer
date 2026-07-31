@@ -137,10 +137,10 @@
     </div>
 
     <div id="contextMenu" class="context-menu" style="display:none;">
-        <button onclick="menuAction('open')">Open Shot</button>
-        <button onclick="menuAction('rerender')">Re-render</button>
-        <button onclick="menuAction('duplicate')">Duplicate</button>
-        <button class="danger" onclick="menuAction('delete')">Delete</button>
+        <button onclick="menuAction(event, 'open')">Open Shot</button>
+        <button onclick="menuAction(event, 'rerender')">Re-render</button>
+        <button onclick="menuAction(event, 'duplicate')">Duplicate</button>
+        <button class="danger" onclick="menuAction(event, 'delete')">Delete</button>
     </div>
 
     <script>
@@ -279,23 +279,25 @@
 
         document.addEventListener('click', hideContextMenu);
 
-        async function menuAction(action) {
+        async function menuAction(e, action) {
+            if (e) e.stopPropagation();  // 阻止冒泡到 document 的 hideContextMenu
             if (!contextShotId) return;
+            const shotId = contextShotId;  // 先存局部变量再 hide
             hideContextMenu();
 
-            const shot = shots.find(s => s.id === contextShotId);
+            const shot = shots.find(s => s.id === shotId);
             if (!shot) return;
 
             switch(action) {
                 case 'open':
-                    await fetch(`/api/shot/${contextShotId}`, {
+                    await fetch(`/api/shot/${shotId}`, {
                         method: 'POST',
                         headers: {'Content-Type': 'application/json'},
                         body: JSON.stringify({action: 'open'})
                     });
                     break;
                 case 'rerender':
-                    await fetch(`/api/shot/${contextShotId}`, {
+                    await fetch(`/api/shot/${shotId}`, {
                         method: 'POST',
                         headers: {'Content-Type': 'application/json'},
                         body: JSON.stringify({action: 'rerender'})
@@ -306,7 +308,7 @@
                 case 'duplicate':
                     const newName = prompt('New shot name:', shot.name + '_copy');
                     if (newName) {
-                        await fetch(`/api/shot/${contextShotId}`, {
+                        await fetch(`/api/shot/${shotId}`, {
                             method: 'POST',
                             headers: {'Content-Type': 'application/json'},
                             body: JSON.stringify({action: 'duplicate', new_name: newName})
@@ -316,7 +318,7 @@
                     break;
                 case 'delete':
                     if (confirm(`Delete ${shot.name}? This will remove the scene and files.`)) {
-                        await fetch(`/api/shot/${contextShotId}`, {
+                        await fetch(`/api/shot/${shotId}`, {
                             method: 'POST',
                             headers: {'Content-Type': 'application/json'},
                             body: JSON.stringify({action: 'delete'})

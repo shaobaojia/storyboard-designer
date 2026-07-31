@@ -177,23 +177,32 @@ def cmd_duplicate_shot(params):
 
 
 def cmd_delete_shot(params):
-    """Delete a shot's scene. Safe: switches away first if it's the active scene."""
+    """Delete a shot's scene + shot directory. Safe: switches away first if active."""
     scene_name = params.get("scene_name")
+    shot_name = params.get("shot_name")
+    shot_id = params.get("shot_id")
+    project_dir = params.get("project_dir")
 
     scene = bpy.data.scenes.get(scene_name)
-    if not scene:
-        return {"deleted": None, "reason": "already gone"}
+    if scene:
+        # If deleting the active scene, switch to another first
+        try:
+            if bpy.context.window and bpy.context.window.scene == scene:
+                fallback = next((s for s in bpy.data.scenes if s != scene), None)
+                if fallback:
+                    bpy.context.window.scene = fallback
+        except Exception:
+            pass  # No window context (timer/headless) - proceed anyway
+        bpy.data.scenes.remove(scene, do_unlink=True)
 
-    # If deleting the active scene, switch to another first
-    try:
-        if bpy.context.window and bpy.context.window.scene == scene:
-            fallback = next((s for s in bpy.data.scenes if s != scene), None)
-            if fallback:
-                bpy.context.window.scene = fallback
-    except Exception:
-        pass  # No window context (timer/headless) - proceed anyway
+    # Clean up shot directory (new + legacy formats)
+    if project_dir and shot_id:
+        import os, shutil
+        for cand in ([f"{shot_name}_{shot_id}", shot_id] if shot_name else [shot_id]):
+            shot_dir = os.path.join(project_dir, "shots", cand)
+            if os.path.exists(shot_dir):
+                shutil.rmtree(shot_dir)
 
-    bpy.data.scenes.remove(scene, do_unlink=True)
     return {"deleted": scene_name}
 
 
