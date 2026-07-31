@@ -6,18 +6,24 @@
     <title>Storyboard Grid</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
+        :root { --card-min: 200px; }
         body {
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
             background: #1a1a1a;
             color: #e0e0e0;
             padding: 16px;
+            padding-bottom: 80px;
         }
         .header {
+            position: sticky;
+            top: 0;
+            z-index: 700;
+            background: #1a1a1a;
             display: flex;
             justify-content: space-between;
             align-items: center;
             margin-bottom: 16px;
-            padding-bottom: 12px;
+            padding: 10px 0 12px;
             border-bottom: 1px solid #333;
         }
         .header h1 { font-size: 18px; font-weight: 600; }
@@ -32,22 +38,30 @@
             font-size: 13px;
         }
         .header .actions button:hover { background: #444; }
+        .header .actions button.active-view { background: #4a9eff; color: #fff; }
         .grid {
             display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            grid-template-columns: repeat(auto-fill, minmax(var(--card-min), 1fr));
             gap: 12px;
+        }
+        .grid.list-mode {
+            display: block;
         }
         .shot-card {
             background: #252525;
             border-radius: 8px;
             overflow: hidden;
             cursor: grab;
-            transition: transform 0.15s, box-shadow 0.15s;
+            transition: transform 0.28s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.15s;
             position: relative;
+            border: 2px solid transparent;
         }
         .shot-card:hover {
-            transform: translateY(-2px);
             box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+        }
+        .shot-card.selected {
+            border-color: #4a9eff;
+            box-shadow: 0 0 0 2px rgba(74,158,255,0.3);
         }
         .shot-card.dragging {
             opacity: 0.5;
@@ -70,23 +84,59 @@
             font-size: 13px;
             font-weight: 600;
             margin-bottom: 2px;
+            cursor: text;
+            user-select: none;
+        }
+        .shot-name-input {
+            font-size: 13px;
+            font-weight: 600;
+            margin-bottom: 2px;
+            width: 100%;
+            background: #111;
+            color: #e0e0e0;
+            border: 1px solid #4a9eff;
+            border-radius: 3px;
+            padding: 1px 4px;
+            outline: none;
         }
         .shot-meta {
             font-size: 11px;
             color: #888;
+        }
+
+        /* 列表视图 */
+        .shot-card.list-item {
             display: flex;
-            justify-content: space-between;
+            align-items: center;
+            height: 64px;
+            margin-bottom: 6px;
+            border-radius: 6px;
         }
-        .shot-type {
-            display: inline-block;
-            padding: 1px 5px;
-            border-radius: 3px;
-            font-size: 10px;
-            text-transform: uppercase;
+        .shot-card.list-item .shot-thumb {
+            width: 100px;
+            height: 60px;
+            aspect-ratio: auto;
+            flex-shrink: 0;
+            border-radius: 4px;
+            margin-left: 4px;
         }
-        .shot-type.3d { background: #2d5a2d; }
-        .shot-type.2d { background: #5a4a2d; }
-        .shot-type.mixed { background: #4a2d5a; }
+        .shot-card.list-item .shot-info {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            gap: 18px;
+            padding: 8px 14px;
+        }
+        .shot-card.list-item .shot-name { min-width: 120px; margin-bottom: 0; }
+        .shot-card.list-item .shot-name-input { width: 160px; margin-bottom: 0; }
+        .shot-card.list-item .shot-meta { white-space: nowrap; }
+        .shot-card.list-item .shot-updated {
+            font-size: 11px;
+            color: #666;
+            margin-left: auto;
+            white-space: nowrap;
+        }
+
         .empty-state {
             text-align: center;
             padding: 60px 20px;
@@ -99,7 +149,7 @@
             border: 1px solid #444;
             border-radius: 6px;
             padding: 4px 0;
-            min-width: 140px;
+            min-width: 150px;
             z-index: 1000;
             box-shadow: 0 4px 16px rgba(0,0,0,0.5);
         }
@@ -117,15 +167,167 @@
         .context-menu button:hover { background: #3a3a3a; }
         .context-menu button.danger { color: #ff6b6b; }
         .context-menu button.danger:hover { background: #4a2a2a; }
+        .context-menu .menu-title {
+            padding: 6px 14px;
+            font-size: 11px;
+            color: #888;
+            border-bottom: 1px solid #3a3a3a;
+            margin-bottom: 2px;
+        }
+
+        /* 左下角缩略图滑块 */
+        .size-slider {
+            position: fixed;
+            left: 16px;
+            bottom: 16px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            background: #252525;
+            border: 1px solid #3a3a3a;
+            border-radius: 6px;
+            padding: 8px 12px;
+            z-index: 900;
+        }
+        .size-slider input[type="range"] {
+            width: 140px;
+            accent-color: #4a9eff;
+            cursor: pointer;
+        }
+        .size-slider .slider-label { font-size: 11px; color: #888; }
+
+        /* 创建镜头对话框 */
+        .modal-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.6);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1100;
+        }
+        .modal {
+            background: #252525;
+            border: 1px solid #444;
+            border-radius: 8px;
+            padding: 20px;
+            width: 300px;
+        }
+        .modal h2 { font-size: 15px; margin-bottom: 14px; }
+        .modal .field { margin-bottom: 12px; }
+        .modal label { display: block; font-size: 12px; color: #888; margin-bottom: 4px; }
+        .modal input {
+            width: 100%;
+            background: #111;
+            border: 1px solid #3a3a3a;
+            border-radius: 4px;
+            color: #e0e0e0;
+            padding: 6px 8px;
+            font-size: 13px;
+            outline: none;
+        }
+        .modal input:focus { border-color: #4a9eff; }
+        .modal .modal-actions {
+            display: flex;
+            justify-content: flex-end;
+            gap: 8px;
+            margin-top: 16px;
+        }
+        .modal .modal-actions button {
+            padding: 6px 14px;
+            border-radius: 4px;
+            border: none;
+            cursor: pointer;
+            font-size: 13px;
+        }
+        .modal .btn-primary { background: #4a9eff; color: #fff; }
+        .modal .btn-primary:hover { background: #3a8eef; }
+        .modal .btn-cancel { background: #333; color: #e0e0e0; }
+        .modal .btn-cancel:hover { background: #444; }
+
+        /* 框选选框 */
+        .marquee-box {
+            position: fixed;
+            border: 1px solid #4a9eff;
+            background: rgba(74,158,255,0.12);
+            z-index: 800;
+            pointer-events: none;
+            display: none;
+        }
+
+        /* 拖图高亮遮罩 */
+        .drop-overlay {
+            position: fixed;
+            inset: 0;
+            border: 3px dashed #4a9eff;
+            background: rgba(74,158,255,0.08);
+            z-index: 1050;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            pointer-events: none;
+        }
+        .drop-overlay .drop-text {
+            font-size: 20px;
+            color: #4a9eff;
+            background: rgba(26,26,26,0.85);
+            padding: 16px 28px;
+            border-radius: 8px;
+        }
+
+        /* 删除确认条 */
+        .confirm-bar {
+            position: fixed;
+            left: 50%;
+            bottom: 20px;
+            transform: translateX(-50%);
+            background: #2a2a2a;
+            border: 1px solid #555;
+            border-radius: 8px;
+            padding: 10px 16px;
+            display: none;
+            align-items: center;
+            gap: 12px;
+            z-index: 1200;
+            box-shadow: 0 6px 20px rgba(0,0,0,0.6);
+            font-size: 13px;
+        }
+        .confirm-bar button {
+            padding: 5px 14px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 13px;
+        }
+        .confirm-bar .btn-danger { background: #c0392b; color: #fff; }
+        .confirm-bar .btn-danger:hover { background: #a93226; }
+        .confirm-bar .btn-cancel { background: #333; color: #e0e0e0; }
+
+        /* 轻提示 */
+        .toast {
+            position: fixed;
+            right: 16px;
+            bottom: 16px;
+            background: #333;
+            border: 1px solid #555;
+            border-radius: 6px;
+            padding: 10px 14px;
+            font-size: 13px;
+            z-index: 1300;
+            display: none;
+            max-width: 320px;
+        }
+        .toast.error { border-color: #c0392b; color: #ff9b9b; }
     </style>
 </head>
 <body>
     <div class="header">
-        <h1>Storyboard Grid</h1>
+        <h1 id="pageTitle">Storyboard Grid</h1>
         <div class="actions">
-            <button onclick="createShot()">Create Shot</button>
+            <button onclick="toggleView()" id="viewToggle">列表视图</button>
+            <button onclick="openCreateModal()">Create Shot</button>
             <button onclick="syncScenes()">Sync DB</button>
-            <button onclick="refresh()">Refresh</button>
+            <button onclick="forceRefresh()">Refresh</button>
             <button onclick="openTimeline()">Timeline</button>
         </div>
     </div>
@@ -136,21 +338,64 @@
         </div>
     </div>
 
-    <div id="contextMenu" class="context-menu" style="display:none;">
-        <button onclick="menuAction(event, 'open')">Open Shot</button>
-        <button onclick="menuAction(event, 'rerender')">Re-render</button>
-        <button onclick="menuAction(event, 'duplicate')">Duplicate</button>
-        <button class="danger" onclick="menuAction(event, 'delete')">Delete</button>
+    <div id="contextMenu" class="context-menu" style="display:none;"></div>
+
+    <div class="size-slider">
+        <span class="slider-label">缩略图</span>
+        <input type="range" id="sizeSlider" min="120" max="480" step="10" value="200">
+        <span class="slider-label" id="sizeValue">200px</span>
     </div>
 
+    <div id="createModal" class="modal-overlay" style="display:none;">
+        <div class="modal">
+            <h2>创建镜头</h2>
+            <div class="field">
+                <label>镜头名</label>
+                <input type="text" id="createName">
+            </div>
+            <div class="field">
+                <label>时长（秒）</label>
+                <input type="number" id="createDuration" value="2.0" step="0.1" min="0.1">
+            </div>
+            <div class="modal-actions">
+                <button class="btn-cancel" onclick="closeCreateModal()">取消</button>
+                <button class="btn-primary" onclick="submitCreate()">创建</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="marqueeBox" class="marquee-box"></div>
+
+    <div id="dropOverlay" class="drop-overlay">
+        <div class="drop-text">松开：空白处=新建镜头 · 卡片上=设为该镜头背景</div>
+    </div>
+
+    <div id="confirmBar" class="confirm-bar">
+        <span id="confirmText"></span>
+        <button class="btn-danger" id="confirmYes">删除</button>
+        <button class="btn-cancel" id="confirmNo">取消</button>
+    </div>
+
+    <div id="toast" class="toast"></div>
+
     <script>
+        // ================= 状态 =================
         let shots = [];
+        let selectedIds = new Set();
         let dragSrcEl = null;
         let contextShotId = null;
+        let editingId = null;
+        let marqueeActive = false;
+        let panning = false;
+        let lastVersion = null;
+        let viewMode = localStorage.getItem('sb-view') || 'grid';  // 'grid' | 'list'
 
-        async function fetchShots() {
+        const grid = document.getElementById('grid');
+
+        // ================= 数据 =================
+        async function fetchShots(force) {
             try {
-                const res = await fetch('/api/shots');
+                const res = await fetch('/api/shots', force ? {cache: 'no-store'} : {});
                 const data = await res.json();
                 if (data.status === 'ok') {
                     shots = data.shots;
@@ -158,46 +403,216 @@
                 }
             } catch (e) {
                 console.error('Failed to fetch shots:', e);
-                document.getElementById('grid').innerHTML =
-                    '<div class="empty-state"><p>Failed to load shots. Is the server running?</p></div>';
+                if (!shots.length) {
+                    grid.innerHTML = '<div class="empty-state"><p>Failed to load shots. Is the server running?</p></div>';
+                }
             }
         }
 
+        function forceRefresh() {
+            lastVersion = null;
+            fetchShots(true);
+        }
+
+        async function heartbeat() {
+            if (editingId || marqueeActive || panning || dragSrcEl) return;
+            try {
+                const res = await fetch('/api/version');
+                const data = await res.json();
+                if (data.status === 'ok') {
+                    if (lastVersion === null) {
+                        lastVersion = data.version;
+                    } else if (data.version !== lastVersion) {
+                        lastVersion = data.version;
+                        fetchShots();
+                    }
+                }
+            } catch (e) { /* server down, keep quiet */ }
+        }
+        setInterval(heartbeat, 1500);
+
+        async function loadProjectTitle() {
+            try {
+                const res = await fetch('/api/project');
+                const data = await res.json();
+                if (data.status === 'ok' && data.name) {
+                    document.title = data.name;
+                    const h1 = document.getElementById('pageTitle');
+                    if (h1) h1.innerText = data.name;
+                }
+            } catch (e) { /* keep default */ }
+        }
+
+        // ================= 渲染 =================
+        function thumbHtml(shot, cls) {
+            return shot.thumb_path
+                ? `<img class="${cls}" src="/shots/${shot.name}_${shot.id}/thumb.jpg?v=${encodeURIComponent(shot.updated_at || '')}" loading="lazy" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%22320%22 height=%22180%22><rect fill=%22%23333%22 width=%22320%22 height=%22180%22/><text fill=%22%23666%22 x=%2250%25%22 y=%2250%25%22 text-anchor=%22middle%22>No image</text></svg>'">`
+                : `<div class="${cls}" style="display:flex;align-items:center;justify-content:center;color:#666;">No render</div>`;
+        }
+
         function renderGrid() {
-            const grid = document.getElementById('grid');
+            const oldRects = captureRects();
+            grid.className = viewMode === 'list' ? 'grid list-mode' : 'grid';
+
             if (shots.length === 0) {
                 grid.innerHTML = '<div class="empty-state"><p>No shots yet. Create one in Blender.</p></div>';
                 return;
             }
 
-            grid.innerHTML = shots.map(shot => `
-                <div class="shot-card" draggable="true" data-id="${shot.id}"
-                     ondragstart="dragStart(event)" ondragover="dragOver(event)"
-                     ondragleave="dragLeave(event)" ondrop="drop(event)"
-                     ondragend="dragEnd(event)" oncontextmenu="showContextMenu(event, '${shot.id}')">
-                    ${shot.thumb_path
-                        ? `<img class="shot-thumb" src="/shots/${shot.name}_${shot.id}/thumb.jpg" loading="lazy" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%22320%22 height=%22180%22><rect fill=%22%23333%22 width=%22320%22 height=%22180%22/><text fill=%22%23666%22 x=%2250%25%22 y=%2250%25%22 text-anchor=%22middle%22>No image</text></svg>'">`
-                        : `<div class="shot-thumb" style="display:flex;align-items:center;justify-content:center;color:#666;">No render</div>`
-                    }
+            grid.innerHTML = shots.map(shot => {
+                const sel = selectedIds.has(shot.id) ? 'selected' : '';
+                if (viewMode === 'list') {
+                    const updated = (shot.updated_at || '').replace('T', ' ').slice(5, 16);
+                    return `
+                <div class="shot-card list-item ${sel}" draggable="true" data-id="${shot.id}">
+                    ${thumbHtml(shot, 'shot-thumb')}
                     <div class="shot-info">
-                        <div class="shot-name">${shot.name}</div>
-                        <div class="shot-meta">
-                            <span>${shot.duration.toFixed(1)}s</span>
-                            <span class="shot-type ${shot.type}">${shot.type}</span>
-                        </div>
+                        <div class="shot-name" ondblclick="startRename(event, '${shot.id}')">${shot.name}</div>
+                        <div class="shot-meta">${shot.duration.toFixed(1)}s</div>
+                        <div class="shot-updated">${updated}</div>
                     </div>
-                </div>
-            `).join('');
+                </div>`;
+                }
+                return `
+                <div class="shot-card ${sel}" draggable="true" data-id="${shot.id}">
+                    ${thumbHtml(shot, 'shot-thumb')}
+                    <div class="shot-info">
+                        <div class="shot-name" ondblclick="startRename(event, '${shot.id}')">${shot.name}</div>
+                        <div class="shot-meta">${shot.duration.toFixed(1)}s</div>
+                    </div>
+                </div>`;
+            }).join('');
+
+            animateFrom(oldRects);
         }
 
-        // Drag and drop
-        function dragStart(e) {
-            dragSrcEl = e.target.closest('.shot-card');
+        // FLIP 动效：记录旧位置 → 渲染后 invert → 播放到新位置
+        function captureRects() {
+            const map = new Map();
+            document.querySelectorAll('.shot-card').forEach(c => {
+                map.set(c.dataset.id, c.getBoundingClientRect());
+            });
+            return map;
+        }
+
+        function animateFrom(oldRects) {
+            if (!oldRects || !oldRects.size) return;
+            document.querySelectorAll('.shot-card').forEach(c => {
+                const old = oldRects.get(c.dataset.id);
+                if (!old) return;
+                const now = c.getBoundingClientRect();
+                const dx = old.left - now.left;
+                const dy = old.top - now.top;
+                if (!dx && !dy) return;
+                c.style.transition = 'none';
+                c.style.transform = `translate(${dx}px, ${dy}px)`;
+                requestAnimationFrame(() => {
+                    c.style.transition = '';
+                    c.style.transform = '';
+                });
+            });
+        }
+
+        // ================= 视图切换 =================
+        function toggleView() {
+            viewMode = viewMode === 'grid' ? 'list' : 'grid';
+            localStorage.setItem('sb-view', viewMode);
+            document.getElementById('viewToggle').textContent = viewMode === 'grid' ? '列表视图' : '宫格视图';
+            document.getElementById('viewToggle').classList.toggle('active-view', viewMode === 'list');
+            renderGrid();
+        }
+        document.getElementById('viewToggle').textContent = viewMode === 'grid' ? '列表视图' : '宫格视图';
+        document.getElementById('viewToggle').classList.toggle('active-view', viewMode === 'list');
+
+        // ================= 选择 =================
+        function cardClick(e, shotId) {
+            if (e.ctrlKey || e.metaKey) {
+                selectedIds.has(shotId) ? selectedIds.delete(shotId) : selectedIds.add(shotId);
+            } else {
+                selectedIds.clear();
+                selectedIds.add(shotId);
+            }
+            updateSelectionUI();
+        }
+
+        function updateSelectionUI() {
+            document.querySelectorAll('.shot-card').forEach(c => {
+                c.classList.toggle('selected', selectedIds.has(c.dataset.id));
+            });
+        }
+
+        function clearSelection() {
+            selectedIds.clear();
+            updateSelectionUI();
+        }
+
+        // ================= 键盘快捷键 =================
+        document.addEventListener('keydown', async (e) => {
+            if (editingId) return;
+            if (document.getElementById('createModal').style.display === 'flex') return;
+
+            if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') {
+                e.preventDefault();
+                selectedIds = new Set(shots.map(s => s.id));
+                updateSelectionUI();
+            } else if (e.key === 'Delete' && selectedIds.size > 0) {
+                e.preventDefault();
+                await deleteSelection();
+            } else if (e.key === 'Enter' && selectedIds.size === 1) {
+                e.preventDefault();
+                const id = [...selectedIds][0];
+                openShot(id);
+            }
+        });
+
+        async function deleteSelection() {
+            const ids = [...selectedIds];
+            if (ids.length === 1) {
+                const shot = shots.find(s => s.id === ids[0]);
+                if (shot && await askConfirm(`删除 ${shot.name}？场景和文件都会移除。`)) {
+                    await postShotAction(ids[0], {action: 'delete'});
+                    selectedIds.delete(ids[0]);
+                    fetchShots();
+                }
+            } else {
+                if (await askConfirm(`批量删除 ${ids.length} 个镜头？场景和文件都会移除。`)) {
+                    await postBatch('delete', ids);
+                    clearSelection();
+                    fetchShots();
+                }
+            }
+        }
+
+        // ================= 卡片交互（事件委托） =================
+        grid.addEventListener('click', (e) => {
+            const card = e.target.closest('.shot-card');
+            if (card) cardClick(e, card.dataset.id);
+        });
+
+        grid.addEventListener('dblclick', (e) => {
+            // 双击名字 = 改名（名字自己的处理器管），双击卡片其他区域 = 打开镜头
+            if (e.target.closest('.shot-name') || e.target.closest('.shot-name-input')) return;
+            const card = e.target.closest('.shot-card');
+            if (card) openShot(card.dataset.id);
+        });
+
+        function openShot(shotId) {
+            postShotAction(shotId, {action: 'open'});
+            toast('已切换到该镜头');
+        }
+
+        // ================= 拖拽排序（支持整组移动） =================
+        grid.addEventListener('dragstart', (e) => {
+            const card = e.target.closest('.shot-card');
+            if (!card || editingId) return;
+            dragSrcEl = card;
+            e.dataTransfer.setData('text/x-shot-id', card.dataset.id);  // 标记内部拖拽，区别于外部文件
             e.dataTransfer.effectAllowed = 'move';
-            dragSrcEl.classList.add('dragging');
-        }
+            card.classList.add('dragging');
+        });
 
-        function dragOver(e) {
+        grid.addEventListener('dragover', (e) => {
+            if (isFileDrag(e)) return;  // 文件拖拽交给 drop 逻辑
             e.preventDefault();
             e.stopPropagation();
             e.dataTransfer.dropEffect = 'move';
@@ -206,70 +621,160 @@
                 card.classList.add('drag-over');
             }
             return false;
-        }
+        });
 
-        function dragLeave(e) {
+        grid.addEventListener('dragleave', (e) => {
             const card = e.target.closest('.shot-card');
             if (card) card.classList.remove('drag-over');
-        }
+        });
 
-        function drop(e) {
+        grid.addEventListener('drop', (e) => {
+            if (isFileDrag(e)) return;  // 文件落点由 document 的 drop 统一处理
             e.preventDefault();
             e.stopPropagation();
             const card = e.target.closest('.shot-card');
-            if (card && card !== dragSrcEl) {
+            if (card && dragSrcEl && card !== dragSrcEl) {
                 card.classList.remove('drag-over');
-                const srcId = dragSrcEl.dataset.id;
-                const dstId = card.dataset.id;
-                reorderShots(srcId, dstId);
+                reorderShots(dragSrcEl.dataset.id, card.dataset.id);
             }
             return false;
-        }
+        });
 
-        function dragEnd(e) {
-            if (dragSrcEl) {
-                dragSrcEl.classList.remove('dragging');
-            }
+        grid.addEventListener('dragend', (e) => {
+            if (dragSrcEl) dragSrcEl.classList.remove('dragging');
             document.querySelectorAll('.shot-card').forEach(c => {
                 c.classList.remove('dragging', 'drag-over');
             });
             dragSrcEl = null;
-        }
+        });
 
         async function reorderShots(srcId, dstId) {
             const srcIdx = shots.findIndex(s => s.id === srcId);
             const dstIdx = shots.findIndex(s => s.id === dstId);
             if (srcIdx === -1 || dstIdx === -1) return;
 
-            // Swap in local array
-            const [moved] = shots.splice(srcIdx, 1);
-            shots.splice(dstIdx, 0, moved);
+            let movingIds;
+            if (selectedIds.has(srcId) && selectedIds.size > 1) {
+                movingIds = shots.filter(s => selectedIds.has(s.id)).map(s => s.id);
+            } else {
+                movingIds = [srcId];
+            }
 
-            // Update seq numbers
-            const shotIds = shots.map(s => s.id);
+            const moving = shots.filter(s => movingIds.includes(s.id));
+            const rest = shots.filter(s => !movingIds.includes(s.id));
+            const insertIdx = rest.findIndex(s => s.id === dstId);
+            const at = insertIdx === -1 ? rest.length : (dstIdx > srcIdx ? insertIdx + 1 : insertIdx);
+            rest.splice(at, 0, ...moving);
+            shots = rest;
 
-            // Send to server
             try {
                 await fetch('/api/reorder', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({shot_ids: shotIds})
+                    body: JSON.stringify({shot_ids: shots.map(s => s.id)})
                 });
             } catch (e) {
                 console.error('Reorder failed:', e);
             }
-
-            renderGrid();
+            renderGrid();  // FLIP 动效在 renderGrid 内部处理
         }
 
-        // Context menu
-        function showContextMenu(e, shotId) {
-            e.preventDefault();
+        // ================= 右键语义（重做）：原地松开=菜单，拖动=惯性滑动 =================
+        let rDown = null;
+
+        document.addEventListener('mousedown', (e) => {
+            if (e.button !== 2) return;
+            if (e.target.closest('.context-menu') || e.target.closest('.modal-overlay') ||
+                e.target.closest('.confirm-bar')) return;
+            rDown = {
+                startX: e.clientX, startY: e.clientY,
+                lastX: e.clientX, lastY: e.clientY,
+                panning: false,
+                card: e.target.closest('.shot-card'),
+                samples: [{t: performance.now(), x: e.clientX, y: e.clientY}]
+            };
+        });
+
+        document.addEventListener('mousemove', (e) => {
+            if (!rDown) return;
+            const totalDx = e.clientX - rDown.startX;
+            const totalDy = e.clientY - rDown.startY;
+            if (!rDown.panning && Math.hypot(totalDx, totalDy) > 6) {
+                rDown.panning = true;
+                panning = true;
+            }
+            if (rDown.panning) {
+                window.scrollBy(rDown.lastX - e.clientX, rDown.lastY - e.clientY);
+                rDown.samples.push({t: performance.now(), x: e.clientX, y: e.clientY});
+                if (rDown.samples.length > 8) rDown.samples.shift();
+            }
+            rDown.lastX = e.clientX;
+            rDown.lastY = e.clientY;
+        });
+
+        document.addEventListener('mouseup', (e) => {
+            if (e.button !== 2 || !rDown) return;
+            const state = rDown;
+            rDown = null;
+            panning = false;
+
+            if (state.panning) {
+                // 惯性滑行
+                const first = state.samples[0];
+                const last = state.samples[state.samples.length - 1];
+                const dt = last.t - first.t;
+                if (dt > 0 && state.samples.length > 1) {
+                    let vx = -(last.x - first.x) / dt * 16;
+                    let vy = -(last.y - first.y) / dt * 16;
+                    const glide = () => {
+                        if (Math.abs(vy) < 0.5 && Math.abs(vx) < 0.5) return;
+                        window.scrollBy(vx, vy);
+                        vy *= 0.94;
+                        vx *= 0.94;
+                        requestAnimationFrame(glide);
+                    };
+                    requestAnimationFrame(glide);
+                }
+            } else if (state.card) {
+                // 原地松开在卡片上 = 弹镜头菜单
+                showContextMenu(e.clientX, e.clientY, state.card.dataset.id);
+            }
+        });
+
+        // 浏览器默认右键菜单全局抑制（镜头菜单由上面的 mouseup 逻辑触发）
+        document.addEventListener('contextmenu', (e) => e.preventDefault());
+
+        // ================= 右键菜单 =================
+        function showContextMenu(x, y, shotId) {
+            if (!selectedIds.has(shotId)) {
+                selectedIds.clear();
+                selectedIds.add(shotId);
+                updateSelectionUI();
+            }
             contextShotId = shotId;
+
             const menu = document.getElementById('contextMenu');
+            if (selectedIds.size > 1) {
+                menu.innerHTML = `
+                    <div class="menu-title">已选 ${selectedIds.size} 个镜头</div>
+                    <button onclick="menuAction(event, 'batch-duplicate')">批量复制</button>
+                    <button onclick="menuAction(event, 'batch-rerender')">批量重渲染</button>
+                    <button onclick="menuAction(event, 'batch-rename')">批量重命名</button>
+                    <button class="danger" onclick="menuAction(event, 'batch-delete')">批量删除</button>
+                `;
+            } else {
+                menu.innerHTML = `
+                    <button onclick="menuAction(event, 'open')">Open Shot</button>
+                    <button onclick="menuAction(event, 'rerender')">Re-render</button>
+                    <button onclick="menuAction(event, 'rename')">Rename</button>
+                    <button onclick="menuAction(event, 'duplicate')">Duplicate</button>
+                    <button class="danger" onclick="menuAction(event, 'delete')">Delete</button>
+                `;
+            }
             menu.style.display = 'block';
-            menu.style.left = e.pageX + 'px';
-            menu.style.top = e.pageY + 'px';
+            const mw = 170, mh = menu.offsetHeight || 180;
+            menu.style.left = Math.min(x, window.innerWidth - mw - 8) + 'px';
+            menu.style.top = Math.min(y, window.innerHeight - mh - 8) + 'px';
         }
 
         function hideContextMenu() {
@@ -280,87 +785,398 @@
         document.addEventListener('click', hideContextMenu);
 
         async function menuAction(e, action) {
-            if (e) e.stopPropagation();  // 阻止冒泡到 document 的 hideContextMenu
+            if (e) e.stopPropagation();
             if (!contextShotId) return;
-            const shotId = contextShotId;  // 先存局部变量再 hide
+            const shotId = contextShotId;
+            const batchIds = [...selectedIds];
             hideContextMenu();
 
             const shot = shots.find(s => s.id === shotId);
-            if (!shot) return;
 
             switch(action) {
                 case 'open':
-                    await fetch(`/api/shot/${shotId}`, {
-                        method: 'POST',
-                        headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify({action: 'open'})
-                    });
+                    openShot(shotId);
                     break;
                 case 'rerender':
-                    await fetch(`/api/shot/${shotId}`, {
-                        method: 'POST',
-                        headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify({action: 'rerender'})
-                    });
-                    // Refresh after delay to show new thumbnail
-                    setTimeout(fetchShots, 2000);
+                    await postShotAction(shotId, {action: 'rerender'});
+                    toast('已排队重渲染');
+                    break;
+                case 'rename':
+                    startRename(null, shotId);
                     break;
                 case 'duplicate':
-                    const newName = prompt('New shot name:', shot.name + '_copy');
-                    if (newName) {
-                        await fetch(`/api/shot/${shotId}`, {
-                            method: 'POST',
-                            headers: {'Content-Type': 'application/json'},
-                            body: JSON.stringify({action: 'duplicate', new_name: newName})
-                        });
-                        setTimeout(fetchShots, 1000);
-                    }
+                    await postShotAction(shotId, {action: 'duplicate'});
+                    toast('已排队复制');
                     break;
                 case 'delete':
-                    if (confirm(`Delete ${shot.name}? This will remove the scene and files.`)) {
-                        await fetch(`/api/shot/${shotId}`, {
-                            method: 'POST',
-                            headers: {'Content-Type': 'application/json'},
-                            body: JSON.stringify({action: 'delete'})
-                        });
+                    if (shot && await askConfirm(`删除 ${shot.name}？场景和文件都会移除。`)) {
+                        await postShotAction(shotId, {action: 'delete'});
+                        selectedIds.delete(shotId);
+                        fetchShots();
+                    }
+                    break;
+                case 'batch-duplicate':
+                    await postBatch('duplicate', batchIds);
+                    toast(`已排队复制 ${batchIds.length} 个镜头`);
+                    break;
+                case 'batch-rerender':
+                    await postBatch('rerender', batchIds);
+                    toast(`已排队重渲染 ${batchIds.length} 个镜头`);
+                    break;
+                case 'batch-rename':
+                    await postBatch('rename_seq', batchIds);
+                    toast(`已排队重命名 ${batchIds.length} 个镜头（c 系递增）`);
+                    setTimeout(fetchShots, 1500);
+                    break;
+                case 'batch-delete':
+                    if (await askConfirm(`批量删除 ${batchIds.length} 个镜头？场景和文件都会移除。`)) {
+                        await postBatch('delete', batchIds);
+                        clearSelection();
                         fetchShots();
                     }
                     break;
             }
         }
 
-        function refresh() { fetchShots(); }
-        function openTimeline() { alert('Timeline view - Phase 2'); }
+        async function postShotAction(shotId, body) {
+            try {
+                await fetch(`/api/shot/${shotId}`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(body)
+                });
+            } catch (e) { console.error(e); }
+        }
 
-        async function createShot() {
-            const name = prompt('Shot name:', `SH${String(shots.length + 1).padStart(3, '0')}`);
-            if (!name) return;
-            const duration = parseFloat(prompt('Duration (seconds):', '2.0')) || 2.0;
-            const type = prompt('Type (3d/2d/mixed):', '3d') || '3d';
+        async function postBatch(action, ids) {
+            try {
+                await fetch('/api/batch', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({action, shot_ids: ids})
+                });
+            } catch (e) { console.error(e); }
+        }
 
-            await fetch('/api/shots', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({
-                    name: name,
-                    scene_name: `Shot_${name}`,
-                    duration: duration,
-                    type: type
-                })
+        // ================= 资源管理器式改名 =================
+        function startRename(e, shotId) {
+            if (e) {
+                e.preventDefault();
+                e.stopPropagation();
+            }
+            if (editingId) return;
+            const shot = shots.find(s => s.id === shotId);
+            if (!shot) return;
+            const card = document.querySelector(`.shot-card[data-id="${shotId}"]`);
+            if (!card) return;
+            const nameEl = card.querySelector('.shot-name');
+            if (!nameEl) return;
+
+            editingId = shotId;
+            card.draggable = false;  // 编辑态禁止卡片拖拽（拖选文字不拖卡）
+            const input = document.createElement('input');
+            input.className = 'shot-name-input';
+            input.value = shot.name;
+            input.draggable = false;
+            // 输入框内的事件一律不冒泡：拖选文字不触发卡片拖拽/框选
+            ['mousedown', 'mousemove', 'mouseup', 'dragstart', 'selectstart', 'click', 'dblclick'].forEach(t => {
+                input.addEventListener(t, (ev) => ev.stopPropagation());
             });
+            nameEl.replaceWith(input);
+            input.focus();
+            input.select();
+
+            let done = false;
+            const finish = (commit) => {
+                if (done) return;
+                done = true;
+                const newName = input.value.trim();
+                editingId = null;
+                card.draggable = true;
+                if (commit && newName && newName !== shot.name) {
+                    commitRename(shotId, newName);
+                } else {
+                    renderGrid();
+                }
+            };
+            input.addEventListener('keydown', (ev) => {
+                if (ev.key === 'Enter') finish(true);
+                else if (ev.key === 'Escape') finish(false);
+                ev.stopPropagation();
+            });
+            input.addEventListener('blur', () => finish(true));
+        }
+
+        async function commitRename(shotId, newName) {
+            try {
+                const res = await fetch(`/api/shot/${shotId}`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({action: 'rename', new_name: newName})
+                });
+                const data = await res.json();
+                if (data.status !== 'ok') {
+                    toast(data.message || '改名失败', true);
+                } else {
+                    toast('改名已生效');
+                }
+            } catch (e) {
+                toast('改名请求失败', true);
+            }
             fetchShots();
         }
 
+        // ================= 创建镜头对话框 =================
+        async function openCreateModal() {
+            const modal = document.getElementById('createModal');
+            modal.style.display = 'flex';
+            try {
+                const res = await fetch('/api/next_name');
+                const data = await res.json();
+                document.getElementById('createName').value = data.name || 'c0010';
+            } catch (e) {
+                document.getElementById('createName').value = 'c0010';
+            }
+            const input = document.getElementById('createName');
+            input.focus();
+            input.select();
+        }
+
+        function closeCreateModal() {
+            document.getElementById('createModal').style.display = 'none';
+        }
+
+        async function submitCreate() {
+            const name = document.getElementById('createName').value.trim();
+            const duration = parseFloat(document.getElementById('createDuration').value) || 2.0;
+            if (!name) { toast('镜头名不能为空', true); return; }
+            closeCreateModal();
+            try {
+                const res = await fetch('/api/shots', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({name, duration})
+                });
+                const data = await res.json();
+                if (data.status !== 'ok') {
+                    toast(data.message || '创建失败', true);
+                }
+            } catch (e) {
+                toast('创建请求失败', true);
+            }
+            fetchShots();
+        }
+
+        document.getElementById('createModal').addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') submitCreate();
+            else if (e.key === 'Escape') closeCreateModal();
+        });
+        document.getElementById('createModal').addEventListener('click', (e) => {
+            if (e.target.id === 'createModal') closeCreateModal();
+        });
+
+        // ================= 拖图：空白=新建镜头，卡片=设背景 =================
+        let dragCounter = 0;
+        function isFileDrag(e) {
+            return e.dataTransfer && [...e.dataTransfer.types].includes('Files');
+        }
+        document.addEventListener('dragenter', (e) => {
+            if (!isFileDrag(e)) return;
+            dragCounter++;
+            document.getElementById('dropOverlay').style.display = 'flex';
+        });
+        document.addEventListener('dragleave', (e) => {
+            if (!isFileDrag(e)) return;
+            dragCounter--;
+            if (dragCounter <= 0) {
+                dragCounter = 0;
+                document.getElementById('dropOverlay').style.display = 'none';
+            }
+        });
+        document.addEventListener('dragover', (e) => {
+            if (isFileDrag(e)) e.preventDefault();
+        });
+        document.addEventListener('drop', async (e) => {
+            if (!isFileDrag(e)) return;
+            e.preventDefault();
+            e.stopPropagation();
+            dragCounter = 0;
+            document.getElementById('dropOverlay').style.display = 'none';
+
+            const files = [...e.dataTransfer.files].filter(f => /image\/(png|jpe?g|webp)/.test(f.type));
+            if (!files.length) { toast('只支持 png/jpg/webp 图片', true); return; }
+
+            // 落点在卡片上 = 给该镜头设背景图（仅取第一张）
+            const targetCard = e.target.closest('.shot-card');
+            if (targetCard) {
+                const shotId = targetCard.dataset.id;
+                const shot = shots.find(s => s.id === shotId);
+                toast(`正在给 ${shot ? shot.name : '镜头'} 设置背景图...`);
+                const dataUrl = await readFileAsDataURL(files[0]);
+                try {
+                    await fetch(`/api/shot/${shotId}`, {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({
+                            action: 'set_background',
+                            filename: files[0].name,
+                            data_base64: dataUrl.split(',')[1]
+                        })
+                    });
+                    toast('背景图已设置，拍屏中...');
+                } catch (err) {
+                    toast('设置背景图失败', true);
+                }
+                return;
+            }
+
+            // 空白处 = 创建图片镜头
+            toast(`正在创建 ${files.length} 个图片镜头...`);
+            const items = await Promise.all(files.map(async (f) => {
+                const dataUrl = await readFileAsDataURL(f);
+                return {
+                    filename: f.name,
+                    data_base64: dataUrl.split(',')[1]
+                };
+            }));
+            try {
+                const res = await fetch('/api/shots/image', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({items})
+                });
+                const data = await res.json();
+                const okCount = (data.results || []).filter(r => r.status === 'ok').length;
+                toast(`已创建 ${okCount} 个图片镜头，拍屏中...`);
+            } catch (err) {
+                toast('图片镜头创建失败', true);
+            }
+            fetchShots();
+        });
+
+        function readFileAsDataURL(file) {
+            return new Promise((resolve, reject) => {
+                const r = new FileReader();
+                r.onload = () => resolve(r.result);
+                r.onerror = reject;
+                r.readAsDataURL(file);
+            });
+        }
+
+        // ================= 框选 =================
+        const marqueeBox = document.getElementById('marqueeBox');
+        let marqueeStart = null;
+
+        document.addEventListener('mousedown', (e) => {
+            if (e.button !== 0) return;
+            if (e.target.closest('.shot-card') || e.target.closest('.context-menu') ||
+                e.target.closest('.modal-overlay') || e.target.closest('.size-slider') ||
+                e.target.closest('.confirm-bar') || e.target.closest('.header')) return;
+            marqueeActive = true;
+            marqueeStart = {x: e.clientX, y: e.clientY, ctrl: e.ctrlKey || e.metaKey};
+            marqueeBox.style.display = 'block';
+            marqueeBox.style.left = e.clientX + 'px';
+            marqueeBox.style.top = e.clientY + 'px';
+            marqueeBox.style.width = '0px';
+            marqueeBox.style.height = '0px';
+        });
+
+        document.addEventListener('mousemove', (e) => {
+            if (!marqueeActive || !marqueeStart) return;
+            const x1 = Math.min(marqueeStart.x, e.clientX);
+            const y1 = Math.min(marqueeStart.y, e.clientY);
+            const x2 = Math.max(marqueeStart.x, e.clientX);
+            const y2 = Math.max(marqueeStart.y, e.clientY);
+            marqueeBox.style.left = x1 + 'px';
+            marqueeBox.style.top = y1 + 'px';
+            marqueeBox.style.width = (x2 - x1) + 'px';
+            marqueeBox.style.height = (y2 - y1) + 'px';
+        });
+
+        document.addEventListener('mouseup', (e) => {
+            if (e.button !== 0 || !marqueeActive || !marqueeStart) return;
+            marqueeActive = false;
+            marqueeBox.style.display = 'none';
+            const x1 = Math.min(marqueeStart.x, e.clientX);
+            const y1 = Math.min(marqueeStart.y, e.clientY);
+            const x2 = Math.max(marqueeStart.x, e.clientX);
+            const y2 = Math.max(marqueeStart.y, e.clientY);
+            const moved = (x2 - x1) + (y2 - y1) > 6;
+
+            if (!marqueeStart.ctrl) selectedIds.clear();
+            if (moved) {
+                document.querySelectorAll('.shot-card').forEach(c => {
+                    const r = c.getBoundingClientRect();
+                    const hit = r.left < x2 && r.right > x1 && r.top < y2 && r.bottom > y1;
+                    if (hit) selectedIds.add(c.dataset.id);
+                });
+            }
+            marqueeStart = null;
+            updateSelectionUI();
+        });
+
+        // ================= Ctrl+滚轮缩放 =================
+        document.addEventListener('wheel', (e) => {
+            if (!e.ctrlKey && !e.metaKey) return;
+            e.preventDefault();
+            const cur = parseInt(document.getElementById('sizeSlider').value, 10);
+            const next = Math.min(480, Math.max(120, cur + (e.deltaY < 0 ? 20 : -20)));
+            document.getElementById('sizeSlider').value = next;
+            applyCardSize(next);
+        }, {passive: false});
+
+        // ================= 缩略图滑块 =================
+        const sizeSlider = document.getElementById('sizeSlider');
+        const sizeValue = document.getElementById('sizeValue');
+        sizeSlider.value = localStorage.getItem('sb-card-min') || 200;
+        applyCardSize(sizeSlider.value);
+        sizeSlider.addEventListener('input', () => applyCardSize(sizeSlider.value));
+
+        function applyCardSize(v) {
+            document.documentElement.style.setProperty('--card-min', v + 'px');
+            sizeValue.textContent = v + 'px';
+            localStorage.setItem('sb-card-min', v);
+        }
+
+        // ================= 确认条 & 提示 =================
+        function askConfirm(text) {
+            return new Promise((resolve) => {
+                const bar = document.getElementById('confirmBar');
+                document.getElementById('confirmText').textContent = text;
+                bar.style.display = 'flex';
+                const yes = document.getElementById('confirmYes');
+                const no = document.getElementById('confirmNo');
+                const cleanup = (val) => {
+                    bar.style.display = 'none';
+                    yes.onclick = no.onclick = null;
+                    resolve(val);
+                };
+                yes.onclick = () => cleanup(true);
+                no.onclick = () => cleanup(false);
+            });
+        }
+
+        let toastTimer = null;
+        function toast(msg, isError) {
+            const t = document.getElementById('toast');
+            t.textContent = msg;
+            t.className = 'toast' + (isError ? ' error' : '');
+            t.style.display = 'block';
+            clearTimeout(toastTimer);
+            toastTimer = setTimeout(() => { t.style.display = 'none'; }, 2600);
+        }
+
+        // ================= 其它 =================
+        function openTimeline() { toast('Timeline view - Phase 2'); }
+
         async function syncScenes() {
             await fetch('/api/sync', {method: 'POST'});
-            alert('Sync queued. Blender will clean orphan records.');
-            setTimeout(fetchShots, 1000);
+            toast('Sync 已排队，Blender 将清理孤儿记录');
         }
 
         // Init
+        loadProjectTitle();
         fetchShots();
-        // Auto-refresh every 2s
-        setInterval(fetchShots, 2000);
     </script>
 </body>
 </html>

@@ -1,7 +1,7 @@
 bl_info = {
     "name": "Storyboard Designer",
     "author": "Hermes",
-    "version": (0, 1, 0),
+    "version": (0, 2, 0),
     "blender": (4, 5, 0),
     "location": "View3D > Sidebar > Storyboard",
     "description": "Quick previs/storyboard design system",
@@ -20,8 +20,6 @@ addon_dir = os.path.dirname(os.path.abspath(__file__))
 if addon_dir not in sys.path:
     sys.path.insert(0, addon_dir)
 
-from core.db import init_db, get_db_path, create_shot, update_shot, delete_shot, get_all_shots, get_shot
-from core.server import start_server, stop_server, get_server
 from core.db import init_db, get_db_path, create_shot, update_shot, delete_shot, get_all_shots, get_shot
 from core.server import start_server, stop_server, get_server
 from core.queue import queue_command, ensure_timer
@@ -217,7 +215,7 @@ class STORYBOARD_OT_start_server(bpy.types.Operator):
         server = start_server(project_dir, port=8089)
         # Register timer in main thread BEFORE starting server thread
         ensure_timer()
-        self.report({'INFO'}, f"Server on 127.0.0.1:8089")
+        self.report({'INFO'}, f"Server on 0.0.0.0:8089 (LAN accessible)")
         return {'FINISHED'}
 
 
@@ -233,6 +231,19 @@ class STORYBOARD_OT_stop_server(bpy.types.Operator):
         return {'FINISHED'}
 
 
+class STORYBOARD_OT_open_manager(bpy.types.Operator):
+    """Open the storyboard grid page in the default browser"""
+    bl_idname = "storyboard.open_manager"
+    bl_label = "打开分镜管理器"
+    bl_options = {'REGISTER'}
+
+    def execute(self, context):
+        import webbrowser
+        webbrowser.open("http://localhost:8089")
+        self.report({'INFO'}, "Opened http://localhost:8089")
+        return {'FINISHED'}
+
+
 # --- Shot Management ---
 
 class STORYBOARD_OT_create_shot(bpy.types.Operator):
@@ -241,13 +252,8 @@ class STORYBOARD_OT_create_shot(bpy.types.Operator):
     bl_label = "Create Shot"
     bl_options = {'REGISTER', 'UNDO'}
 
-    shot_name: StringProperty(name="Shot Name", default="SH010")
+    shot_name: StringProperty(name="Shot Name", default="c0010")
     duration: FloatProperty(name="Duration", default=2.0, min=0.1)
-    shot_type: EnumProperty(
-        name="Type",
-        items=[('3d', "3D", ""), ('2d', "2D", ""), ('mixed', "Mixed", "")],
-        default='3d'
-    )
 
     def execute(self, context):
         project_dir = _get_project_dir()
@@ -277,12 +283,27 @@ class STORYBOARD_OT_create_shot(bpy.types.Operator):
         # Create DB record
         db_path = get_db_path(project_dir)
         shot_id = create_shot(db_path, self.shot_name, scene_name,
-                              camera=cam_obj.name, duration=self.duration,
-                              shot_type=self.shot_type)
+                              camera=cam_obj.name, duration=self.duration)
 
         # Create shot directory with readable name: {shot_name}_{shot_id}/
         shot_dir = os.path.join(project_dir, "shots", f"{self.shot_name}_{shot_id}")
         os.makedirs(shot_dir, exist_ok=True)
+
+        # Auto-render the new shot (create-path auto 拍屏); failure must not
+        # fail the creation itself
+        try:
+            prev = context.window.scene if context.window else None
+            if context.window:
+                context.window.scene = new_scene
+            from core.render import render_shot_files
+            paths = render_shot_files(new_scene, shot_dir)
+            if prev and context.window:
+                context.window.scene = prev
+            update_shot(db_path, shot_id,
+                        still_path=paths["still_path"],
+                        thumb_path=paths["thumb_path"])
+        except Exception as e:
+            print(f"[Storyboard] Auto-render after panel create failed: {e}")
 
         self.report({'INFO'}, f"Created shot: {self.shot_name} ({shot_id})")
         return {'FINISHED'}
@@ -429,7 +450,8 @@ class STORYBOARD_PT_panel(bpy.types.Panel):
         # Server status
         server = get_server()
         if server and server.running:
-            layout.label(text="Server: 127.0.0.1:8089", icon='URL')
+            layout.label(text="Server: 0.0.0.0:8089 (LAN)", icon='URL')
+            layout.operator("storyboard.open_manager", icon='URL')
         else:
             layout.label(text="Server: stopped", icon='X')
 
@@ -459,6 +481,7 @@ classes = (
     STORYBOARD_OT_init_project,
     STORYBOARD_OT_start_server,
     STORYBOARD_OT_stop_server,
+    STORYBOARD_OT_open_manager,
     STORYBOARD_OT_create_shot,
     STORYBOARD_OT_render_shot,
     STORYBOARD_OT_render_all,
