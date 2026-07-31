@@ -317,26 +317,12 @@ class STORYBOARD_OT_render_shot(bpy.types.Operator):
             return {'CANCELLED'}
 
         shot_dir = os.path.join(project_dir, "shots", f"{shot['name']}_{shot['id']}")
-        os.makedirs(shot_dir, exist_ok=True)
 
-        # Render still (standard render, works from panel context)
-        still_path = os.path.join(shot_dir, "still.png")
-        scene.render.image_settings.file_format = 'PNG'
-        scene.render.filepath = still_path
-        scene.render.engine = 'BLENDER_WORKBENCH'
-        bpy.ops.render.render(write_still=True, scene=scene.name)
-
-        # Generate thumbnail (320px wide)
-        thumb_path = os.path.join(shot_dir, "thumb.jpg")
-        img = bpy.data.images.load(still_path)
-        w, h = img.size
-        if w > 320:
-            scale = 320 / w
-            img.scale(320, int(h * scale))
-        img.filepath_raw = thumb_path
-        img.file_format = 'JPEG'
-        img.save()
-        bpy.data.images.remove(img)
+        # Render via shared logic (same as web rerender path)
+        from core.render import render_shot_files
+        paths = render_shot_files(scene, shot_dir)
+        still_path = paths["still_path"]
+        thumb_path = paths["thumb_path"]
 
         # Update DB
         update_shot(db_path, shot["id"],

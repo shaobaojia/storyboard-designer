@@ -122,49 +122,22 @@ def cmd_rerender_shot(params):
         raise ValueError("No camera in scene")
 
     import os
-    from core.db import get_db_path, update_shot
-
-    shot_dir = os.path.join(project_dir, "shots", shot_id)
-    os.makedirs(shot_dir, exist_ok=True)
-
-    # Render still - use standard render (works in any thread)
-    still_path = os.path.join(shot_dir, "still.png")
-    scene.render.image_settings.file_format = 'PNG'
-    scene.render.filepath = still_path
-    scene.render.engine = 'BLENDER_WORKBENCH'  # Fast preview render
-    bpy.ops.render.render(write_still=True, scene=scene.name)
-
-    # Generate thumbnail
-    thumb_path = os.path.join(shot_dir, "thumb.jpg")
-    img = bpy.data.images.load(still_path)
-    w, h = img.size
-    if w > 320:
-        scale = 320 / w
-        img.scale(320, int(h * scale))
-    img.filepath_raw = thumb_path
-    img.file_format = 'JPEG'
-    img.save()
-    bpy.data.images.remove(img)
-
-    # Update DB with readable directory name
     from core.db import get_db_path, update_shot, get_all_shots
-    db_path = get_db_path(project_dir)
+    from core.render import render_shot_files
+
     # Find shot name for directory naming
+    db_path = get_db_path(project_dir)
     shots = get_all_shots(db_path)
     shot = next((s for s in shots if s["id"] == shot_id), None)
     shot_name = shot["name"] if shot else shot_id
-    readable_dir = os.path.join(project_dir, "shots", f"{shot_name}_{shot_id}")
-    # Rename if needed (only if old dir exists and new doesn't)
-    if shot_dir != readable_dir and os.path.exists(shot_dir) and not os.path.exists(readable_dir):
-        os.rename(shot_dir, readable_dir)
-        still_path = os.path.join(readable_dir, "still.png")
-        thumb_path = os.path.join(readable_dir, "thumb.jpg")
-    elif os.path.exists(readable_dir):
-        # New dir already exists, use it
-        still_path = os.path.join(readable_dir, "still.png")
-        thumb_path = os.path.join(readable_dir, "thumb.jpg")
-    update_shot(db_path, shot_id, still_path=still_path, thumb_path=thumb_path)
-    return {"still": still_path, "thumb": thumb_path}
+
+    shot_dir = os.path.join(project_dir, "shots", f"{shot_name}_{shot_id}")
+    paths = render_shot_files(scene, shot_dir)
+
+    update_shot(db_path, shot_id,
+                still_path=paths["still_path"],
+                thumb_path=paths["thumb_path"])
+    return {"still": paths["still_path"], "thumb": paths["thumb_path"]}
 
 
 def cmd_duplicate_shot(params):
