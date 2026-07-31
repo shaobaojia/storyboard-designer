@@ -13,7 +13,17 @@ from .db import (
     init_db, get_db_path, create_shot, update_shot,
     delete_shot, get_shot, get_all_shots, reorder_shots
 )
-import core.queue
+import importlib
+
+
+def _queue(command, params):
+    """Queue a command, always resolving core.queue fresh from sys.modules.
+
+    Survives hot reloads: the module-level 'import core.queue' binding goes
+    stale after 'del sys.modules[...]' reloads, so we re-import per call.
+    """
+    queue_mod = importlib.import_module("core.queue")
+    queue_mod.queue_command(command, params)
 
 _all_servers = []
 
@@ -167,9 +177,7 @@ class StoryboardHTTPServer:
                                           shot_type=data.get("type", "3d"))
                     # Queue Blender scene creation
                     try:
-                        import importlib
-                        queue_mod = importlib.import_module("core.queue")
-                        queue_mod.queue_command("create_shot_scene", {
+                        _queue("create_shot_scene", {
                             "shot_name": name,
                             "scene_name": scene_name,
                             "duration": data.get("duration", 2.0),
@@ -184,7 +192,7 @@ class StoryboardHTTPServer:
 
                 elif path == "/api/sync":
                     # Queue sync command to Blender
-                    core.queue.queue_command("sync_scenes", {})
+                    _queue("sync_scenes", {})
                     self._send_json({"status": "ok", "message": "sync queued"})
 
                 elif path == "/api/reorder":
@@ -206,7 +214,7 @@ class StoryboardHTTPServer:
                             self._send_json({"status": "error", "message": "not found"}, 404)
                             return
                         delete_shot(db_path, shot_id)
-                        core.queue.queue_command("delete_shot", {
+                        _queue("delete_shot", {
                             "scene_name": shot["scene_name"]
                         })
                         self._send_json({"status": "ok"})
@@ -216,7 +224,7 @@ class StoryboardHTTPServer:
                         if not shot:
                             self._send_json({"status": "error", "message": "not found"}, 404)
                             return
-                        core.queue.queue_command("open_shot", {"scene_name": shot["scene_name"]})
+                        _queue("open_shot", {"scene_name": shot["scene_name"]})
                         self._send_json({"status": "ok", "message": "queued"})
 
                     elif action == "rerender":
@@ -224,7 +232,7 @@ class StoryboardHTTPServer:
                         if not shot:
                             self._send_json({"status": "error", "message": "not found"}, 404)
                             return
-                        core.queue.queue_command("rerender_shot", {
+                        _queue("rerender_shot", {
                             "scene_name": shot["scene_name"],
                             "shot_id": shot_id,
                             "project_dir": project_dir
@@ -237,7 +245,7 @@ class StoryboardHTTPServer:
                             self._send_json({"status": "error", "message": "not found"}, 404)
                             return
                         new_name = data.get("new_name", f"{shot['name']}_copy")
-                        core.queue.queue_command("duplicate_shot", {
+                        _queue("duplicate_shot", {
                             "scene_name": shot["scene_name"],
                             "new_name": new_name,
                             "project_dir": project_dir

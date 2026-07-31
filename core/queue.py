@@ -262,19 +262,25 @@ def cmd_sync_scenes(params):
     if addon_dir not in sys.path:
         sys.path.insert(0, addon_dir)
 
-    # Import sync function from __init__
-    import importlib
-    init_mod = sys.modules.get("__init__")
-    if not init_mod:
-        # Try to find the addon module
-        for name, mod in sys.modules.items():
-            if hasattr(mod, '_sync_scenes_with_db'):
-                init_mod = mod
-                break
+    # Import sync function from the storyboard addon module.
+    # Match by module file path containing storyboard_designer, avoiding false
+    # positives like bpy.ops which also expose sync_scenes operators.
+    init_mod = None
+    for name, mod in sys.modules.items():
+        mod_file = getattr(mod, "__file__", "") or ""
+        if "storyboard_designer" in mod_file and hasattr(mod, "_sync_scenes_with_db"):
+            init_mod = mod
+            break
 
     if init_mod and hasattr(init_mod, '_sync_scenes_with_db'):
-        removed, orphans = init_mod._sync_scenes_with_db()
-        return {"removed": removed, "orphans": len(orphans)}
+        result = init_mod._sync_scenes_with_db()
+        # Compatible with both 2-tuple and 3-tuple returns
+        if len(result) == 3:
+            removed, orphans, deduped = result
+        else:
+            removed, orphans = result
+            deduped = 0
+        return {"removed": removed, "orphans": len(orphans), "deduped": deduped}
     else:
         # Fallback: do it inline
         from core.db import get_db_path, delete_shot, get_all_shots
