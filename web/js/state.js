@@ -2,6 +2,7 @@
 export const state = {
     shots: [],
     selectedIds: new Set(),
+    anchorId: null,        // Shift 范围选择/方向键的锚点
     dragSrcEl: null,
     contextShotId: null,
     editingId: null,
@@ -9,6 +10,7 @@ export const state = {
     panning: false,
     lastVersion: null,
     lastErrorTs: null,
+    firstLoadDone: false,  // 首屏加载门控只做一次
     viewMode: localStorage.getItem('sb-view') || 'grid',  // 'grid' | 'list'
 };
 

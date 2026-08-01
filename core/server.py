@@ -36,6 +36,7 @@ CONTENT_TYPES = {
 # ctx = {"db_path", "project_dir", "shot_id", "data"}
 ROUTES = {
     ("GET", "/api/shots"): lambda c: actions.list_shots(c["db_path"]),
+    ("GET", "/api/trash"): lambda c: actions.list_trash(c["db_path"]),
     ("GET", "/api/version"): lambda c: actions.get_version(c["db_path"]),
     ("GET", "/api/next_name"): lambda c: actions.get_next_name(c["db_path"]),
     ("GET", "/api/project"): lambda c: actions.get_project(c["project_dir"]),
@@ -43,6 +44,7 @@ ROUTES = {
     ("POST", "/api/shots"): lambda c: actions.create_shot_action(c["project_dir"], c["db_path"], c["data"]),
     ("POST", "/api/shots/image"): lambda c: actions.create_image_shots_action(c["project_dir"], c["db_path"], c["data"]),
     ("POST", "/api/sync"): lambda c: actions.sync_action(),
+    ("POST", "/api/undo"): lambda c: actions.undo_action(c["project_dir"], c["db_path"]),
     ("POST", "/api/reorder"): lambda c: actions.reorder_action(c["db_path"], c["data"]),
     ("POST", "/api/batch"): lambda c: actions.batch_action(c["project_dir"], c["db_path"], c["data"]),
     ("POST", "/api/shot/*"): lambda c: actions.shot_action(c["project_dir"], c["db_path"], c["shot_id"], c["data"]),

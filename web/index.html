@@ -6,14 +6,16 @@
     <title>Storyboard Grid</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        :root { --card-min: 200px; }
+        :root { --card-min: 200px; --list-thumb-w: 80px; --header-h: 61px; }
         body {
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
             background: #1a1a1a;
             color: #e0e0e0;
             padding: 16px;
+            padding-top: 0;
             padding-bottom: 80px;
         }
+        /* #18: 高度全部折进 padding，sticky 冻结瞬间不再跳 */
         .header {
             position: sticky;
             top: 0;
@@ -22,8 +24,8 @@
             display: flex;
             justify-content: space-between;
             align-items: center;
-            margin-bottom: 16px;
-            padding: 10px 0 12px;
+            height: var(--header-h);
+            padding: 10px 0 28px;
             border-bottom: 1px solid #333;
         }
         .header h1 { font-size: 18px; font-weight: 600; }
@@ -38,11 +40,27 @@
             font-size: 13px;
         }
         .header .actions button:hover { background: #444; }
-        .header .actions button.active-view { background: #4a9eff; color: #fff; }
+
+        /* 首屏加载进度条 (#16) */
+        #loadBar {
+            position: fixed;
+            top: 0;
+            left: 0;
+            height: 2px;
+            width: 0;
+            background: #4a9eff;
+            transition: width 0.25s ease;
+            z-index: 2000;
+        }
+        #grid.preload { visibility: hidden; }
+        @keyframes cardIn { from { opacity: 0; transform: translateY(8px); } }
+        .shot-card.fade-in { animation: cardIn 0.32s ease; }
+
         .grid {
             display: grid;
             grid-template-columns: repeat(auto-fill, minmax(var(--card-min), 1fr));
             gap: 12px;
+            margin-top: 16px;
         }
         .grid.list-mode {
             display: block;
@@ -70,12 +88,20 @@
         .shot-card.drag-over {
             border: 2px dashed #4a9eff;
         }
+        /* 拖图悬停卡片的动效 (#5) */
+        .shot-card.file-hover {
+            transform: scale(1.04);
+            border-color: #4a9eff;
+            box-shadow: 0 0 18px rgba(74,158,255,0.45);
+        }
         .shot-thumb {
             width: 100%;
             aspect-ratio: 16/9;
             object-fit: cover;
             background: #333;
             display: block;
+            -webkit-user-drag: none;  /* 缩略图不许原生拖拽，否则触发图片拖放链路 */
+            user-select: none;
         }
         .shot-info {
             padding: 8px 10px;
@@ -87,7 +113,7 @@
             cursor: text;
             user-select: none;
         }
-        .shot-name-input {
+        .shot-name-input, .field-input {
             font-size: 13px;
             font-weight: 600;
             margin-bottom: 2px;
@@ -104,37 +130,54 @@
             color: #888;
         }
 
-        /* 列表视图 */
-        .shot-card.list-item {
-            display: flex;
+        /* 列表视图：grid 列布局，表头与行共用一套列宽 (#12/#13/#14) */
+        .list-header {
+            display: none;
+            position: sticky;
+            top: var(--header-h);
+            z-index: 600;
+            background: #1a1a1a;
+            grid-template-columns: var(--list-thumb-w) 150px 60px 1fr 1fr 110px;
+            column-gap: 14px;
             align-items: center;
-            height: 64px;
+            padding: 6px 14px;
+            font-size: 11px;
+            color: #888;
+            border-bottom: 1px solid #333;
+        }
+        .list-header.on { display: grid; }
+        .shot-card.list-item {
+            display: grid;
+            grid-template-columns: var(--list-thumb-w) 150px 60px 1fr 1fr 110px;
+            column-gap: 14px;
+            align-items: center;
             margin-bottom: 6px;
             border-radius: 6px;
+            padding: 4px 10px 4px 4px;
         }
         .shot-card.list-item .shot-thumb {
-            width: 100px;
-            height: 60px;
-            aspect-ratio: auto;
-            flex-shrink: 0;
+            width: 100%;
+            aspect-ratio: 16/9;
             border-radius: 4px;
-            margin-left: 4px;
         }
-        .shot-card.list-item .shot-info {
-            flex: 1;
-            display: flex;
-            align-items: center;
-            gap: 18px;
-            padding: 8px 14px;
-        }
-        .shot-card.list-item .shot-name { min-width: 120px; margin-bottom: 0; }
-        .shot-card.list-item .shot-name-input { width: 160px; margin-bottom: 0; }
+        .shot-card.list-item .shot-name { margin-bottom: 0; }
+        .shot-card.list-item .shot-name-input,
+        .shot-card.list-item .field-input { width: 100%; margin-bottom: 0; font-weight: 400; }
         .shot-card.list-item .shot-meta { white-space: nowrap; }
+        .shot-card.list-item .cell-text {
+            font-size: 12px;
+            color: #bbb;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            cursor: text;
+        }
+        .shot-card.list-item .cell-text.empty { color: #555; }
         .shot-card.list-item .shot-updated {
             font-size: 11px;
             color: #666;
-            margin-left: auto;
             white-space: nowrap;
+            text-align: right;
         }
 
         .empty-state {
@@ -175,7 +218,7 @@
             margin-bottom: 2px;
         }
 
-        /* 左下角缩略图滑块 */
+        /* 左下角工具条：滑块 + 视图切换 + 垃圾桶 (#11) */
         .size-slider {
             position: fixed;
             left: 16px;
@@ -195,8 +238,45 @@
             cursor: pointer;
         }
         .size-slider .slider-label { font-size: 11px; color: #888; }
+        .size-slider .bar-btn {
+            background: #333;
+            border: none;
+            color: #e0e0e0;
+            padding: 5px 10px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+            position: relative;
+        }
+        .size-slider .bar-btn:hover { background: #444; }
+        .size-slider .bar-btn.active-view { background: #4a9eff; color: #fff; }
+        #trashCount {
+            background: #c0392b;
+            color: #fff;
+            border-radius: 8px;
+            font-size: 10px;
+            padding: 1px 5px;
+            margin-left: 4px;
+            display: none;
+        }
+        #trashCount.on { display: inline-block; }
 
-        /* 创建镜头对话框 */
+        /* 右下角统计 (#8) */
+        #statsBadge {
+            position: fixed;
+            right: 16px;
+            bottom: 16px;
+            background: #252525;
+            border: 1px solid #3a3a3a;
+            border-radius: 6px;
+            padding: 8px 12px;
+            font-size: 12px;
+            color: #999;
+            z-index: 900;
+        }
+        #statsBadge b { color: #e0e0e0; font-weight: 600; }
+
+        /* 创建镜头对话框 + 垃圾桶弹窗 */
         .modal-overlay {
             position: fixed;
             inset: 0;
@@ -213,6 +293,7 @@
             padding: 20px;
             width: 300px;
         }
+        .modal.wide { width: 460px; max-height: 70vh; display: flex; flex-direction: column; }
         .modal h2 { font-size: 15px; margin-bottom: 14px; }
         .modal .field { margin-bottom: 12px; }
         .modal label { display: block; font-size: 12px; color: #888; margin-bottom: 4px; }
@@ -244,6 +325,33 @@
         .modal .btn-primary:hover { background: #3a8eef; }
         .modal .btn-cancel { background: #333; color: #e0e0e0; }
         .modal .btn-cancel:hover { background: #444; }
+        .modal .btn-danger { background: #c0392b; color: #fff; }
+        .modal .btn-danger:hover { background: #a93226; }
+
+        /* 垃圾桶列表 */
+        .trash-list { overflow-y: auto; flex: 1; }
+        .trash-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 8px 4px;
+            border-bottom: 1px solid #333;
+            font-size: 13px;
+        }
+        .trash-row .t-name { flex: 1; }
+        .trash-row button {
+            padding: 4px 10px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+            background: #333;
+            color: #e0e0e0;
+        }
+        .trash-row button:hover { background: #444; }
+        .trash-row button.danger { background: #4a2a2a; color: #ff6b6b; }
+        .trash-row button.danger:hover { background: #c0392b; color: #fff; }
+        .trash-empty { color: #666; text-align: center; padding: 30px 0; font-size: 13px; }
 
         /* 框选选框 */
         .marquee-box {
@@ -255,25 +363,40 @@
             display: none;
         }
 
-        /* 拖图高亮遮罩 */
+        /* 拖图分区遮罩 (#5)：只在拖入时出现 */
         .drop-overlay {
             position: fixed;
             inset: 0;
-            border: 3px dashed #4a9eff;
-            background: rgba(74,158,255,0.08);
             z-index: 1050;
             display: none;
+            flex-direction: column;
+            pointer-events: none;
+            background: rgba(26,26,26,0.45);
+        }
+        .drop-zone {
+            display: flex;
             align-items: center;
             justify-content: center;
-            pointer-events: none;
+            border: 3px dashed #4a9eff;
+            border-radius: 12px;
+            background: rgba(74,158,255,0.08);
+            margin: 16px 16px 8px;
         }
-        .drop-overlay .drop-text {
-            font-size: 20px;
+        #dropZoneCard { flex: 4; }
+        #dropZoneNew { flex: 1; margin: 8px 16px 16px; }
+        .drop-zone .zone-text {
+            font-size: 18px;
             color: #4a9eff;
             background: rgba(26,26,26,0.85);
-            padding: 16px 28px;
+            padding: 12px 24px;
             border-radius: 8px;
         }
+        #dropZoneNew .zone-text { font-size: 15px; }
+        .drop-zone.disabled {
+            border-color: #666;
+            background: rgba(100,100,100,0.05);
+        }
+        .drop-zone.disabled .zone-text { color: #777; }
 
         /* 删除确认条 */
         .confirm-bar {
@@ -303,11 +426,11 @@
         .confirm-bar .btn-danger:hover { background: #a93226; }
         .confirm-bar .btn-cancel { background: #333; color: #e0e0e0; }
 
-        /* 轻提示 */
+        /* 轻提示（抬高避开右下角统计条） */
         .toast {
             position: fixed;
             right: 16px;
-            bottom: 16px;
+            bottom: 60px;
             background: #333;
             border: 1px solid #555;
             border-radius: 6px;
@@ -321,15 +444,20 @@
     </style>
 </head>
 <body>
+    <div id="loadBar"></div>
+
     <div class="header">
         <h1 id="pageTitle">Storyboard Grid</h1>
         <div class="actions">
-            <button id="viewToggle">列表视图</button>
             <button id="btnCreate">Create Shot</button>
             <button id="btnSync">Sync DB</button>
             <button id="btnRefresh">Refresh</button>
             <button id="btnTimeline">Timeline</button>
         </div>
+    </div>
+
+    <div id="listHeader" class="list-header">
+        <span>缩略图</span><span>镜头名</span><span>时长</span><span>内容</span><span>台词</span><span style="text-align:right">更新时间</span>
     </div>
 
     <div id="grid" class="grid">
@@ -342,9 +470,13 @@
 
     <div class="size-slider">
         <span class="slider-label">缩略图</span>
-        <input type="range" id="sizeSlider" min="120" max="480" step="10" value="200">
+        <input type="range" id="sizeSlider" min="120" max="480" step="1" value="200">
         <span class="slider-label" id="sizeValue">200px</span>
+        <button id="viewToggle" class="bar-btn">列表视图</button>
+        <button id="trashBtn" class="bar-btn">垃圾桶<span id="trashCount"></span></button>
     </div>
+
+    <div id="statsBadge">共 <b id="statTotal">0</b> · 已选 <b id="statSel">0</b></div>
 
     <div id="createModal" class="modal-overlay" style="display:none;">
         <div class="modal">
@@ -364,10 +496,26 @@
         </div>
     </div>
 
+    <div id="trashModal" class="modal-overlay" style="display:none;">
+        <div class="modal wide">
+            <h2>垃圾桶</h2>
+            <div class="trash-list" id="trashList"></div>
+            <div class="modal-actions">
+                <button class="btn-danger" id="trashPurgeAll">清空垃圾桶</button>
+                <button class="btn-cancel" id="trashClose">关闭</button>
+            </div>
+        </div>
+    </div>
+
     <div id="marqueeBox" class="marquee-box"></div>
 
     <div id="dropOverlay" class="drop-overlay">
-        <div class="drop-text">松开：空白处=新建镜头 · 卡片上=设为该镜头背景</div>
+        <div id="dropZoneCard" class="drop-zone">
+            <div class="zone-text">拖到镜头卡片上 = 设为该镜头背景</div>
+        </div>
+        <div id="dropZoneNew" class="drop-zone">
+            <div class="zone-text">拖到这里 = 新建图片镜头</div>
+        </div>
     </div>
 
     <div id="confirmBar" class="confirm-bar">

@@ -16,6 +16,9 @@ CREATE TABLE IF NOT EXISTS shots (
     camera      TEXT,
     duration    REAL DEFAULT 2.0,
     notes       TEXT,
+    content     TEXT DEFAULT '',
+    dialogue    TEXT DEFAULT '',
+    deleted     INTEGER DEFAULT 0,
     still_path  TEXT,
     thumb_path  TEXT,
     updated_at  TEXT
@@ -26,7 +29,7 @@ CREATE INDEX IF NOT EXISTS idx_shots_seq ON shots(seq);
 
 
 def init_db(db_path):
-    """Initialize SQLite database with schema. Migrates legacy DBs (drops type column)."""
+    """Initialize SQLite database with schema. Migrates legacy DBs."""
     os.makedirs(os.path.dirname(db_path), exist_ok=True)
     conn = sqlite3.connect(db_path)
     conn.executescript(DB_SCHEMA)
@@ -36,8 +39,14 @@ def init_db(db_path):
         if "type" in cols:
             conn.execute("ALTER TABLE shots DROP COLUMN type")
             print("[Storyboard] Migrated DB: dropped legacy 'type' column")
+        for col, ddl in (("content", "TEXT DEFAULT ''"),
+                         ("dialogue", "TEXT DEFAULT ''"),
+                         ("deleted", "INTEGER DEFAULT 0")):
+            if col not in cols:
+                conn.execute(f"ALTER TABLE shots ADD COLUMN {col} {ddl}")
+                print(f"[Storyboard] Migrated DB: added '{col}' column")
     except sqlite3.OperationalError:
-        pass  # Very old SQLite without DROP COLUMN: harmless, column stays unread
+        pass  # Very old SQLite: harmless
     conn.commit()
     conn.close()
     return db_path
@@ -78,9 +87,9 @@ def get_db_version(db_path):
     return value
 
 
-def create_shot(db_path, name, scene_name, camera="", duration=2.0):
-    """Create a new shot record. Returns shot id."""
-    shot_id = str(uuid.uuid4())[:8]
+def create_shot(db_path, name, scene_name, camera="", duration=2.0, shot_id=None):
+    """Create a new shot record. Returns shot id (pre-generatable for undo wiring)."""
+    shot_id = shot_id or str(uuid.uuid4())[:8]
     now = datetime.now().isoformat()
 
     conn = sqlite3.connect(db_path)
@@ -98,8 +107,9 @@ def create_shot(db_path, name, scene_name, camera="", duration=2.0):
 
 
 def update_shot(db_path, shot_id, **kwargs):
-    """Update shot fields. Allowed: seq, name, scene_name, camera, duration, notes, still_path, thumb_path."""
-    allowed = {"seq", "name", "scene_name", "camera", "duration", "notes", "still_path", "thumb_path"}
+    """Update shot fields. Allowed: seq, name, scene_name, camera, duration, notes, content, dialogue, deleted, still_path, thumb_path."""
+    allowed = {"seq", "name", "scene_name", "camera", "duration", "notes",
+               "content", "dialogue", "deleted", "still_path", "thumb_path"}
     updates = {k: v for k, v in kwargs.items() if k in allowed}
     if not updates:
         return False
@@ -133,11 +143,22 @@ def get_shot(db_path, shot_id):
     return dict(row) if row else None
 
 
-def get_all_shots(db_path):
-    """Get all shots ordered by seq."""
+def get_all_shots(db_path, include_deleted=False):
+    """Get all shots ordered by seq. Trash rows (deleted=1) excluded by default."""
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
-    cursor = conn.execute("SELECT * FROM shots ORDER BY seq")
+    where = "" if include_deleted else "WHERE deleted = 0"
+    cursor = conn.execute(f"SELECT * FROM shots {where} ORDER BY seq")
+    rows = [dict(r) for r in cursor.fetchall()]
+    conn.close()
+    return rows
+
+
+def get_trash(db_path):
+    """Get soft-deleted shots (the trash bin)."""
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.execute("SELECT * FROM shots WHERE deleted = 1 ORDER BY updated_at DESC")
     rows = [dict(r) for r in cursor.fetchall()]
     conn.close()
     return rows
@@ -159,7 +180,7 @@ def next_c_number(db_path):
     """Next free c-number as int (base for local increments)."""
     import re
     best = 0
-    for s in get_all_shots(db_path):
+    for s in get_all_shots(db_path, include_deleted=True):  # 垃圾桶里的 c 名也算占用
         m = re.fullmatch(r"c(\d+)", s["name"] or "")
         if m:
             best = max(best, int(m.group(1)))

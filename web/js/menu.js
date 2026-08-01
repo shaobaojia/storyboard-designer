@@ -67,7 +67,7 @@ async function menuAction(action) {
             toast('已排队复制');
             break;
         case 'delete':
-            if (shot && await askConfirm(`删除 ${shot.name}？场景和文件都会移除。`)) {
+            if (shot && await askConfirm(`删除 ${shot.name}？移入垃圾桶，可恢复。`)) {
                 await postShotAction(shotId, {action: 'delete'});
                 state.selectedIds.delete(shotId);
                 fetchShots();
@@ -87,7 +87,7 @@ async function menuAction(action) {
             setTimeout(fetchShots, 1500);
             break;
         case 'batch-delete':
-            if (await askConfirm(`批量删除 ${batchIds.length} 个镜头？场景和文件都会移除。`)) {
+            if (await askConfirm(`批量删除 ${batchIds.length} 个镜头？移入垃圾桶，可恢复。`)) {
                 await postBatch('delete', batchIds);
                 clearSelection();
                 fetchShots();
@@ -111,14 +111,17 @@ export function initContextMenu() {
     // 浏览器默认右键菜单全局抑制（镜头菜单由下面的 mouseup 逻辑触发）
     document.addEventListener('contextmenu', (e) => e.preventDefault());
 
-    // ---- 右键语义：原地松开=菜单，拖动=惯性滑动 ----
+    // ---- 右键/中键语义：原地松开=菜单（仅右键），拖动=惯性滑动，撞墙回弹 ----
     let rDown = null;
+    const isPanButton = (e) => e.button === 2 || e.button === 1;  // #4 中键同款
 
     document.addEventListener('mousedown', (e) => {
-        if (e.button !== 2) return;
+        if (!isPanButton(e)) return;
         if (e.target.closest('.context-menu') || e.target.closest('.modal-overlay') ||
             e.target.closest('.confirm-bar')) return;
+        if (e.button === 1) e.preventDefault();  // 杀掉浏览器中键自动滚动图标
         rDown = {
+            button: e.button,
             startX: e.clientX, startY: e.clientY,
             lastX: e.clientX, lastY: e.clientY,
             panning: false,
@@ -145,13 +148,13 @@ export function initContextMenu() {
     });
 
     document.addEventListener('mouseup', (e) => {
-        if (e.button !== 2 || !rDown) return;
+        if (!isPanButton(e) || !rDown) return;
         const st = rDown;
         rDown = null;
         state.panning = false;
 
         if (st.panning) {
-            // 惯性滑行
+            // 惯性滑行 + 撞墙回弹 (#2)：滚到边缘速度反打，阻尼衰减
             const first = st.samples[0];
             const last = st.samples[st.samples.length - 1];
             const dt = last.t - first.t;
@@ -160,15 +163,19 @@ export function initContextMenu() {
                 let vy = -(last.y - first.y) / dt * 16;
                 const glide = () => {
                     if (Math.abs(vy) < 0.5 && Math.abs(vx) < 0.5) return;
+                    const sx = window.scrollX, sy = window.scrollY;
                     window.scrollBy(vx, vy);
+                    // 某一轴没滚动 = 撞墙，反弹并衰减
+                    if (window.scrollY === sy && Math.abs(vy) >= 0.5) vy = -vy * 0.35;
+                    if (window.scrollX === sx && Math.abs(vx) >= 0.5) vx = -vx * 0.35;
                     vy *= 0.94;
                     vx *= 0.94;
                     requestAnimationFrame(glide);
                 };
                 requestAnimationFrame(glide);
             }
-        } else if (st.card) {
-            // 原地松开在卡片上 = 弹镜头菜单
+        } else if (st.button === 2 && st.card) {
+            // 原地松开在卡片上 = 弹镜头菜单（仅右键；中键原地松开无操作）
             showContextMenu(e.clientX, e.clientY, st.card.dataset.id);
         }
     });

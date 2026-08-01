@@ -229,23 +229,71 @@ print(os.listdir(d) if os.path.exists(d) else "MISSING")
     record("web", "Duplicate", ok,
            f"scene named: {[s for s in after['scenes'] if 'AUDIT_WEB' in s]}")
 
-    # 2e. Reorder
+    # 2e. Reorder (then undo it so the user's custom order survives the audit)
     shots = api("GET", "/api/shots")["shots"]
     ids = [s["id"] for s in shots]
+    orig_order = [s["name"] for s in shots]
     api("POST", "/api/reorder", {"shot_ids": list(reversed(ids))})
     time.sleep(1)
     new_order = [s["name"] for s in api("GET", "/api/shots")["shots"]]
     record("web", "Reorder", new_order[0] == shots[-1]["name"],
            f"first now {new_order[0]}")
+    # undo the reversal immediately (stack top = this reorder)
+    r = api("POST", "/api/undo", {})
+    time.sleep(1)
+    back_order = [s["name"] for s in api("GET", "/api/shots")["shots"]]
+    record("web", "Undo reorder", r.get("status") == "ok" and back_order == orig_order,
+           f"undo={r.get('label')}, order restored: {back_order == orig_order}")
 
-    # 2f. Delete
+    # 2f. Soft delete -> trash -> restore -> undo dance -> purge (R3 #6)
     shot = next(s for s in api("GET", "/api/shots")["shots"] if s["name"] == "AUDIT_WEB_COPY")
     api("POST", f"/api/shot/{shot['id']}", {"action": "delete"})
     time.sleep(3)
     after = state()
-    ok = "AUDIT_WEB_COPY" not in names(after) and "Shot_AUDIT_WEB_COPY" not in after["scenes"]
-    record("web", "Delete", ok,
-           f"scene gone: {'Shot_AUDIT_WEB_COPY' not in after['scenes']}")
+    trash = api("GET", "/api/trash")
+    in_trash = any(s["name"] == "AUDIT_WEB_COPY" for s in trash.get("shots", []))
+    ok = ("AUDIT_WEB_COPY" not in names(after) and in_trash
+          and "__trash__Shot_AUDIT_WEB_COPY" in after["scenes"])
+    record("web", "Soft delete -> trash", ok,
+           f"in_trash={in_trash}, scene parked: {'__trash__Shot_AUDIT_WEB_COPY' in after['scenes']}")
+    v = api("GET", "/api/version")
+    record("web", "  -> version.trash_count", v.get("trash_count") == 1,
+           f"trash_count={v.get('trash_count')}")
+
+    # restore from trash
+    tid = next(s["id"] for s in api("GET", "/api/trash")["shots"] if s["name"] == "AUDIT_WEB_COPY")
+    r = api("POST", f"/api/shot/{tid}", {"action": "restore"})
+    time.sleep(3)
+    after = state()
+    ok = (r.get("status") == "ok" and "AUDIT_WEB_COPY" in names(after)
+          and "Shot_AUDIT_WEB_COPY" in after["scenes"])
+    record("web", "Restore from trash", ok, "")
+
+    # undo the restore -> shot should be back in trash
+    api("POST", "/api/undo", {})
+    time.sleep(3)
+    in_trash = any(s["name"] == "AUDIT_WEB_COPY" for s in api("GET", "/api/trash")["shots"])
+    record("web", "Undo restore = re-trash", in_trash, f"in_trash={in_trash}")
+
+    # undo the delete -> shot should be back in the grid
+    api("POST", "/api/undo", {})
+    time.sleep(3)
+    after = state()
+    ok = "AUDIT_WEB_COPY" in names(after) and "Shot_AUDIT_WEB_COPY" in after["scenes"]
+    record("web", "Undo delete = restore", ok, "")
+
+    # purge = permanent delete, NOT undoable
+    shot = next(s for s in api("GET", "/api/shots")["shots"] if s["name"] == "AUDIT_WEB_COPY")
+    api("POST", f"/api/shot/{shot['id']}", {"action": "delete"})
+    time.sleep(3)
+    tid = next(s["id"] for s in api("GET", "/api/trash")["shots"] if s["name"] == "AUDIT_WEB_COPY")
+    api("POST", f"/api/shot/{tid}", {"action": "purge"})
+    time.sleep(3)
+    after = state()
+    gone = ("AUDIT_WEB_COPY" not in names(after)
+            and not any(s["name"] == "AUDIT_WEB_COPY" for s in api("GET", "/api/trash")["shots"])
+            and not any("AUDIT_WEB_COPY" in s for s in after["scenes"]))
+    record("web", "Purge (hard delete)", gone, "")
 
     # 2g. Sync
     r = api("POST", "/api/sync", {})
@@ -269,11 +317,13 @@ print(os.listdir(d) if os.path.exists(d) else "MISSING")
     record("web", "project title", r.get("name") == blend_stem,
            f"{r.get('name')} vs {blend_stem}")
 
-    # version: carries version string + errors list
+    # version: carries version string + errors list + R3 badges
     r = api("GET", "/api/version")
     ok = (r.get("status") == "ok" and isinstance(r.get("version"), str)
-          and isinstance(r.get("errors"), list))
-    record("web", "version payload (+errors)", ok, f"errors={len(r.get('errors', []))}")
+          and isinstance(r.get("errors"), list)
+          and isinstance(r.get("trash_count"), int) and "undo_label" in r)
+    record("web", "version payload (+errors/trash/undo)", ok,
+           f"errors={len(r.get('errors', []))}, trash={r.get('trash_count')}, undo={r.get('undo_label')}")
 
     # rename: DB + scene + camera follow the new name
     api("POST", "/api/shots", {"name": "AUDIT_REN", "duration": 2.0})
@@ -329,18 +379,103 @@ print(",".join(str(b.alpha) for b in bgs) if bgs else "NONE")
 ''').strip()
     record("web", "set_background alpha=1.0", out == "1.0", f"alpha={out}")
 
+    # ---- 2i. R3 features --------------------------------------------------
+    print("\n[2i] R3: fields / undo / duplicate position")
+
+    # update fields: content/dialogue/duration persist, undo reverts (#13/#15)
+    shot = next(s for s in api("GET", "/api/shots")["shots"] if s["name"] == "AUDIT_REN2")
+    old_dur = shot["duration"]
+    r = api("POST", f"/api/shot/{shot['id']}", {"action": "update", "fields": {
+        "content": "审计内容", "dialogue": "审计台词", "duration": 9.9}})
+    time.sleep(1)
+    shot2 = next(s for s in api("GET", "/api/shots")["shots"] if s["id"] == shot["id"])
+    ok = (r.get("status") == "ok" and shot2.get("content") == "审计内容"
+          and shot2.get("dialogue") == "审计台词" and abs(shot2["duration"] - 9.9) < 0.01)
+    record("web", "update fields (content/dialogue/duration)", ok,
+           f"content={shot2.get('content')!r}, dur={shot2['duration']}")
+    api("POST", "/api/undo", {})
+    time.sleep(1)
+    shot3 = next(s for s in api("GET", "/api/shots")["shots"] if s["id"] == shot["id"])
+    ok = (not shot3.get("content") and not shot3.get("dialogue")
+          and abs(shot3["duration"] - old_dur) < 0.01)
+    record("web", "Undo update fields", ok, f"dur back to {shot3['duration']}")
+
+    # duplicate inserts the copy right after the source (#9), undo purges it
+    api("POST", "/api/shots", {"name": "AUDIT_POS", "duration": 2.0})
+    time.sleep(3)
+    order = [s["name"] for s in api("GET", "/api/shots")["shots"]]
+    src_idx = order.index("AUDIT_POS")
+    shot = next(s for s in api("GET", "/api/shots")["shots"] if s["name"] == "AUDIT_POS")
+    r = api("POST", f"/api/shot/{shot['id']}", {"action": "duplicate"})
+    time.sleep(4)
+    copy_name = r.get("new_name")
+    order2 = [s["name"] for s in api("GET", "/api/shots")["shots"]]
+    ok = bool(copy_name) and copy_name in order2 and order2.index(copy_name) == src_idx + 1
+    record("web", "Duplicate inserts after source", ok,
+           f"{copy_name} at {order2.index(copy_name) if copy_name in order2 else '?'}, src at {src_idx}")
+    api("POST", "/api/undo", {})
+    time.sleep(4)
+    order3 = [s["name"] for s in api("GET", "/api/shots")["shots"]]
+    record("web", "Undo duplicate = purge copy", copy_name not in order3,
+           f"{copy_name} gone: {copy_name not in order3}")
+
+    # rename undo: AUDIT_REN2 -> AUDIT_REN3 -> undo -> AUDIT_REN2
+    shot = next(s for s in api("GET", "/api/shots")["shots"] if s["name"] == "AUDIT_REN2")
+    api("POST", f"/api/shot/{shot['id']}", {"action": "rename", "new_name": "AUDIT_REN3"})
+    time.sleep(3)
+    names_now = [s["name"] for s in api("GET", "/api/shots")["shots"]]
+    ok = "AUDIT_REN3" in names_now
+    api("POST", "/api/undo", {})
+    time.sleep(3)
+    names_now = [s["name"] for s in api("GET", "/api/shots")["shots"]]
+    ok = ok and "AUDIT_REN2" in names_now and "AUDIT_REN3" not in names_now
+    record("web", "Undo rename", ok, f"names={['AUDIT_REN2' in names_now, 'AUDIT_REN3' in names_now]}")
+
+    # create undo: create then undo -> shot + scene purged
+    api("POST", "/api/shots", {"name": "AUDIT_TMP", "duration": 2.0})
+    time.sleep(3)
+    ok = "AUDIT_TMP" in [s["name"] for s in api("GET", "/api/shots")["shots"]]
+    api("POST", "/api/undo", {})
+    time.sleep(4)
+    st = state()
+    ok = ok and "AUDIT_TMP" not in names(st) and not any("AUDIT_TMP" in s for s in st["scenes"])
+    record("web", "Undo create = purge new shot", ok, "")
+
+    # Drain whatever is left on the undo stack; the final pop must report
+    # "empty" without crashing. Inverses replayed here only touch AUDIT_*
+    # shots (user order was already restored by the reorder-undo above).
+    for _ in range(25):
+        r = api("POST", "/api/undo", {})
+        if r.get("status") == "empty":
+            break
+        time.sleep(2)
+    record("web", "Undo stack drains to empty safely", r.get("status") == "empty",
+           f"last={r.get('status')}")
+    time.sleep(3)
+
     # ---- 3. cleanup -------------------------------------------------------
     print("\n[3] Cleanup test shots")
+    # soft-delete every AUDIT / audit-created c shot still in the grid...
     for shot in api("GET", "/api/shots")["shots"]:
         nm = shot["name"]
         if "AUDIT" in nm or (nm.startswith("c") and nm not in taken):
             api("POST", f"/api/shot/{shot['id']}", {"action": "delete"})
             time.sleep(2)
+    # ...then purge them out of the trash bin for real
+    for shot in api("GET", "/api/trash")["shots"]:
+        nm = shot["name"]
+        if "AUDIT" in nm or (nm.startswith("c") and nm not in taken):
+            api("POST", f"/api/shot/{shot['id']}", {"action": "purge"})
+            time.sleep(2)
     api("POST", "/api/sync", {})
     time.sleep(2)
     after = state()
     leftover = [n for n in names(after) if "AUDIT" in n or (n.startswith("c") and n not in taken)]
-    record("cleanup", "test shots removed", not leftover, f"leftover={leftover}")
+    trash_left = [s["name"] for s in api("GET", "/api/trash")["shots"]
+                  if "AUDIT" in s["name"] or (s["name"].startswith("c") and s["name"] not in taken)]
+    ok = not leftover and not trash_left
+    record("cleanup", "test shots removed (grid+trash)", ok,
+           f"leftover={leftover}, trash={trash_left}")
 
     return summary()
 

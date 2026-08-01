@@ -61,8 +61,19 @@ Blender 4.5 分镜设计插件——面板操作 + 内嵌 HTTP 服务 + SQLite �
 
 ## 正在做
 
-- v0.4.0 已部署家 PC Blender 4.5，audit 21/21 + 浏览器全交互回归全 PASS，本地已 commit，**待用户发话再推 GitHub**
+- v0.5.0（第三轮 18 条）已部署家 PC Blender 4.5，audit 34/34 + webbridge 全交互回归全 PASS，本地已 commit，**待用户发话再推 GitHub**
 - 公司 PC 部署的是旧版，如反馈良好需同步部署
+
+## 第三轮（v0.5.0）清单
+
+方向键跳格(Shift扩选) / 右键+中键滑动撞墙回弹 / 拖卡片不再误触图片链路(根因:缩略图原生拖拽) / 拖图分区遮罩(卡片区80%+新建区20%,多图置灰) / **软删除+垃圾桶+撤销栈(Ctrl+Z,栈深20,逆操作反打)** / Shift范围选 / 右下统计 / 复制插到原镜头后一位 / 连续无级缩放(rAF节流) / 视图切换挪左下工具条 / 列表缩放只动缩略图列(--list-thumb-w) / content+dialogue 字段(仅列表显示,就地编辑同改名交互) / 列表冻结表头 / 首屏加载门控(进度条+全图就位统一fade-in,5s兜底) / DOM差分渲染(日常刷新不再噼里啪啦) / 插件加载自动起服务(load_post handler,面板删Start/Stop) / sticky标题栏高度折padding消跳动
+
+## 撤销栈设计（core/undo.py）
+
+- deque(maxlen=20)，entry schema：`{db:[(id,fields)], reorder_ids:[], purge:[{id,name,scene_name}], queue:[(cmd,params)]}`
+- 映射：改名/排序/批量重命名/字段修改 = 逆操作反打；新建/复制 = purge 逆操作；删除 = 软删(DB deleted=1 + 场景改名 `__trash__<scene>`)其逆操作=restore；**purge(垃圾桶彻底删除)不可撤销**
+- 恢复也进栈（逆操作=再删一次）；内存栈，Blender 重启即清空
+- `__trash__` 前缀场景天然不被 sync 当孤儿（不以 Shot_ 开头）；`next_c_number` 用 include_deleted=True，垃圾桶占名不放号
 
 ## 下一步
 
@@ -77,7 +88,10 @@ Blender 4.5 分镜设计插件——面板操作 + 内嵌 HTTP 服务 + SQLite �
 - **批量改名必须两阶段**：目标名被选区内靠后的镜头占用时，`cmd_rename_shot` 的场景名冲突防御会抛错、该条改名静默失败（DB 无 UNIQUE 约束不报错更隐蔽）。解法：先全改 `__ren_<id>` 临时名，再统一落正式名。
 - **SMB 盘（N:）mtime 不可靠**：粗粒度+缓存，DB 写了 mtime 不变，不能拿来做版本号；要查内容（COUNT+MAX(updated_at)）。
 - **webbridge evaluate 是隔离世界**：与页面共享 DOM 但不共享 JS 状态（window.fetch/页面变量都摸不到）；合成 `DataTransfer`/`File` 走真实拖放链路时 FileReader 永不回调（跨世界），拖图类链路要 API 直测补位；常驻 DOM 元素（如 #contextMenu）判断显隐要查 `display`，查存在性会得到假阳性；测试里 `el.remove()` 会真删常驻元素，收拾残局用 `style.display='none'`。
-- **Chrome 后台冻结标签页**：定时器（心跳）和 fetch 全被暂停，页面请求"挂起"、抓包只有发没有回——是浏览器行为不是服务 bug，curl 直测可区分；验收时先把标签页激活。
+- **Chrome 后台冻结标签页**：定时器（心跳）和 fetch 全被暂停，页面请求"挂起"、抓包只有发没有回——是浏览器行为不是服务 bug，curl 直测可区分；验收时先把标签页激活。**rAF 同样不跑**：依赖 requestAnimationFrame 的功能（惯性滑行、连续缩放节流）在后台标签页测试时表现为"没反应"，必须 bringToFront 后测。
+- **DOM 差分复用 × 就地编辑 = 孤儿输入框**：编辑会话 blur/取消后若只调 renderGrid，差分键没变会原样复用卡片元素——输入框留在卡片里且监听器已 done 失效，同时 editingId 卡死阻塞键盘快捷键。解法：finish 里先 `input.replaceWith(原元素)` 还原 DOM；renderGrid 复用条件加 `!el.querySelector('input')`，强制重建时顺手解锁 editingId。
+- **webbridge 合成事件 dispatched 在 document 上 target 没有 closest**：`document.dispatchEvent(new MouseEvent(...))` 的 `e.target` 是 document，`e.target.closest()` 直接 TypeError，监听器静默暴毙。凡是 handler 里用 closest 的（滑动/框选），事件要 dispatch 在 `document.body` 或具体元素上。
+- **合成 DataTransfer+File 的 drop 是真链路**：`dt.items.add(new File(...))` 走 drop 会真实写文件进镜头目录、真实给相机挂背景图。测试拖图一律用 REF_/AUDIT_ 前缀镜头，别拿用户镜头当落点；万一污染了：MCP 删 background_images + 删文件 + API rerender 三连。
 
 - **热重载僵尸线程**：`del sys.modules` 重载插件后旧 HTTP server 的 `serve_forever` 线程杀不掉，新旧 handler 随机抢请求 → 表现为"代码改了但请求没走新路径"。判断：`threading.enumerate()` 查 serve_forever 数量 >1 就是脏了。解法：重启 Blender。
 - **`bpy.ops.render.opengl` 只读真实视口状态**：temp_override 里改 context 对它无效——它读的是你屏幕上实际看到的视口。要切相机视角必须直接改 `space.region_3d.view_perspective`。
@@ -93,7 +107,7 @@ Blender 4.5 分镜设计插件——面板操作 + 内嵌 HTTP 服务 + SQLite �
 ## 细节指针
 
 - 架构：Blender 插件 + 内嵌 HTTP（0.0.0.0:8089）+ `bpy.app.timers` 主线程队列
-- 后端模块地图：`core/server.py`（ROUTES 表 + 静态服务）→ `core/actions.py`（每端点一函数）→ `core/queue.py`（COMMANDS 注册表 + 错误回传）/ `core/db.py`（含 next_c_name/next_c_number）/ `core/paths.py`（目录）/ `core/scenes.py`（场景工厂）/ `core/sync.py`（同步唯一实现）/ `core/render.py`（拍屏公共函数）
-- 前端模块地图：`web/index.html`（骨架+CSS）+ `web/js/`：state（共享状态）/ ui（toast+确认条）/ render（宫格+列表+FLIP）/ data（拉取+心跳+错误toast）/ selection / dnd（卡片拖拽+拖图）/ rename / menu（右键语义+菜单）/ create（弹框）/ marquee（框选）/ zoom（滑块+Ctrl滚轮）/ keyboard / main（入口接线）
+- 后端模块地图：`core/server.py`（ROUTES 表 + 静态服务）→ `core/actions.py`（每端点一函数）→ `core/queue.py`（COMMANDS 注册表 + 错误回传）/ `core/db.py`（含 next_c_name/next_c_number，软删字段 deleted/content/dialogue）/ `core/undo.py`（撤销栈）/ `core/paths.py`（目录）/ `core/scenes.py`（场景工厂）/ `core/sync.py`（同步唯一实现）/ `core/render.py`（拍屏公共函数）
+- 前端模块地图：`web/index.html`（骨架+CSS）+ `web/js/`：state（共享状态）/ ui（toast+确认条）/ render（宫格+列表+FLIP+DOM差分+首屏门控）/ data（拉取+心跳+错误toast+undoLast）/ selection / dnd（卡片拖拽+拖图分区）/ rename（改名+字段就地编辑）/ menu（右键/中键滑动+回弹+菜单）/ create（弹框）/ marquee（框选）/ zoom（滑块+Ctrl滚轮连续缩放）/ keyboard（快捷键+方向键）/ trash（垃圾桶弹窗）/ main（入口接线）
 - 改名：`cmd_rename_shot`（queue.py）四层联动实现
-- 测试：改完跑 `python3 scripts/audit.py`（21 项，含 v0.2-v0.4 全部端点）+ `python3 scripts/audit_context_menu.py`（右键 4 项）；网页 JS 改动另需 webbridge 全交互回归
+- 测试：改完跑 `python3 scripts/audit.py`（34 项，含 v0.2-v0.5 全部端点+垃圾桶/撤销链）+ `python3 scripts/audit_context_menu.py`（右键 4 项）；网页 JS 改动另需 webbridge 全交互回归

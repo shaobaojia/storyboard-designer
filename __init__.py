@@ -1,7 +1,7 @@
 bl_info = {
     "name": "Storyboard Designer",
     "author": "Hermes",
-    "version": (0, 4, 0),
+    "version": (0, 5, 0),
     "blender": (4, 5, 0),
     "location": "View3D > Sidebar > Storyboard",
     "description": "Quick previs/storyboard design system",
@@ -118,9 +118,16 @@ class STORYBOARD_OT_open_manager(bpy.types.Operator):
     def execute(self, context):
         import webbrowser
         server = get_server()
-        port = server.port if server and server.running else 8089
-        webbrowser.open(f"http://localhost:{port}")
-        self.report({'INFO'}, f"Opened http://localhost:{port}")
+        if not (server and server.running):
+            # 服务没起就当场拉起（正常情况下插件加载已自动起好）
+            project_dir = _get_project_dir()
+            if not project_dir:
+                self.report({'ERROR'}, "Save blend file first")
+                return {'CANCELLED'}
+            server = start_server(project_dir, port=8089)
+            ensure_timer()
+        webbrowser.open(f"http://localhost:{server.port}")
+        self.report({'INFO'}, f"Opened http://localhost:{server.port}")
         return {'FINISHED'}
 
 
@@ -312,16 +319,15 @@ class STORYBOARD_PT_panel(bpy.types.Panel):
 
         row = layout.row(align=True)
         row.operator("storyboard.init_project", icon='FILE_NEW')
-        row.operator("storyboard.start_server", icon='PLAY')
-        row.operator("storyboard.stop_server", icon='PAUSE')
 
-        # Server status
+        # Server status (插件加载即自动服务，无需手动开关)
         server = get_server()
         if server and server.running:
             layout.label(text=f"Server: 0.0.0.0:{server.port} (LAN)", icon='URL')
             layout.operator("storyboard.open_manager", icon='URL')
         else:
-            layout.label(text="Server: stopped", icon='X')
+            layout.label(text="Server: starting...", icon='TIME')
+            layout.operator("storyboard.open_manager", icon='URL')
 
         layout.separator()
 
@@ -358,13 +364,42 @@ classes = (
 )
 
 
+# --- Auto-start server: 插件加载即服务，跟随文件加载/首次保存 ---
+def _auto_start_server():
+    try:
+        project_dir = _get_project_dir()
+        if not project_dir:
+            return None  # 文件还没保存过，等 save_post
+        server = get_server()
+        if server and server.running and server.project_dir == project_dir:
+            return None
+        start_server(project_dir, port=8089)
+        ensure_timer()
+        print(f"[Storyboard] auto-started on port {get_server().port}")
+    except Exception as e:
+        print(f"[Storyboard] auto-start failed: {e}")
+    return None  # timer 只跑一次
+
+
+@bpy.app.handlers.persistent
+def _on_file_loaded(*_args):
+    bpy.app.timers.register(_auto_start_server, first_interval=0.5)
+
+
 def register():
     for cls in classes:
         bpy.utils.register_class(cls)
+    bpy.app.handlers.load_post.append(_on_file_loaded)
+    bpy.app.handlers.save_post.append(_on_file_loaded)
+    # 插件在已打开文件里启用时立即尝试
+    bpy.app.timers.register(_auto_start_server, first_interval=0.5)
 
 
 def unregister():
     stop_server()
+    for h in (bpy.app.handlers.load_post, bpy.app.handlers.save_post):
+        if _on_file_loaded in h:
+            h.remove(_on_file_loaded)
     for cls in reversed(classes):
         bpy.utils.unregister_class(cls)
 

@@ -1,11 +1,14 @@
-// 卡片拖拽排序（支持整组移动）+ 拖图落点分流
+// 卡片拖拽排序（支持整组移动）+ 拖图分区（卡片区/新建区）
 import { state, grid } from './state.js';
 import { renderGrid } from './render.js';
 import { toast } from './ui.js';
 import { fetchShots } from './data.js';
 
 export function isFileDrag(e) {
-    return e.dataTransfer && [...e.dataTransfer.types].includes('Files');
+    if (!e.dataTransfer) return false;
+    const types = [...e.dataTransfer.types];
+    // 内部卡片拖拽带 text/x-shot-id 标记，永远不算文件拖拽
+    return types.includes('Files') && !types.includes('text/x-shot-id');
 }
 
 async function reorderShots(srcId, dstId) {
@@ -89,7 +92,7 @@ export function initCardDnd() {
     });
 }
 
-// ---- 外部图片拖入：空白=新建镜头，卡片=设背景 ----
+// ---- 外部图片拖入：上 80% 卡片区=设背景（单图），下 20% 新建区=建镜头 (#5) ----
 function readFileAsDataURL(file) {
     return new Promise((resolve, reject) => {
         const r = new FileReader();
@@ -101,36 +104,66 @@ function readFileAsDataURL(file) {
 
 export function initFileDrop() {
     let dragCounter = 0;
+    let fileHoverCard = null;
+
+    const overlay = document.getElementById('dropOverlay');
+    const zoneCard = document.getElementById('dropZoneCard');
+    const zoneNew = document.getElementById('dropZoneNew');
+
+    const setFileHover = (card) => {
+        if (fileHoverCard === card) return;
+        if (fileHoverCard) fileHoverCard.classList.remove('file-hover');
+        fileHoverCard = card;
+        if (card) card.classList.add('file-hover');
+    };
+
+    const hideOverlay = () => {
+        overlay.style.display = 'none';
+        setFileHover(null);
+    };
 
     document.addEventListener('dragenter', (e) => {
         if (!isFileDrag(e)) return;
         dragCounter++;
-        document.getElementById('dropOverlay').style.display = 'flex';
+        overlay.style.display = 'flex';
     });
     document.addEventListener('dragleave', (e) => {
         if (!isFileDrag(e)) return;
         dragCounter--;
         if (dragCounter <= 0) {
             dragCounter = 0;
-            document.getElementById('dropOverlay').style.display = 'none';
+            hideOverlay();
         }
+        if (!e.target.closest || !e.target.closest('.shot-card')) setFileHover(null);
     });
     document.addEventListener('dragover', (e) => {
-        if (isFileDrag(e)) e.preventDefault();
+        if (!isFileDrag(e)) return;
+        e.preventDefault();
+        // 多图时只有新建区可用，卡片区置灰 (#5)
+        const multi = e.dataTransfer.items && e.dataTransfer.items.length > 1;
+        zoneCard.classList.toggle('disabled', multi);
+        zoneCard.querySelector('.zone-text').textContent = multi
+            ? '暂不支持单镜头多图（下一轮）'
+            : '拖到镜头卡片上 = 设为该镜头背景';
+        setFileHover(multi ? null : (e.target.closest ? e.target.closest('.shot-card') : null));
     });
     document.addEventListener('drop', async (e) => {
         if (!isFileDrag(e)) return;
         e.preventDefault();
         e.stopPropagation();
         dragCounter = 0;
-        document.getElementById('dropOverlay').style.display = 'none';
+        hideOverlay();
 
         const files = [...e.dataTransfer.files].filter(f => /image\/(png|jpe?g|webp)/.test(f.type));
         if (!files.length) { toast('只支持 png/jpg/webp 图片', true); return; }
 
-        // 落点在卡片上 = 给该镜头设背景图（仅取第一张）
+        // 落点在卡片上 = 给该镜头设背景图（仅单图）
         const targetCard = e.target.closest('.shot-card');
         if (targetCard) {
+            if (files.length > 1) {
+                toast('暂不支持单镜头多图，请拖到下方新建区', true);
+                return;
+            }
             const shotId = targetCard.dataset.id;
             const shot = state.shots.find(s => s.id === shotId);
             toast(`正在给 ${shot ? shot.name : '镜头'} 设置背景图...`);
@@ -152,7 +185,7 @@ export function initFileDrop() {
             return;
         }
 
-        // 空白处 = 创建图片镜头
+        // 空白/新建区 = 创建图片镜头
         toast(`正在创建 ${files.length} 个图片镜头...`);
         const items = await Promise.all(files.map(async (f) => {
             const dataUrl = await readFileAsDataURL(f);

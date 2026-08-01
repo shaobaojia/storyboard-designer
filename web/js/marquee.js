@@ -10,6 +10,7 @@ export function initMarquee() {
         if (e.button !== 0) return;
         if (e.target.closest('.shot-card') || e.target.closest('.context-menu') ||
             e.target.closest('.modal-overlay') || e.target.closest('.size-slider') ||
+            e.target.closest('#statsBadge') ||
             e.target.closest('.confirm-bar') || e.target.closest('.header')) return;
         state.marqueeActive = true;
         marqueeStart = {x: e.clientX, y: e.clientY, ctrl: e.ctrlKey || e.metaKey};

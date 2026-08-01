@@ -67,8 +67,9 @@ def sync_scenes_with_db():
             orphan_scenes.append(scene_name)
 
     # Clean orphan directories on disk; migrate legacy {id} dirs to {name}_{id}
+    # (include_deleted: trash-bin shots keep their directories)
     shots_dir = os.path.join(project_dir, "shots")
-    all_shots = get_all_shots(db_path)
+    all_shots = get_all_shots(db_path, include_deleted=True)
     valid_ids = {s["id"] for s in all_shots}
     id_to_name = {s["id"]: s["name"] for s in all_shots}
     dirs_removed = 0

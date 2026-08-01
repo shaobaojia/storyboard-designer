@@ -45,6 +45,13 @@ export async function heartbeat() {
             }
         }
 
+        // 垃圾桶徽标（版本没变也要跟，因为 trash_count 自己会变）
+        if (typeof data.trash_count === 'number') {
+            const badge = document.getElementById('trashCount');
+            badge.textContent = data.trash_count;
+            badge.classList.toggle('on', data.trash_count > 0);
+        }
+
         if (state.lastVersion === null) {
             state.lastVersion = data.version;
         } else if (data.version !== state.lastVersion) {
@@ -52,6 +59,24 @@ export async function heartbeat() {
             fetchShots();
         }
     } catch (e) { /* server down, keep quiet */ }
+}
+
+// Ctrl+Z 撤销 (#6)：后端逆操作栈，栈深 20
+export async function undoLast() {
+    try {
+        const res = await fetch('/api/undo', {method: 'POST'});
+        const data = await res.json();
+        if (data.status === 'ok') {
+            toast(data.label ? `已撤销：${data.label}` : '已撤销');
+            fetchShots(true);
+        } else if (data.status === 'empty') {
+            toast('没有可撤销的操作');
+        } else {
+            toast(data.message || '撤销失败', true);
+        }
+    } catch (e) {
+        toast('撤销请求失败', true);
+    }
 }
 
 export async function loadProjectTitle() {
@@ -68,22 +93,24 @@ export async function loadProjectTitle() {
 
 export async function postShotAction(shotId, body) {
     try {
-        await fetch(`/api/shot/${shotId}`, {
+        const res = await fetch(`/api/shot/${shotId}`, {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify(body)
         });
-    } catch (e) { console.error(e); }
+        return await res.json();
+    } catch (e) { console.error(e); return null; }
 }
 
 export async function postBatch(action, ids) {
     try {
-        await fetch('/api/batch', {
+        const res = await fetch('/api/batch', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({action, shot_ids: ids})
         });
-    } catch (e) { console.error(e); }
+        return await res.json();
+    } catch (e) { console.error(e); return null; }
 }
 
 export function openShot(shotId) {

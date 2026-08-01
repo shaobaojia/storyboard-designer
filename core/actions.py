@@ -9,10 +9,12 @@ import importlib
 import json
 import os
 import re
+import uuid
 
+from core import undo
 from core.db import (
     get_db_version, create_shot, update_shot, delete_shot, get_shot,
-    get_all_shots, reorder_shots, name_exists, next_c_name, next_c_number
+    get_all_shots, get_trash, reorder_shots, name_exists, next_c_name, next_c_number
 )
 from core.paths import shot_dir
 
@@ -34,12 +36,15 @@ def list_shots(db_path):
 
 
 def get_version(db_path):
-    """Heartbeat payload: DB-content version marker + recent queue errors."""
+    """Heartbeat payload: DB-content version marker + recent queue errors
+    + trash count / undo depth for the corner badges."""
     queue_mod = importlib.import_module("core.queue")
     return {
         "status": "ok",
         "version": get_db_version(db_path),
         "errors": queue_mod.recent_errors(),
+        "trash_count": len(get_trash(db_path)),
+        "undo_label": undo.peek_label(),
     }, 200
 
 
@@ -62,7 +67,49 @@ def get_shot_by_id(db_path, shot_id):
     return {"status": "ok", "shot": shot}, 200
 
 
+def list_trash(db_path):
+    return {"status": "ok", "shots": get_trash(db_path)}, 200
+
+
+# ---------- undo ----------
+
+def undo_action(project_dir, db_path):
+    """Pop the undo stack and replay the inverse entry."""
+    item = undo.pop()
+    if not item:
+        return {"status": "empty"}, 200
+    e = item["entry"]
+    try:
+        for shot_id, fields in e.get("db", []):
+            update_shot(db_path, shot_id, **fields)
+        if e.get("reorder_ids"):
+            reorder_shots(db_path, e["reorder_ids"])
+        for s in e.get("purge", []):
+            delete_shot(db_path, s["id"])
+            _queue("delete_shot", {
+                "scene_name": s["scene_name"], "shot_name": s["name"],
+                "shot_id": s["id"], "project_dir": project_dir,
+            })
+        for cmd, params in e.get("queue", []):
+            _queue(cmd, params)
+    except Exception as ex:
+        return {"status": "error", "message": str(ex)}, 500
+    return {"status": "ok", "label": item["label"]}, 200
+
+
 # ---------- mutations ----------
+
+def _trash_one(project_dir, db_path, shot):
+    """Soft delete one shot: DB deleted=1 + scene parked under __trash__.
+    Returns the undo entry that would restore it."""
+    trash_scene = f"__trash__{shot['scene_name']}"
+    update_shot(db_path, shot["id"], deleted=1, scene_name=trash_scene)
+    _queue("trash_shot", {"scene_name": shot["scene_name"], "trash_scene_name": trash_scene})
+    return {
+        "db": [(shot["id"], {"deleted": 0, "scene_name": shot["scene_name"]})],
+        "queue": [("restore_shot", {"trash_scene_name": trash_scene,
+                                    "scene_name": shot["scene_name"]})],
+    }
 
 def create_shot_action(project_dir, db_path, data):
     name = data.get("name") or next_c_name(db_path)
@@ -85,6 +132,7 @@ def create_shot_action(project_dir, db_path, data):
         print(f"[Storyboard] Queue error: {e}")
         import traceback
         traceback.print_exc()
+    undo.push(f"新建 {name}", {"purge": [{"id": shot_id, "name": name, "scene_name": scene_name}]})
     return {"status": "ok", "id": shot_id}, 200
 
 
@@ -92,6 +140,7 @@ def create_image_shots_action(project_dir, db_path, data):
     """Create shot(s) from dropped external images.
     data: {items: [{name, duration, filename, data_base64}]}"""
     results = []
+    created = []
     for item in data.get("items", []):
         name = item.get("name") or next_c_name(db_path)
         if name_exists(db_path, name):
@@ -121,6 +170,9 @@ def create_image_shots_action(project_dir, db_path, data):
             "project_dir": project_dir,
         })
         results.append({"name": name, "status": "ok", "id": shot_id})
+        created.append({"id": shot_id, "name": name, "scene_name": scene_name})
+    if created:
+        undo.push(f"新建 {len(created)} 个图片镜头", {"purge": created})
     return {"status": "ok", "results": results}, 200
 
 
@@ -130,12 +182,30 @@ def sync_action():
 
 
 def reorder_action(db_path, data):
+    old_ids = [s["id"] for s in get_all_shots(db_path)]
     reorder_shots(db_path, data.get("shot_ids", []))
+    undo.push("拖拽排序", {"reorder_ids": old_ids})
     return {"status": "ok"}, 200
 
 
+def _duplicate_one(project_dir, db_path, shot, new_name):
+    """Queue one duplicate: copy lands right after the source, undo = purge it."""
+    new_id = uuid.uuid4().hex[:8]
+    _queue("duplicate_shot", {
+        "scene_name": shot["scene_name"],
+        "new_name": new_name,
+        "project_dir": project_dir,
+        "shot_id": new_id,
+        "after_id": shot["id"],
+    })
+    undo.push(f"复制 {shot['name']}", {
+        "purge": [{"id": new_id, "name": new_name, "scene_name": f"Shot_{new_name}"}]
+    })
+    return new_name
+
+
 def batch_action(project_dir, db_path, data):
-    """Batch ops on a set of shots: delete / rerender / duplicate / rename_seq."""
+    """Batch ops on a set of shots: delete / rerender / duplicate / rename_seq / purge."""
     action = data.get("action", "")
     shot_ids = data.get("shot_ids", [])
     done, errors = 0, []
@@ -154,6 +224,8 @@ def batch_action(project_dir, db_path, data):
             continue
         try:
             if action == "delete":
+                undo.push(f"删除 {shot['name']}", _trash_one(project_dir, db_path, shot))
+            elif action == "purge":
                 delete_shot(db_path, sid)
                 _queue("delete_shot", {
                     "scene_name": shot["scene_name"],
@@ -170,11 +242,7 @@ def batch_action(project_dir, db_path, data):
             elif action == "duplicate":
                 new_name = f"c{next_num:04d}"
                 next_num += 10
-                _queue("duplicate_shot", {
-                    "scene_name": shot["scene_name"],
-                    "new_name": new_name,
-                    "project_dir": project_dir,
-                })
+                _duplicate_one(project_dir, db_path, shot, new_name)
             else:
                 return {"status": "error", "message": "unknown action"}, 400
             done += 1
@@ -230,6 +298,20 @@ def _batch_rename_seq(project_dir, db_path, shot_ids):
             "new_name": candidate,
             "project_dir": project_dir,
         })
+    # Undo: same two-phase dance in reverse
+    inv = []
+    for shot, candidate in assignments:
+        inv.append(("rename_shot", {
+            "shot_id": shot["id"], "old_name": candidate,
+            "new_name": f"__un_{shot['id']}", "project_dir": project_dir,
+        }))
+    for shot, candidate in assignments:
+        inv.append(("rename_shot", {
+            "shot_id": shot["id"], "old_name": f"__un_{shot['id']}",
+            "new_name": shot["name"], "project_dir": project_dir,
+        }))
+    if inv:
+        undo.push(f"批量重命名 {len(assignments)} 个镜头", {"queue": inv})
     return {"status": "ok", "done": len(assignments), "errors": []}, 200
 
 
@@ -239,7 +321,14 @@ def shot_action(project_dir, db_path, shot_id, data):
     action = data.get("action", "")
 
     if action == "update":
-        update_shot(db_path, shot_id, **data.get("fields", {}))
+        fields = data.get("fields", {})
+        old = get_shot(db_path, shot_id)
+        if not old:
+            return {"status": "error", "message": "not found"}, 404
+        update_shot(db_path, shot_id, **fields)
+        old_fields = {k: old[k] for k in fields if k in old}
+        if old_fields:
+            undo.push(f"修改 {old['name']}", {"db": [(shot_id, old_fields)]})
         return {"status": "ok"}, 200
 
     # All actions below need the shot record
@@ -260,6 +349,12 @@ def shot_action(project_dir, db_path, shot_id, data):
             "old_name": shot["name"],
             "new_name": new_name,
             "project_dir": project_dir,
+        })
+        undo.push(f"改名 {shot['name']}→{new_name}", {
+            "queue": [("rename_shot", {
+                "shot_id": shot_id, "old_name": new_name,
+                "new_name": shot["name"], "project_dir": project_dir,
+            })]
         })
         return {"status": "ok", "message": "queued"}, 200
 
@@ -286,6 +381,32 @@ def shot_action(project_dir, db_path, shot_id, data):
         return {"status": "ok", "message": "queued"}, 200
 
     elif action == "delete":
+        # Soft delete: shot goes to the trash bin (restorable, undoable)
+        undo.push(f"删除 {shot['name']}", _trash_one(project_dir, db_path, shot))
+        return {"status": "ok"}, 200
+
+    elif action == "restore":
+        # Back from the trash bin
+        if not shot.get("deleted"):
+            return {"status": "ok", "message": "not in trash"}, 200
+        orig_scene = shot["scene_name"].replace("__trash__", "", 1)
+        if name_exists(db_path, shot["name"], exclude_id=shot_id):
+            return {"status": "error", "message": f"name taken: {shot['name']}"}, 409
+        update_shot(db_path, shot_id, deleted=0, scene_name=orig_scene)
+        _queue("restore_shot", {
+            "trash_scene_name": shot["scene_name"],
+            "scene_name": orig_scene,
+        })
+        # Restoring is itself undoable (inverse = trash it again)
+        undo.push(f"恢复 {shot['name']}", {
+            "db": [(shot_id, {"deleted": 1, "scene_name": shot["scene_name"]})],
+            "queue": [("trash_shot", {"scene_name": orig_scene,
+                                      "trash_scene_name": shot["scene_name"]})],
+        })
+        return {"status": "ok"}, 200
+
+    elif action == "purge":
+        # Permanent delete from the trash bin — NOT undoable
         delete_shot(db_path, shot_id)
         _queue("delete_shot", {
             "scene_name": shot["scene_name"],
@@ -309,11 +430,7 @@ def shot_action(project_dir, db_path, shot_id, data):
 
     elif action == "duplicate":
         new_name = data.get("new_name") or next_c_name(db_path)
-        _queue("duplicate_shot", {
-            "scene_name": shot["scene_name"],
-            "new_name": new_name,
-            "project_dir": project_dir,
-        })
+        new_name = _duplicate_one(project_dir, db_path, shot, new_name)
         return {"status": "ok", "message": "queued", "new_name": new_name}, 200
 
     return {"status": "error", "message": "unknown action"}, 400
