@@ -60,18 +60,25 @@ function buildCard(shot, eager) {
     return el;
 }
 
-// 骨架屏 (#1)：数据到达前先铺 3 屏呼吸微光空卡片
+// 骨架屏 (#1/#3)：独立覆盖层盖在真实宫格上，揭幕时交叉淡化，全程无黑屏
 export function showSkeleton() {
     const n = Math.min(screenCardCount(3), 90);
-    const frag = document.createDocumentFragment();
+    const layer = document.createElement('div');
+    layer.id = 'skelLayer';
     for (let i = 0; i < n; i++) {
         const d = document.createElement('div');
         d.className = 'skel-card';
         d.innerHTML = '<div class="skel-thumb"></div><div class="skel-line"></div>';
-        frag.appendChild(d);
+        layer.appendChild(d);
     }
-    grid.innerHTML = '';
-    grid.appendChild(frag);
+    document.getElementById('gridWrap').appendChild(layer);
+}
+
+function removeSkeleton() {
+    const layer = document.getElementById('skelLayer');
+    if (!layer) return;
+    layer.classList.add('out');
+    setTimeout(() => layer.remove(), 420);
 }
 
 export function renderGrid() {
@@ -108,8 +115,30 @@ export function renderGrid() {
             if (el && el.querySelector('input') && state.editingId === shot.id) {
                 state.editingId = null;
             }
+            const oldEl = el;  // 已有卡片重建 = 静默换脸，绝不再放 fade-in (#2)
             el = buildCard(shot, state.firstLoadDone ? true : idx < eagerCount);
-            newCards.push(el);
+            if (oldEl) {
+                // img 移植：src 没变就把加载好的旧 img 直接挪过来，零闪烁；
+                // src 变了（新拍屏）只给新 img 做透明度渐变，卡片本身不动
+                const oldImg = oldEl.querySelector('img.shot-thumb');
+                const newImg = el.querySelector('img.shot-thumb');
+                if (oldImg && newImg) {
+                    if (newImg.src === oldImg.src && oldImg.complete) {
+                        newImg.replaceWith(oldImg);
+                    } else if (newImg.src !== oldImg.src) {
+                        newImg.style.opacity = '0';
+                        newImg.style.transition = 'opacity 0.25s';
+                        const show = () => { newImg.style.opacity = '1'; };
+                        if (newImg.complete) show();
+                        else {
+                            newImg.addEventListener('load', show, { once: true });
+                            newImg.addEventListener('error', show, { once: true });
+                        }
+                    }
+                }
+            } else {
+                newCards.push(el);  // 只有真正新来的卡片才播入场动画
+            }
         }
         idx++;
         fragment.appendChild(el);
@@ -148,12 +177,12 @@ function gateFirstReveal() {
     const total = Math.max(imgs.length, 1);
     let settled = 0;
     let finished = false;
-    grid.classList.add('preload');
+    // 真实卡片不再隐身——骨架层盖在上面，揭幕时两层交叉淡化，无黑屏 (#3)
 
     const finish = () => {
         if (finished) return;
         finished = true;
-        grid.classList.remove('preload');
+        removeSkeleton();  // 骨架层淡出 350ms，下面真实卡片同步波浪入场
         // 波浪式错峰入场：每张卡片延迟 25ms 递增（上限 700ms）
         cards.forEach((el, i) => {
             el.style.animationDelay = `${Math.min(i * 25, 700)}ms`;

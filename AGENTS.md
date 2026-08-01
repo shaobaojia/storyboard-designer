@@ -61,9 +61,19 @@ Blender 4.5 分镜设计插件——面板操作 + 内嵌 HTTP 服务 + SQLite �
 
 ## 正在做
 
-- v0.6.0（第四轮 9 条）已部署家 PC Blender 4.5，audit 37/37 + webbridge 回归全 PASS，本地已 commit，**待用户发话再推 GitHub**
+- v0.6.1（第五轮 5 条修复）已部署家 PC Blender 4.5，audit 37/37 + webbridge 回归全 PASS，本地已 commit，**待用户发话再推 GitHub**
 - 公司 PC 部署的是旧版，如反馈良好需同步部署
-- **用户需手动存一次盘**：第三轮审计的 c0220-c0270 场景残留被用户上一次保存烤进了 .blend，重启会被 sync 复活成幽灵镜头；运行时已 purge 干净，存盘后磁盘才真正干净
+- ~~用户需手动存一次盘~~ 已解决（v0.6.1 期间由 MCP `save_mainfile` 存盘，孤儿场景除根）
+- 橡皮筋新手感（跟手弹簧）只能前台手感验收，后台标签页 rAF 不跑测不了
+
+## 第五轮（v0.6.1）清单
+
+1. **卡片缩放左对齐**：`.grid justify-content: start`
+2. **增减镜头整个闪/改名闪两下**：双根因——已有 id 重建也放 fade-in + 改名时 thumb_path 变触发 thumb_ver 误增白白重载图片。修复：`update_shot` 加 `thumb_fresh` 门控（只有拍屏路径显式传 True 才 bump）；renderGrid 已有卡片**静默重建**（不放 fade-in），img 移植（src 没变直接挪旧 img 节点，变了只给新 img 透明度渐变），只有新 id 才播入场。webbridge 验证：两轮视图强重建 21/21 img 节点原位保留
+3. **骨架屏与卡片间半秒黑屏**：根因=数据一到骨架即被 innerHTML 清空，真实卡片却在隐身等图。修复：骨架改独立覆盖层 `#skelLayer`（absolute 盖 `#gridWrap`），真实卡片不隐身，揭幕时骨架淡出 350ms + 卡片波浪入场交叉淡化
+4. **图片镜头背景图神秘消失 = 改名断链**（主犯）：`cmd_rename_shot` 改目录但不重指相机背景图绝对路径→原目录改名后 bg 图断链被 Blender 丢弃。修复：rename 步骤 3.5 重指 `bg.image.filepath` 到新目录+reload。共犯=duplicate：FULL_COPY 共享图片数据块，源被 purge 副本图也死——复制时 bg 文件 copy2 到新 shot 目录并 `bpy.data.images.load` 独立数据块
+5. **橡皮筋重做=iPhone 跟手物理**：过冲量 `ov` 是唯一状态，拖动/惯性/弹簧都读写它。拖动撞墙方向吃 0.45 阻力累加 ov（全程跟手），回拉方向 1:1 先消过冲再滚动；松手 ov≠0 进欠阻尼弹簧（`ovVel += -ov*0.14*dt; *=0.76^dt`，5→12→10 冲线缓出）；惯性撞墙把 `-vy*0.55` 当初速交棒弹簧；**mousedown 取消动画但保留 ov**，重新按住从当前位置无缝接手；上限 ±160px
+- **附带修复（ hang 级）**：`cmd_delete_shot`/面板删除改用 `bpy.data.batch_remove` + 临时关 `use_global_undo`——重场景删除会写整文件撤销快照，1.4GB 文件卡死数分钟（本轮清孤儿场景实测复现 3 次）
 
 ## 第四轮（v0.6.0）清单
 
@@ -72,7 +82,7 @@ Blender 4.5 分镜设计插件——面板操作 + 内嵌 HTTP 服务 + SQLite �
 ## 性能机制（v0.6.0 起）
 
 - DB 版本号 = `COUNT-meta.rev`：meta 表单行整数，任何写入（含排序）都 +1，心跳 0.8s 缓存，200 镜头无压力
-- 图片 URL 只带 `?v=thumb_ver`；`update_shot` 检测到非空 thumb_path 自动 thumb_ver+1（覆盖所有拍屏路径，不用逐个调用点）
+- 图片 URL 只带 `?v=thumb_ver`；`update_shot` 只在显式传 `thumb_fresh=True` 且 thumb_path 非空时 bump（改名也会带 thumb_path 更新，不 bump——v0.6.1 前无门控，改名都白白重载图片）
 - 首屏预载窗口：前 3 屏 eager、更远处 lazy；揭幕只等首屏（约一屏卡片），不等全量
 - `reorder_shots` 只改 seq 不碰 updated_at——排序不再触发任何卡片重建/图片重载
 
@@ -107,6 +117,9 @@ Blender 4.5 分镜设计插件——面板操作 + 内嵌 HTTP 服务 + SQLite �
 - **API 删场景只删运行时，磁盘文件会复活幽灵**：queue delete/purge 删的是当前进程的场景，.blend 没存盘的话重启后场景原样回来，sync-on-load 还会给它们重建 DB 记录——审计清理并不等于磁盘干净。要真正除根：运行干净后存一次盘。重启后镜头数莫名变多，先怀疑这个。
 - **updated_at 不能进图片 URL/差分键**：它会被排序、改文本等任何写操作刷新，一刷就是全卡片重建+全图片重载（"噼里啪啦"的根因）。图片版本要用独立的 thumb_ver（只在拍屏完成时 +1）；差分键同理只放内容字段。
 - **hidden 标签页 rAF 直接不跑**：`document.visibilityState==='hidden'` 时 requestAnimationFrame 完全停摆——惯性滑行、橡皮筋、rAF 节流的缩放在后台标签页测试全表现为"没反应"，`Page.bringToFront` 也救不回（用户切走就失效）。这类动效只能前台实测或数学离线验证。
+- **重场景删除 = 整文件撤销快照卡死**：`bpy.data.scenes.remove(s)` 在全局撤销开启时会给整个 .blend 写一份撤销快照，1.4GB 文件直接卡死数分钟（MCP/HTTP 全假死，进程活着）。解法：`use_global_undo=False` + `bpy.data.batch_remove(ids=(s,))`，0.0s 瞬删；`cmd_delete_shot` 和面板删除已改此路径。手动 MCP 清场景必须同款写法。
+- **改名会断相机背景图**：bg.image 是绝对路径，`cmd_rename_shot` 改完目录不重指 `bg.image.filepath`，原目录没了图就被 Blender 静默丢弃（"图片镜头背景神秘消失"的根因）；rename 必须顺手重指+reload。同理 `FULL_COPY` 复制的场景共享图片数据块，purge 源镜头会带走副本的图——duplicate 时 bg 文件要 copy2 到新目录 + `images.load` 独立数据块。
+- **骨架屏不能"先撤再播"**：数据一到就 innerHTML 清掉骨架、真实卡片还在隐身等图 = 半秒黑屏。正确姿势：骨架是独立覆盖层，真实卡片一直在底下，揭幕=覆盖层淡出+卡片入场交叉淡化。
 
 - **热重载僵尸线程**：`del sys.modules` 重载插件后旧 HTTP server 的 `serve_forever` 线程杀不掉，新旧 handler 随机抢请求 → 表现为"代码改了但请求没走新路径"。判断：`threading.enumerate()` 查 serve_forever 数量 >1 就是脏了。解法：重启 Blender。
 - **`bpy.ops.render.opengl` 只读真实视口状态**：temp_override 里改 context 对它无效——它读的是你屏幕上实际看到的视口。要切相机视角必须直接改 `space.region_3d.view_perspective`。

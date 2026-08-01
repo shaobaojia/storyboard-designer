@@ -139,7 +139,7 @@ def update_shot(db_path, shot_id, **kwargs):
     if not updates:
         return False
 
-    bump_thumb = bool(updates.get("thumb_path"))
+    bump_thumb = bool(kwargs.get("thumb_fresh")) and bool(updates.get("thumb_path"))
     updates["updated_at"] = datetime.now().isoformat()
     set_parts = [f"{k} = ?" for k in updates.keys()]
     values = list(updates.values())

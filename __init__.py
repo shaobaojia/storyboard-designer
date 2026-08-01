@@ -1,7 +1,7 @@
 bl_info = {
     "name": "Storyboard Designer",
     "author": "Hermes",
-    "version": (0, 6, 0),
+    "version": (0, 6, 1),
     "blender": (4, 5, 0),
     "location": "View3D > Sidebar > Storyboard",
     "description": "Quick previs/storyboard design system",
@@ -179,7 +179,8 @@ class STORYBOARD_OT_create_shot(bpy.types.Operator):
                 context.window.scene = prev
             update_shot(db_path, shot_id,
                         still_path=paths["still_path"],
-                        thumb_path=paths["thumb_path"])
+                        thumb_path=paths["thumb_path"],
+                        thumb_fresh=True)
         except Exception as e:
             print(f"[Storyboard] Auto-render after panel create failed: {e}")
 
@@ -226,7 +227,8 @@ class STORYBOARD_OT_render_shot(bpy.types.Operator):
         # Update DB
         update_shot(db_path, shot["id"],
                     still_path=still_path,
-                    thumb_path=thumb_path)
+                    thumb_path=thumb_path,
+                    thumb_fresh=True)
 
         self.report({'INFO'}, f"Rendered: {shot['name']}")
         return {'FINISHED'}
@@ -288,8 +290,14 @@ class STORYBOARD_OT_delete_shot(bpy.types.Operator):
         # Delete DB record
         delete_shot(db_path, shot["id"])
 
-        # Delete scene
-        bpy.data.scenes.remove(scene)
+        # Delete scene（重场景瞬删：batch_remove + 临时关全局撤销，避免整文件撤销快照卡死）
+        prefs = bpy.context.preferences.edit
+        undo_was = prefs.use_global_undo
+        prefs.use_global_undo = False
+        try:
+            bpy.data.batch_remove(ids=(scene,))
+        finally:
+            prefs.use_global_undo = undo_was
 
         self.report({'INFO'}, f"Deleted shot: {shot['name']}")
         return {'FINISHED'}

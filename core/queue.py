@@ -129,7 +129,8 @@ def _render_and_update(scene, shot_id, shot_name, project_dir):
 
     update_shot(get_db_path(project_dir), shot_id,
                 still_path=paths["still_path"],
-                thumb_path=paths["thumb_path"])
+                thumb_path=paths["thumb_path"],
+                thumb_fresh=True)  # 真拍屏才 bump thumb_ver，网页只刷新这张图
     return paths
 
 
@@ -236,6 +237,29 @@ def cmd_duplicate_shot(params):
     shot_dir = os.path.join(project_dir, "shots", f"{new_name}_{shot_id}")
     os.makedirs(shot_dir, exist_ok=True)
 
+    # The copy gets its OWN background image files: FULL_COPY shares the image
+    # datablocks with the source, so purging/renaming the source would break
+    # the copy's background (v0.6.1 bugfix, companion to the rename repoint).
+    if new_scene.camera and new_scene.camera.data:
+        import shutil as _shutil
+        for bg in new_scene.camera.data.background_images:
+            img = bg.image
+            if not img or not img.filepath:
+                continue
+            try:
+                src_p = bpy.path.abspath(img.filepath)
+            except Exception:
+                continue
+            if not os.path.exists(src_p):
+                continue
+            dst_p = os.path.join(shot_dir, os.path.basename(src_p))
+            try:
+                if os.path.normpath(src_p) != os.path.normpath(dst_p):
+                    _shutil.copy2(src_p, dst_p)
+                bg.image = bpy.data.images.load(dst_p)
+            except Exception as e:
+                print(f"[Storyboard] Duplicate bg copy failed: {e}")
+
     # Insert the copy right after the source shot (not at the end)
     after_id = params.get("after_id")
     if after_id:
@@ -275,7 +299,15 @@ def cmd_delete_shot(params):
                     bpy.context.window.scene = fallback
         except Exception:
             pass  # No window context (timer/headless) - proceed anyway
-        bpy.data.scenes.remove(scene, do_unlink=True)
+        # 重场景 + 全局撤销：scenes.remove() 会给整个 .blend 写一份撤销快照，
+        # 大文件下能卡死几分钟。batch_remove + 临时关全局撤销是瞬删。
+        prefs = bpy.context.preferences.edit
+        undo_was = prefs.use_global_undo
+        prefs.use_global_undo = False
+        try:
+            bpy.data.batch_remove(ids=(scene,))
+        finally:
+            prefs.use_global_undo = undo_was
 
     # Clean up shot directory (new + legacy formats)
     if project_dir and shot_id:
@@ -355,13 +387,37 @@ def cmd_rename_shot(params):
     # 3) Directory rename ({old}_{id} or legacy {id} -> {new}_{id})
     new_dir_rel = f"{new_name}_{shot_id}"
     shots_root = os.path.join(project_dir, "shots")
+    moved_old = moved_new = None
     for cand in (f"{old_name}_{shot_id}", shot_id):
         old_dir = os.path.join(shots_root, cand)
         if os.path.exists(old_dir) and cand != new_dir_rel:
             new_dir = os.path.join(shots_root, new_dir_rel)
             if not os.path.exists(new_dir):
                 os.rename(old_dir, new_dir)
+                moved_old, moved_new = old_dir, new_dir
             break
+
+    # 3.5) Camera background images pointing into the old directory must be
+    # repointed — otherwise their absolute paths dangle and the picture is
+    # lost on next file load (v0.6.1 bugfix: rename kills image-shot bgs)
+    if moved_new and target_scene and target_scene.camera and target_scene.camera.data:
+        old_norm = os.path.normpath(moved_old)
+        for bg in target_scene.camera.data.background_images:
+            img = bg.image
+            if not img or not img.filepath:
+                continue
+            try:
+                abs_p = os.path.normpath(bpy.path.abspath(img.filepath))
+            except Exception:
+                continue
+            if os.path.dirname(abs_p) == old_norm:
+                new_p = os.path.join(moved_new, os.path.basename(abs_p))
+                if os.path.exists(new_p):
+                    img.filepath = new_p
+                    try:
+                        img.reload()
+                    except Exception:
+                        pass
 
     # 4) DB update (paths follow the new directory)
     still_path = os.path.join(shots_root, new_dir_rel, "still.png")

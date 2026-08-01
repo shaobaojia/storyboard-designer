@@ -149,32 +149,50 @@ export function initContextMenu() {
     // 浏览器默认右键菜单全局抑制（镜头菜单由下面的 mouseup 逻辑触发）
     document.addEventListener('contextmenu', (e) => e.preventDefault());
 
-    // ---- 右键/中键语义：原地松开=菜单（仅右键），拖动=惯性滑动，撞墙橡皮筋 ----
+    // ---- 右键/中键语义：原地松开=菜单（仅右键），拖动=惯性滑动 + iPhone 跟手橡皮筋 ----
     let rDown = null;
     const isPanButton = (e) => e.button === 2 || e.button === 1;  // #4 中键同款
 
-    // 橡皮筋过冲 (#5)：只对 #grid 做 transform，sticky/fixed 元素纹丝不动
-    let overshootRaf = null;
-    function rubberBand(vy) {
-        if (overshootRaf) cancelAnimationFrame(overshootRaf);
-        const gridEl = document.getElementById('grid');
-        const amp = Math.min(Math.max(Math.abs(vy) * 6, 24), 120);  // 上限 120px
-        const dir = vy > 0 ? -1 : 1;  // 向下滚动撞底墙 → 内容向上冲
-        const t0 = performance.now();
-        const DUR = 520;
-        const tick = (t) => {
-            const p = Math.min((t - t0) / DUR, 1);
-            // 欠阻尼：冲过墙 → 小幅回摆 → 定在墙边
-            const f = Math.sin(p * Math.PI * 1.15) * Math.exp(-2.6 * p);
-            gridEl.style.transform = `translateY(${dir * amp * f}px)`;
-            if (p < 1) {
-                overshootRaf = requestAnimationFrame(tick);
-            } else {
-                gridEl.style.transform = '';
-                overshootRaf = null;
+    // 橡皮筋物理 (#5)：过冲量 ov 是唯一状态，拖动/惯性/弹簧都读写它。
+    // 拖动全程跟手：撞墙方向吃 0.45 阻力，回拉方向 1:1 先消过冲再滚动；
+    // 松手/惯性撞墙进入欠阻尼弹簧（5→12→10 冲线感），手指再按下立即从当前位置接手。
+    let glideRaf = null;
+    let springRaf = null;
+    let ov = 0;      // 竖向过冲位移 px（>0 内容被拉向下，<0 向上）
+    let ovVel = 0;   // 过冲速度 px/帧
+    const OV_MAX = 160;
+    const RESIST = 0.45;  // 撞墙方向阻力系数
+
+    function applyOv() {
+        const el = document.getElementById('grid');
+        el.style.transform = ov ? `translateY(${ov}px)` : '';
+    }
+    // 取消滑行/弹簧动画；keepOv=true 时保留当前过冲位置（重新按住 = 从当前位置接手）
+    function cancelMotion(keepOv) {
+        if (glideRaf) { cancelAnimationFrame(glideRaf); glideRaf = null; }
+        if (springRaf) { cancelAnimationFrame(springRaf); springRaf = null; }
+        if (!keepOv) { ov = 0; ovVel = 0; applyOv(); }
+    }
+    // 欠阻尼弹簧回正：自然缓出，无生硬截断，可被 mousedown 随时打断
+    function startSpring(initVel) {
+        if (typeof initVel === 'number') ovVel = initVel;
+        if (springRaf) cancelAnimationFrame(springRaf);
+        let lastT = performance.now();
+        const step = (t) => {
+            const dt = Math.min((t - lastT) / 16.67, 3);
+            lastT = t;
+            ovVel += -ov * 0.14 * dt;      // 弹簧拉力
+            ovVel *= Math.pow(0.76, dt);   // 阻尼
+            ov += ovVel * dt;
+            if (Math.abs(ov) < 0.4 && Math.abs(ovVel) < 0.4) {
+                ov = 0; ovVel = 0; applyOv();
+                springRaf = null;
+                return;
             }
+            applyOv();
+            springRaf = requestAnimationFrame(step);
         };
-        overshootRaf = requestAnimationFrame(tick);
+        springRaf = requestAnimationFrame(step);
     }
 
     document.addEventListener('mousedown', (e) => {
@@ -182,12 +200,8 @@ export function initContextMenu() {
         if (e.target.closest('.context-menu') || e.target.closest('.modal-overlay') ||
             e.target.closest('.confirm-bar')) return;
         if (e.button === 1) e.preventDefault();  // 杀掉浏览器中键自动滚动图标
-        // 重新抓取而过冲还在播：立即复位，避免手感粘滞
-        if (overshootRaf) {
-            cancelAnimationFrame(overshootRaf);
-            overshootRaf = null;
-            document.getElementById('grid').style.transform = '';
-        }
+        // 惯性/弹簧还在播：取消动画但保留过冲位置，手指从当前位置无缝接手
+        cancelMotion(true);
         rDown = {
             button: e.button,
             startX: e.clientX, startY: e.clientY,
@@ -207,7 +221,37 @@ export function initContextMenu() {
             state.panning = true;
         }
         if (rDown.panning) {
-            window.scrollBy(rDown.lastX - e.clientX, rDown.lastY - e.clientY);
+            const dx = rDown.lastX - e.clientX;
+            let dy = rDown.lastY - e.clientY;
+            if (ov !== 0) {
+                // 过冲态：回拉方向 1:1 先消过冲，同向继续推墙才吃阻力
+                const delta = -dy;  // 手指方向 → 内容位移方向
+                if (Math.sign(delta) === Math.sign(ov)) {
+                    ov = Math.max(-OV_MAX, Math.min(OV_MAX, ov + delta * RESIST));
+                    dy = 0;
+                } else {
+                    const newOv = ov + delta;
+                    if (newOv === 0 || Math.sign(newOv) !== Math.sign(ov)) {
+                        ov = 0;
+                        dy = -newOv;  // 消完过冲的剩余量继续滚动
+                    } else {
+                        ov = newOv;
+                        dy = 0;
+                    }
+                }
+                ovVel = 0;
+                applyOv();
+            }
+            if (dx || dy) {
+                const sy = window.scrollY;
+                window.scrollBy(dx, dy);
+                if (window.scrollY === sy && dy) {
+                    // 撞墙：滚动量按阻力转成过冲，内容跟手冲出去
+                    ov = Math.max(-OV_MAX, Math.min(OV_MAX, ov - dy * RESIST));
+                    ovVel = 0;
+                    applyOv();
+                }
+            }
             rDown.samples.push({t: performance.now(), x: e.clientX, y: e.clientY});
             if (rDown.samples.length > 8) rDown.samples.shift();
         }
@@ -222,8 +266,12 @@ export function initContextMenu() {
         state.panning = false;
 
         if (st.panning) {
-            // 惯性滑行 + 橡皮筋过冲 (#5)：撞墙瞬间把剩余速度折算成宫格过冲位移，
-            // 欠阻尼弹簧回正——手感是 5→12→10，而不是 5→10→8 弹丢位置
+            if (ov !== 0) {
+                // 松手时还在过冲态：弹簧从当前位置拉回，随时可被打断接手
+                startSpring(0);
+                return;
+            }
+            // 惯性滑行：撞墙瞬间把剩余速度折算成过冲初速，冲线后交棒给弹簧
             const first = st.samples[0];
             const last = st.samples[st.samples.length - 1];
             const dt = last.t - first.t;
@@ -231,21 +279,21 @@ export function initContextMenu() {
                 let vx = -(last.x - first.x) / dt * 16;
                 let vy = -(last.y - first.y) / dt * 16;
                 const glide = () => {
-                    if (Math.abs(vy) < 0.5 && Math.abs(vx) < 0.5) return;
+                    if (Math.abs(vy) < 0.5 && Math.abs(vx) < 0.5) { glideRaf = null; return; }
                     const sx = window.scrollX, sy = window.scrollY;
                     window.scrollBy(vx, vy);
-                    if (window.scrollY === sy && Math.abs(vy) > 4) {
-                        rubberBand(vy);  // 撞竖墙：剩余速度转过冲
-                        vy = 0;
-                    } else if (window.scrollY === sy && Math.abs(vy) >= 0.5) {
-                        vy = -vy * 0.35;
+                    if (window.scrollY === sy && Math.abs(vy) > 2) {
+                        // 撞竖墙：剩余速度变过冲初速（内容反向冲线），交棒弹簧
+                        startSpring(-vy * 0.55);
+                        glideRaf = null;
+                        return;
                     }
                     if (window.scrollX === sx && Math.abs(vx) >= 0.5) vx = -vx * 0.35;
                     vy *= 0.94;
                     vx *= 0.94;
-                    requestAnimationFrame(glide);
+                    glideRaf = requestAnimationFrame(glide);
                 };
-                requestAnimationFrame(glide);
+                glideRaf = requestAnimationFrame(glide);
             }
         } else if (st.button === 2 && st.card) {
             // 原地松开在卡片上 = 弹镜头菜单（仅右键；中键原地松开无操作）
