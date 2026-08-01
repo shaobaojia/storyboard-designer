@@ -11,6 +11,8 @@ import threading
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse
 
+import bpy
+
 from core import actions
 from core.db import init_db, get_db_path
 
@@ -106,6 +108,7 @@ class StoryboardHTTPServer:
             except Exception:
                 pass
             self.running = False
+            _unregister_instance()
             print("[Storyboard] HTTP server stopped")
 
     def _make_handler(self):
@@ -224,9 +227,73 @@ class StoryboardHTTPServer:
 # Singleton instance
 _server_instance = None
 
+# ---------------------------------------------------------------------------
+# Instance registry: every Blender process gets its own port (8089+ scanning).
+# instances.json lets external tools find which port serves which blend file.
+# ---------------------------------------------------------------------------
+def _instances_file():
+    addon_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    return os.path.join(addon_root, "instances.json")
 
-def start_server(project_dir, port=8089):
-    """Start the global HTTP server instance. Kills ALL previous instances first."""
+
+def _pid_alive(pid):
+    try:
+        import ctypes
+        h = ctypes.windll.kernel32.OpenProcess(0x1000, False, pid)  # QUERY_LIMITED_INFORMATION
+        if not h:
+            return False
+        # A dead-but-lingering process object still opens; only STILL_ACTIVE counts.
+        code = ctypes.c_ulong(0)
+        ctypes.windll.kernel32.GetExitCodeProcess(h, ctypes.byref(code))
+        ctypes.windll.kernel32.CloseHandle(h)
+        return code.value == 259  # STILL_ACTIVE
+    except Exception:
+        return True  # can't tell -> keep entry, probing will sort it out
+
+
+def _register_instance(project_dir, port):
+    try:
+        path = _instances_file()
+        entries = []
+        if os.path.exists(path):
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    entries = json.load(f)
+            except Exception:
+                entries = []
+        entries = [e for e in entries
+                   if e.get("pid") != os.getpid() and _pid_alive(e.get("pid", 0))]
+        entries.append({
+            "pid": os.getpid(),
+            "port": port,
+            "blend": bpy.data.filepath if bpy else "",
+            "project_dir": project_dir,
+            "started_at": __import__("datetime").datetime.now().isoformat(timespec="seconds"),
+        })
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(entries, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        print(f"[Storyboard] instance registry write failed (non-fatal): {e}")
+
+
+def _unregister_instance():
+    try:
+        path = _instances_file()
+        if not os.path.exists(path):
+            return
+        with open(path, "r", encoding="utf-8") as f:
+            entries = json.load(f)
+        entries = [e for e in entries if e.get("pid") != os.getpid()]
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(entries, f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+
+
+def start_server(project_dir, port=8089, max_tries=20):
+    """Start the global HTTP server instance. Kills ALL previous in-process
+    instances first, then binds the first free port from `port` upwards, so
+    multiple Blender processes each get their own HTTP service."""
     global _server_instance
     # Kill every tracked instance, including zombies from hot reloads
     for srv in list(_all_servers):
@@ -235,9 +302,20 @@ def start_server(project_dir, port=8089):
         except Exception:
             pass
     _all_servers.clear()
-    _server_instance = StoryboardHTTPServer(project_dir, port)
-    _server_instance.start()
-    return _server_instance
+    last_err = None
+    for p in range(port, port + max_tries):
+        srv = StoryboardHTTPServer(project_dir, p)
+        try:
+            srv.start()
+        except OSError as e:
+            last_err = e
+            continue
+        _server_instance = srv
+        _register_instance(project_dir, p)
+        if p != port:
+            print(f"[Storyboard] port {port} busy, fell through to {p}")
+        return srv
+    raise OSError(f"[Storyboard] no free port in {port}-{port + max_tries - 1}: {last_err}")
 
 
 def stop_server():

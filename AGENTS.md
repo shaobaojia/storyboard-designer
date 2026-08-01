@@ -21,6 +21,7 @@ Blender 4.5 分镜设计插件——面板操作 + 内嵌 HTTP 服务 + SQLite �
 - **业务逻辑下沉 `core/actions.py`**：每端点一函数返回 `(payload, status)`，handler 只做 HTTP 壳；`core/paths.py`（shot_dir/remove_shot_dirs/get_project_dir）、`core/scenes.py`（create_shot_scene 工厂，相机预设一处管）、`core/sync.py`（sync_scenes_with_db 唯一实现，干掉 sys.modules 扫描和 fallback）
 - **queue 注册表 + 错误回传**：COMMANDS name→(fn, required_params) 校验缺参；`_recent_errors` deque(10)，`/api/version` 返回 `{version, errors[]}`，前端心跳对新错误弹 error toast（首次心跳只记水位不轰炸）
 - **端口独占绑定**：`_ExclusiveThreadingHTTPServer(allow_reuse_address=False)`——Windows 的 SO_REUSEADDR 允许第二个 Blender 实例静默劫持 8089，双实例时请求随机分流、表现为"服务假死"（见坑）
+- **多实例端口顺延**：启动从 8089 起扫描（8089→8090→…最多 20 个），每个 Blender 进程独占一个端口和页面；`instances.json`（插件目录）登记 pid/端口/blend 路径，启动时清死 pid（`OpenProcess`+`GetExitCodeProcess` 判 STILL_ACTIVE，光 OpenProcess 对死进程残留对象会误判活）；面板状态/「打开分镜管理器」用实际端口；audit.py 加 `SB_HTTP_PORT` 环境变量
 - **audit.py 扩到 21 项**：新增 next_name/project/version(含 errors)/rename(四层)/duplicate 唯一性/rename_seq/set_background alpha=1.0 用例；清理逻辑改为按快照差集删一切测试产物
 - 验收方式：audit.py 21/21 PASS + webbridge 全交互回归（弹框/全选/改名/回车/双击/右键滑动/单多选菜单/Ctrl滚轮/列表拖拽排序/错误 toast）+ MCP 双端验证 + 拖图 API 直测
 
@@ -69,7 +70,7 @@ Blender 4.5 分镜设计插件——面板操作 + 内嵌 HTTP 服务 + SQLite �
 
 ## 坑（已踩过的雷）
 
-- **Windows 双 Blender 实例端口劫持**：`socketserver` 默认 `allow_reuse_address=True`，在 Windows 上 SO_REUSEADDR 语义 = 允许第二个进程绑同一端口——两个 Blender 都"成功"监听 8089/9876，连接被随机分流，表现为服务间歇性假死、curl 空响应、MCP 超时，进程却活得好好的。解法：`_ExclusiveThreadingHTTPServer(allow_reuse_address=False)`（v0.4.0 起），排查先 `netstat -ano | findstr :8089` 看是否有多个 PID 绑同一端口，有就杀到只剩一个再拉起。
+- **Windows 双 Blender 实例端口劫持**：`socketserver` 默认 `allow_reuse_address=True`，在 Windows 上 SO_REUSEADDR 语义 = 允许第二个进程绑同一端口——两个 Blender 都"成功"监听 8089/9876，连接被随机分流，表现为服务间歇性假死、curl 空响应、MCP 超时，进程却活得好好的。解法：独占绑定 + 启动顺延扫端口（v0.4.0 起 8089→8090→…）。排查先 `netstat -ano | findstr :8089` 看是否有多个 PID 绑同一端口。**注意 BlenderMCP 插件（9876）没做同样处理，多开时 9876 仍会双绑**——MCP 调试前先确认只有一个实例，或以 `netstat` 里最新绑定的 PID 为准。
 - **直接 MCP 删场景会崩 Blender**：`bpy.data.scenes.remove(s)` 与插件 queue 定时器并发时（拍屏/遍历场景中途场景没了）Blender 4.5 整个进程闪退。测试要制造孤儿镜头用**改名场景**（`s.name="Shot_X"`）代替删除；删场景永远走插件自己的 queue delete 路径。
 - **Chrome 冻结标签页 setTimeout 也被限流**：后台标签页的 `setTimeout` 被钳到分钟级，webbridge evaluate 里 `await sleep(400)` 会挂到超时——测试代码全部同步断言，异步结果（预填/toast）拆成多次 evaluate 分开读；先 `cdp Page.bringToFront` 解冻。
 - **单线程 `HTTPServer` 被 keep-alive 连接独占**：浏览器 1.5s 心跳持长连接，单线程服务会黏在这条连接上，其它请求（含 curl）全部排队卡死、接口间歇性无响应。解法：`ThreadingHTTPServer` + `daemon_threads=True`。教训：加心跳轮询前先把服务线程化。

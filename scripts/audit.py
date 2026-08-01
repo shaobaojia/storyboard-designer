@@ -17,7 +17,7 @@ import socket, json, urllib.request, time, os, sys, re
 
 MCP_HOST = os.environ.get("SB_MCP", "192.168.3.71")
 MCP_PORT = int(os.environ.get("SB_MCP_PORT", "9876"))
-HTTP = f"http://{MCP_HOST}:8089"
+HTTP = f"http://{MCP_HOST}:{os.environ.get('SB_HTTP_PORT', '8089')}"
 
 RESULTS = []  # (category, name, ok, detail)
 

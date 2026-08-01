@@ -93,7 +93,7 @@ class STORYBOARD_OT_start_server(bpy.types.Operator):
         server = start_server(project_dir, port=8089)
         # Register timer in main thread BEFORE starting server thread
         ensure_timer()
-        self.report({'INFO'}, f"Server on 0.0.0.0:8089 (LAN accessible)")
+        self.report({'INFO'}, f"Server on 0.0.0.0:{server.port} (LAN accessible)")
         return {'FINISHED'}
 
 
@@ -117,8 +117,10 @@ class STORYBOARD_OT_open_manager(bpy.types.Operator):
 
     def execute(self, context):
         import webbrowser
-        webbrowser.open("http://localhost:8089")
-        self.report({'INFO'}, "Opened http://localhost:8089")
+        server = get_server()
+        port = server.port if server and server.running else 8089
+        webbrowser.open(f"http://localhost:{port}")
+        self.report({'INFO'}, f"Opened http://localhost:{port}")
         return {'FINISHED'}
 
 
@@ -316,7 +318,7 @@ class STORYBOARD_PT_panel(bpy.types.Panel):
         # Server status
         server = get_server()
         if server and server.running:
-            layout.label(text="Server: 0.0.0.0:8089 (LAN)", icon='URL')
+            layout.label(text=f"Server: 0.0.0.0:{server.port} (LAN)", icon='URL')
             layout.operator("storyboard.open_manager", icon='URL')
         else:
             layout.label(text="Server: stopped", icon='X')
