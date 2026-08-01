@@ -182,8 +182,15 @@ export function initContextMenu() {
             const dt = Math.min((t - lastT) / 16.67, 3);
             lastT = t;
             ovVel += -ov * 0.14 * dt;      // 弹簧拉力
-            ovVel *= Math.pow(0.76, dt);   // 阻尼
+            ovVel *= Math.pow(0.70, dt);   // 阻尼（加狠了：只许回弹一下 #R6-4）
+            const prevOv = ov;
             ov += ovVel * dt;
+            if (prevOv !== 0 && Math.sign(ov) !== Math.sign(prevOv)) {
+                // 第一次过墙即落定——不 oscillate，回弹一下就够 (#R6-4)
+                ov = 0; ovVel = 0; applyOv();
+                springRaf = null;
+                return;
+            }
             if (Math.abs(ov) < 0.4 && Math.abs(ovVel) < 0.4) {
                 ov = 0; ovVel = 0; applyOv();
                 springRaf = null;

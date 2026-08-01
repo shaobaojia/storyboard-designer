@@ -61,10 +61,16 @@ Blender 4.5 分镜设计插件——面板操作 + 内嵌 HTTP 服务 + SQLite �
 
 ## 正在做
 
-- v0.6.1（第五轮 5 条修复）已部署家 PC Blender 4.5，audit 37/37 + webbridge 回归全 PASS，本地已 commit，**待用户发话再推 GitHub**
+- v0.6.2（第六轮 4 条体验修复）已部署，webbridge 回归 PASS（刷新 25/25 图片零重载零 fade-in 残留、档位缩放/滚轮跳档全对），本地已 commit，**待用户发话再推 GitHub**
 - 公司 PC 部署的是旧版，如反馈良好需同步部署
-- ~~用户需手动存一次盘~~ 已解决（v0.6.1 期间由 MCP `save_mainfile` 存盘，孤儿场景除根）
-- 橡皮筋新手感（跟手弹簧）只能前台手感验收，后台标签页 rAF 不跑测不了
+- 橡皮筋单回弹 + 骨架遮严只能前台手感/肉眼验收（后台标签页 rAF 不跑）
+
+## 第六轮（v0.6.2）清单
+
+1. **几乎所有操作闪黑**：根因=首屏/新卡的 `.fade-in` 类播完没摘——卡片每次 renderGrid 都要经过 fragment 重排 DOM，而**元素重新插入 DOM 会重播 CSS 动画**，于是任何操作都全场重播入场（opacity 0→1）= 闪黑。修复：首屏揭幕 1400ms 后统一摘类、新卡 animationend 即摘。webbridge 实测：强制刷新后 fade-in=0、25/25 img 节点原位保留
+2. **缩放改回段落式**（Eagle/Bridge 手感）：8 档固定尺寸 `[120,160,200,240,280,340,400,480]`，滑块整档吸附、Ctrl+滚轮攒够一格量跳一档；列宽仍走 `--card-min` 固定列（不回 1fr），localStorage 旧值就近取档
+3. **骨架屏顶部漏一窄条图片**：根因=`#grid` 的 `margin-top:16px` 穿透 `#gridWrap` 塌陷（margin collapsing），骨架层比真实卡片低 16px。修复：`#gridWrap` 加 `display: flow-root` 建 BFC；骨架底部块加高对齐真实卡片 shot-info
+4. **弹簧只许弹一下**：阻尼 0.76→0.70，且第一次过墙（符号翻转）即归零落定，不再 oscillate 两下
 
 ## 第五轮（v0.6.1）清单
 
@@ -120,6 +126,8 @@ Blender 4.5 分镜设计插件——面板操作 + 内嵌 HTTP 服务 + SQLite �
 - **重场景删除 = 整文件撤销快照卡死**：`bpy.data.scenes.remove(s)` 在全局撤销开启时会给整个 .blend 写一份撤销快照，1.4GB 文件直接卡死数分钟（MCP/HTTP 全假死，进程活着）。解法：`use_global_undo=False` + `bpy.data.batch_remove(ids=(s,))`，0.0s 瞬删；`cmd_delete_shot` 和面板删除已改此路径。手动 MCP 清场景必须同款写法。
 - **改名会断相机背景图**：bg.image 是绝对路径，`cmd_rename_shot` 改完目录不重指 `bg.image.filepath`，原目录没了图就被 Blender 静默丢弃（"图片镜头背景神秘消失"的根因）；rename 必须顺手重指+reload。同理 `FULL_COPY` 复制的场景共享图片数据块，purge 源镜头会带走副本的图——duplicate 时 bg 文件要 copy2 到新目录 + `images.load` 独立数据块。
 - **骨架屏不能"先撤再播"**：数据一到就 innerHTML 清掉骨架、真实卡片还在隐身等图 = 半秒黑屏。正确姿势：骨架是独立覆盖层，真实卡片一直在底下，揭幕=覆盖层淡出+卡片入场交叉淡化。
+- **CSS 动画类播完必须摘**：元素被移除再插回 DOM 会**重播**它身上的 CSS 动画。renderGrid 每次都要经过 fragment 重排所有卡片，`fade-in` 类不摘的话任何操作都全场重播入场 = 闪黑（v0.6.1 的大坑）。入场播完立即 remove 类。
+- **覆盖层对齐小心 margin 塌陷**：`#grid` 的 margin-top 会穿透无边框的 `#gridWrap` 塌陷，absolute 覆盖层（`top:16px`）因此比真实内容低 16px 漏图。父容器 `display: flow-root` 建 BFC 即解，别用 overflow:hidden（会裁掉橡皮筋过冲）。
 
 - **热重载僵尸线程**：`del sys.modules` 重载插件后旧 HTTP server 的 `serve_forever` 线程杀不掉，新旧 handler 随机抢请求 → 表现为"代码改了但请求没走新路径"。判断：`threading.enumerate()` 查 serve_forever 数量 >1 就是脏了。解法：重启 Blender。
 - **`bpy.ops.render.opengl` 只读真实视口状态**：temp_override 里改 context 对它无效——它读的是你屏幕上实际看到的视口。要切相机视角必须直接改 `space.region_3d.view_perspective`。

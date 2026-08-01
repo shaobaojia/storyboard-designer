@@ -56,7 +56,7 @@
         }
         .skel-line {
             height: 12px;
-            margin: 10px 12px 12px;
+            margin: 12px 12px 22px;  /* 底部块总高对齐真实卡片 shot-info，交叉淡化不露底 */
             border-radius: 4px;
             width: 55%;
             background: linear-gradient(100deg, #2a2a2a 30%, #333 50%, #2a2a2a 70%);
@@ -68,7 +68,9 @@
             100% { background-position: -80% 0; }
         }
         /* 骨架覆盖层 (#3)：盖在真实宫格上，揭幕时交叉淡化，全程无黑屏 */
-        #gridWrap { position: relative; }
+        /* flow-root = 建 BFC 防 #grid 的 margin-top 塌陷——
+           塌陷会让骨架层比真实卡片低 16px，顶部漏一窄条图片 (#R6-3) */
+        #gridWrap { position: relative; display: flow-root; }
         #skelLayer {
             position: absolute;
             top: 16px;
@@ -536,7 +538,7 @@
 
     <div class="size-slider">
         <span class="slider-label">缩略图</span>
-        <input type="range" id="sizeSlider" min="120" max="480" step="1" value="200">
+        <input type="range" id="sizeSlider" min="0" max="7" step="1" value="2">
         <span class="slider-label" id="sizeValue">200px</span>
         <button id="viewToggle" class="bar-btn">列表视图</button>
         <button id="trashBtn" class="bar-btn">垃圾桶<span id="trashCount"></span></button>

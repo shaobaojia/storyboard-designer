@@ -155,6 +155,8 @@ export function renderGrid() {
         // 新出现/有变化的卡片：淡入 + 缩略图加载完再淡显
         newCards.forEach(el => {
             el.classList.add('fade-in');
+            // 入场播完立刻摘类——类留着的话，下次重排 DOM 动画会重播 = 闪黑 (#R6-1)
+            el.addEventListener('animationend', () => el.classList.remove('fade-in'), {once: true});
             const img = el.querySelector('img.shot-thumb');
             if (img && !img.complete) {
                 img.style.opacity = '0';
@@ -188,9 +190,9 @@ function gateFirstReveal() {
             el.style.animationDelay = `${Math.min(i * 25, 700)}ms`;
             el.classList.add('fade-in');
         });
-        // 播完清掉延迟，避免影响后续 FLIP/悬停动画
+        // 播完清掉延迟和类：类不摘的话，卡片下次重排 DOM 会重播入场 = 全屏闪黑 (#R6-1)
         setTimeout(() => {
-            cards.forEach(el => { el.style.animationDelay = ''; });
+            cards.forEach(el => { el.style.animationDelay = ''; el.classList.remove('fade-in'); });
         }, 1400);
     };
     const tick = () => {
