@@ -453,6 +453,57 @@ print(",".join(str(b.alpha) for b in bgs) if bgs else "NONE")
            f"last={r.get('status')}")
     time.sleep(3)
 
+    # ---- 2j. R4 features --------------------------------------------------
+    print("\n[2j] R4: thumb_ver / reorder no-touch / batch restore")
+
+    # thumb_ver: only a real render bumps it; field edits & reorders never do
+    api("POST", "/api/shots", {"name": "AUDIT_TV", "duration": 2.0})
+    time.sleep(4)  # create 自带一次拍屏
+    shot = next(s for s in api("GET", "/api/shots")["shots"] if s["name"] == "AUDIT_TV")
+    v0 = shot.get("thumb_ver") or 0
+    api("POST", f"/api/shot/{shot['id']}", {"action": "update", "fields": {"content": "x"}})
+    time.sleep(1)
+    shot = next(s for s in api("GET", "/api/shots")["shots"] if s["name"] == "AUDIT_TV")
+    v1 = shot.get("thumb_ver") or 0
+    api("POST", f"/api/shot/{shot['id']}", {"action": "rerender"})
+    time.sleep(8)
+    shot = next(s for s in api("GET", "/api/shots")["shots"] if s["name"] == "AUDIT_TV")
+    v2 = shot.get("thumb_ver") or 0
+    ok = v1 == v0 and v2 == v1 + 1
+    record("web", "thumb_ver bumps only on render", ok, f"v {v0}->{v1}(edit)->{v2}(render)")
+
+    # reorder: changes version (rev) but NOT updated_at / thumb_ver
+    shots = api("GET", "/api/shots")["shots"]
+    ua_before = {s["id"]: s["updated_at"] for s in shots}
+    ver_before = api("GET", "/api/version")["version"]
+    api("POST", "/api/reorder", {"shot_ids": list(reversed([s["id"] for s in shots]))})
+    time.sleep(1)
+    shots2 = api("GET", "/api/shots")["shots"]
+    ua_same = all(ua_before.get(s["id"]) == s["updated_at"] for s in shots2)
+    ver_changed = api("GET", "/api/version")["version"] != ver_before
+    record("web", "Reorder bumps rev, leaves updated_at alone", ua_same and ver_changed,
+           f"ua_same={ua_same}, version moved={ver_changed}")
+    api("POST", "/api/undo", {})  # 恢复原顺序
+    time.sleep(1)
+
+    # batch restore: delete two, restore both in one call
+    for nm in ("AUDIT_BR1", "AUDIT_BR2"):
+        api("POST", "/api/shots", {"name": nm, "duration": 2.0})
+        time.sleep(3)
+    ids = [s["id"] for s in api("GET", "/api/shots")["shots"] if s["name"].startswith("AUDIT_BR")]
+    api("POST", "/api/batch", {"action": "delete", "shot_ids": ids})
+    time.sleep(4)
+    in_trash = len([s for s in api("GET", "/api/trash")["shots"] if s["name"].startswith("AUDIT_BR")])
+    tids = [s["id"] for s in api("GET", "/api/trash")["shots"] if s["name"].startswith("AUDIT_BR")]
+    r = api("POST", "/api/batch", {"action": "restore", "shot_ids": tids})
+    time.sleep(4)
+    back = len([s for s in api("GET", "/api/shots")["shots"] if s["name"].startswith("AUDIT_BR")])
+    ok = in_trash == 2 and r.get("done") == 2 and back == 2
+    record("web", "Batch restore from trash", ok,
+           f"trash={in_trash}, restored={r.get('done')}, back={back}")
+    api("POST", "/api/undo", {})  # 撤销批量恢复 = 回到垃圾桶，cleanup 会彻底清
+    time.sleep(3)
+
     # ---- 3. cleanup -------------------------------------------------------
     print("\n[3] Cleanup test shots")
     # soft-delete every AUDIT / audit-created c shot still in the grid...

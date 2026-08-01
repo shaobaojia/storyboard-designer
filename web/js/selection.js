@@ -46,6 +46,16 @@ export function selectAll() {
 
 export async function deleteSelection() {
     const ids = [...state.selectedIds];
+    if (!ids.length) return;
+    // 垃圾桶模式里 Delete = 彻底删除 (#3)
+    if (state.trashMode) {
+        if (await askConfirm(`彻底删除 ${ids.length} 个镜头？不可恢复。`)) {
+            await postBatch('purge', ids);
+            clearSelection();
+            fetchShots(true);
+        }
+        return;
+    }
     if (ids.length === 1) {
         const shot = state.shots.find(s => s.id === ids[0]);
         if (shot && await askConfirm(`删除 ${shot.name}？移入垃圾桶，可恢复。`)) {

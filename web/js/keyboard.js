@@ -1,7 +1,8 @@
-// 键盘快捷键：Ctrl+A 全选 / Delete 删除 / Enter 打开 / Ctrl+Z 撤销 / 方向键跳格
+// 键盘快捷键：Ctrl+A 全选 / Delete 删除 / Enter 打开 / Ctrl+Z 撤销 / 方向键跳格 / Esc 出垃圾桶
 import { state } from './state.js';
 import { selectAll, deleteSelection, updateSelectionUI } from './selection.js';
 import { openShot, undoLast } from './data.js';
+import { exitTrashMode } from './trash.js';
 import { toast } from './ui.js';
 
 function gridColumns() {
@@ -43,7 +44,6 @@ export function initKeyboard() {
     document.addEventListener('keydown', async (e) => {
         if (state.editingId) return;
         if (document.getElementById('createModal').style.display === 'flex') return;
-        if (document.getElementById('trashModal').style.display === 'flex') return;
 
         if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') {
             e.preventDefault();
@@ -51,10 +51,13 @@ export function initKeyboard() {
         } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
             e.preventDefault();
             await undoLast();
+        } else if (e.key === 'Escape' && state.trashMode) {
+            e.preventDefault();
+            exitTrashMode();
         } else if (e.key === 'Delete' && state.selectedIds.size > 0) {
             e.preventDefault();
             await deleteSelection();
-        } else if (e.key === 'Enter' && state.selectedIds.size === 1) {
+        } else if (e.key === 'Enter' && state.selectedIds.size === 1 && !state.trashMode) {
             e.preventDefault();
             const id = [...state.selectedIds][0];
             openShot(id);

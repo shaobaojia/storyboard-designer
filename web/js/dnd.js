@@ -47,7 +47,10 @@ async function reorderShots(srcId, dstId) {
 export function initCardDnd() {
     grid.addEventListener('dragstart', (e) => {
         const card = e.target.closest('.shot-card');
-        if (!card || state.editingId) return;
+        if (!card || state.editingId || state.trashMode) {  // 垃圾桶里不排序
+            e.preventDefault();
+            return;
+        }
         state.dragSrcEl = card;
         e.dataTransfer.setData('text/x-shot-id', card.dataset.id);  // 标记内部拖拽，区别于外部文件
         e.dataTransfer.effectAllowed = 'move';
@@ -120,7 +123,47 @@ export function initFileDrop() {
     const hideOverlay = () => {
         overlay.style.display = 'none';
         setFileHover(null);
+        zoneNew.classList.remove('active');
     };
+
+    const createImageShots = async (files) => {
+        const imgs = files.filter(f => /image\/(png|jpe?g|webp)/.test(f.type));
+        if (!imgs.length) { toast('只支持 png/jpg/webp 图片', true); return; }
+        toast(`正在创建 ${imgs.length} 个图片镜头...`);
+        const items = await Promise.all(imgs.map(async (f) => {
+            const dataUrl = await readFileAsDataURL(f);
+            return { filename: f.name, data_base64: dataUrl.split(',')[1] };
+        }));
+        try {
+            const res = await fetch('/api/shots/image', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({items})
+            });
+            const data = await res.json();
+            const okCount = (data.results || []).filter(r => r.status === 'ok').length;
+            toast(`已创建 ${okCount} 个图片镜头，拍屏中...`);
+        } catch (err) {
+            toast('图片镜头创建失败', true);
+        }
+        fetchShots();
+    };
+
+    // 下半新建区 (#6)：实心接管事件，高亮 + 松手直接新建，不透到下层卡片
+    zoneNew.addEventListener('dragover', (e) => {
+        if (!isFileDrag(e)) return;
+        e.preventDefault();
+        zoneNew.classList.add('active');
+    });
+    zoneNew.addEventListener('dragleave', () => zoneNew.classList.remove('active'));
+    zoneNew.addEventListener('drop', (e) => {
+        if (!isFileDrag(e)) return;
+        e.preventDefault();
+        e.stopPropagation();
+        dragCounter = 0;
+        hideOverlay();
+        createImageShots([...e.dataTransfer.files]);
+    });
 
     document.addEventListener('dragenter', (e) => {
         if (!isFileDrag(e)) return;
@@ -185,27 +228,7 @@ export function initFileDrop() {
             return;
         }
 
-        // 空白/新建区 = 创建图片镜头
-        toast(`正在创建 ${files.length} 个图片镜头...`);
-        const items = await Promise.all(files.map(async (f) => {
-            const dataUrl = await readFileAsDataURL(f);
-            return {
-                filename: f.name,
-                data_base64: dataUrl.split(',')[1]
-            };
-        }));
-        try {
-            const res = await fetch('/api/shots/image', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({items})
-            });
-            const data = await res.json();
-            const okCount = (data.results || []).filter(r => r.status === 'ok').length;
-            toast(`已创建 ${okCount} 个图片镜头，拍屏中...`);
-        } catch (err) {
-            toast('图片镜头创建失败', true);
-        }
-        fetchShots();
+        // 其它空白区域 = 也按新建处理（下半区已在 zone 级拦截，不会走到这）
+        createImageShots([...e.dataTransfer.files]);
     });
 }

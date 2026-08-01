@@ -213,6 +213,32 @@ def batch_action(project_dir, db_path, data):
     if action == "rename_seq":
         return _batch_rename_seq(project_dir, db_path, shot_ids)
 
+    if action == "restore":
+        # Batch restore from the trash bin; one grouped undo entry (re-trash all)
+        inv_db, inv_queue = [], []
+        for sid in shot_ids:
+            shot = get_shot(db_path, sid)
+            if not shot or not shot.get("deleted"):
+                continue
+            orig_scene = shot["scene_name"].replace("__trash__", "", 1)
+            if name_exists(db_path, shot["name"], exclude_id=sid):
+                errors.append(f"{shot['name']}: name taken")
+                continue
+            update_shot(db_path, sid, deleted=0, scene_name=orig_scene)
+            _queue("restore_shot", {
+                "trash_scene_name": shot["scene_name"],
+                "scene_name": orig_scene,
+            })
+            inv_db.append((sid, {"deleted": 1, "scene_name": shot["scene_name"]}))
+            inv_queue.append(("trash_shot", {
+                "scene_name": orig_scene,
+                "trash_scene_name": shot["scene_name"],
+            }))
+            done += 1
+        if inv_db:
+            undo.push(f"批量恢复 {done} 个镜头", {"db": inv_db, "queue": inv_queue})
+        return {"status": "ok", "done": done, "errors": errors}, 200
+
     # Pre-allocate c-numbers locally. DB records are created asynchronously
     # by the queue, so re-querying per iteration would hand out the SAME
     # name every time (v0.2.0 bug).

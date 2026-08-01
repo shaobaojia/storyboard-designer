@@ -15,7 +15,19 @@ export function showContextMenu(x, y, shotId) {
     state.contextShotId = shotId;
 
     const menu = document.getElementById('contextMenu');
-    if (state.selectedIds.size > 1) {
+    if (state.trashMode) {
+        // 垃圾桶模式 (#3)：只剩恢复/彻底删除
+        menu.innerHTML = state.selectedIds.size > 1
+            ? `
+            <div class="menu-title">垃圾桶 · 已选 ${state.selectedIds.size} 个</div>
+            <button data-action="batch-restore">批量恢复</button>
+            <button class="danger" data-action="batch-purge">批量彻底删除</button>
+        `
+            : `
+            <button data-action="restore">恢复</button>
+            <button class="danger" data-action="purge">彻底删除</button>
+        `;
+    } else if (state.selectedIds.size > 1) {
         menu.innerHTML = `
             <div class="menu-title">已选 ${state.selectedIds.size} 个镜头</div>
             <button data-action="batch-duplicate">批量复制</button>
@@ -93,6 +105,32 @@ async function menuAction(action) {
                 fetchShots();
             }
             break;
+        // ---- 垃圾桶模式操作 (#3) ----
+        case 'restore':
+            await postShotAction(shotId, {action: 'restore'});
+            toast(`已恢复 ${shot ? shot.name : ''}`);
+            fetchShots(true);
+            break;
+        case 'purge':
+            if (shot && await askConfirm(`彻底删除 ${shot.name}？不可恢复。`)) {
+                await postShotAction(shotId, {action: 'purge'});
+                state.selectedIds.delete(shotId);
+                fetchShots(true);
+            }
+            break;
+        case 'batch-restore':
+            await postBatch('restore', batchIds);
+            toast(`已恢复 ${batchIds.length} 个镜头`);
+            clearSelection();
+            fetchShots(true);
+            break;
+        case 'batch-purge':
+            if (await askConfirm(`彻底删除 ${batchIds.length} 个镜头？不可恢复。`)) {
+                await postBatch('purge', batchIds);
+                clearSelection();
+                fetchShots(true);
+            }
+            break;
     }
 }
 
@@ -111,15 +149,45 @@ export function initContextMenu() {
     // 浏览器默认右键菜单全局抑制（镜头菜单由下面的 mouseup 逻辑触发）
     document.addEventListener('contextmenu', (e) => e.preventDefault());
 
-    // ---- 右键/中键语义：原地松开=菜单（仅右键），拖动=惯性滑动，撞墙回弹 ----
+    // ---- 右键/中键语义：原地松开=菜单（仅右键），拖动=惯性滑动，撞墙橡皮筋 ----
     let rDown = null;
     const isPanButton = (e) => e.button === 2 || e.button === 1;  // #4 中键同款
+
+    // 橡皮筋过冲 (#5)：只对 #grid 做 transform，sticky/fixed 元素纹丝不动
+    let overshootRaf = null;
+    function rubberBand(vy) {
+        if (overshootRaf) cancelAnimationFrame(overshootRaf);
+        const gridEl = document.getElementById('grid');
+        const amp = Math.min(Math.max(Math.abs(vy) * 6, 24), 120);  // 上限 120px
+        const dir = vy > 0 ? -1 : 1;  // 向下滚动撞底墙 → 内容向上冲
+        const t0 = performance.now();
+        const DUR = 520;
+        const tick = (t) => {
+            const p = Math.min((t - t0) / DUR, 1);
+            // 欠阻尼：冲过墙 → 小幅回摆 → 定在墙边
+            const f = Math.sin(p * Math.PI * 1.15) * Math.exp(-2.6 * p);
+            gridEl.style.transform = `translateY(${dir * amp * f}px)`;
+            if (p < 1) {
+                overshootRaf = requestAnimationFrame(tick);
+            } else {
+                gridEl.style.transform = '';
+                overshootRaf = null;
+            }
+        };
+        overshootRaf = requestAnimationFrame(tick);
+    }
 
     document.addEventListener('mousedown', (e) => {
         if (!isPanButton(e)) return;
         if (e.target.closest('.context-menu') || e.target.closest('.modal-overlay') ||
             e.target.closest('.confirm-bar')) return;
         if (e.button === 1) e.preventDefault();  // 杀掉浏览器中键自动滚动图标
+        // 重新抓取而过冲还在播：立即复位，避免手感粘滞
+        if (overshootRaf) {
+            cancelAnimationFrame(overshootRaf);
+            overshootRaf = null;
+            document.getElementById('grid').style.transform = '';
+        }
         rDown = {
             button: e.button,
             startX: e.clientX, startY: e.clientY,
@@ -154,7 +222,8 @@ export function initContextMenu() {
         state.panning = false;
 
         if (st.panning) {
-            // 惯性滑行 + 撞墙回弹 (#2)：滚到边缘速度反打，阻尼衰减
+            // 惯性滑行 + 橡皮筋过冲 (#5)：撞墙瞬间把剩余速度折算成宫格过冲位移，
+            // 欠阻尼弹簧回正——手感是 5→12→10，而不是 5→10→8 弹丢位置
             const first = st.samples[0];
             const last = st.samples[st.samples.length - 1];
             const dt = last.t - first.t;
@@ -165,8 +234,12 @@ export function initContextMenu() {
                     if (Math.abs(vy) < 0.5 && Math.abs(vx) < 0.5) return;
                     const sx = window.scrollX, sy = window.scrollY;
                     window.scrollBy(vx, vy);
-                    // 某一轴没滚动 = 撞墙，反弹并衰减
-                    if (window.scrollY === sy && Math.abs(vy) >= 0.5) vy = -vy * 0.35;
+                    if (window.scrollY === sy && Math.abs(vy) > 4) {
+                        rubberBand(vy);  // 撞竖墙：剩余速度转过冲
+                        vy = 0;
+                    } else if (window.scrollY === sy && Math.abs(vy) >= 0.5) {
+                        vy = -vy * 0.35;
+                    }
                     if (window.scrollX === sx && Math.abs(vx) >= 0.5) vx = -vx * 0.35;
                     vy *= 0.94;
                     vx *= 0.94;

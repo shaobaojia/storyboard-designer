@@ -1,20 +1,34 @@
-// 渲染：宫格/列表两种视图 + FLIP 动效 + DOM 差分 + 首屏加载门控
+// 渲染：宫格/列表两种视图 + FLIP 动效 + DOM 差分 + 骨架屏首屏门控
 import { state, grid } from './state.js';
 
-// 差分键：这些字段没变就复用旧 DOM（缩略图不重载，告别噼里啪啦）
-const KEY_FIELDS = ['name', 'duration', 'content', 'dialogue', 'updated_at', 'thumb_path'];
+// 差分键：只放"内容字段"。updated_at 故意不在里面——排序/改文本不该重建卡片；
+// 图片是否重载由 thumb_ver 独立决定（只有拍屏完成才递增）
+const KEY_FIELDS = ['name', 'duration', 'content', 'dialogue', 'thumb_ver'];
 
 function cardKey(shot) {
     return KEY_FIELDS.map(k => shot[k] ?? '').join('');
 }
 
-function thumbImgHtml(shot) {
+// 首屏预载窗口：前 3 屏 eager，更远处 lazy（#2/#16）
+function screenCardCount(screens) {
+    const cardMin = parseInt(getComputedStyle(document.documentElement)
+        .getPropertyValue('--card-min')) || 200;
+    const cols = state.viewMode === 'list'
+        ? 1
+        : Math.max(1, Math.floor(window.innerWidth / (cardMin + 12)));
+    const cardH = state.viewMode === 'list' ? 60 : (cardMin * 9 / 16 + 60);
+    const rows = Math.max(1, Math.ceil(window.innerHeight / cardH));
+    return cols * rows * screens;
+}
+
+function thumbImgHtml(shot, eager) {
+    const load = eager ? 'eager' : 'lazy';
     return shot.thumb_path
-        ? `<img class="shot-thumb" draggable="false" src="/shots/${shot.name}_${shot.id}/thumb.jpg?v=${encodeURIComponent(shot.updated_at || '')}" loading="lazy" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%22320%22 height=%22180%22><rect fill=%22%23333%22 width=%22320%22 height=%22180%22/><text fill=%22%23666%22 x=%2250%25%22 y=%2250%25%22 text-anchor=%22middle%22>No image</text></svg>'">`
+        ? `<img class="shot-thumb" draggable="false" src="/shots/${shot.name}_${shot.id}/thumb.jpg?v=${shot.thumb_ver || 0}" loading="${load}" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%22320%22 height=%22180%22><rect fill=%22%23333%22 width=%22320%22 height=%22180%22/><text fill=%22%23666%22 x=%2250%25%22 y=%2250%25%22 text-anchor=%22middle%22>No image</text></svg>'">`
         : `<div class="shot-thumb" style="display:flex;align-items:center;justify-content:center;color:#666;">No render</div>`;
 }
 
-function buildCard(shot) {
+function buildCard(shot, eager) {
     const sel = state.selectedIds.has(shot.id) ? 'selected' : '';
     const wrap = document.createElement('div');
     if (state.viewMode === 'list') {
@@ -23,7 +37,7 @@ function buildCard(shot) {
         const dialogue = shot.dialogue || '';
         wrap.innerHTML = `
             <div class="shot-card list-item ${sel}" draggable="true" data-id="${shot.id}">
-                ${thumbImgHtml(shot)}
+                ${thumbImgHtml(shot, eager)}
                 <div class="shot-name" data-field="name">${shot.name}</div>
                 <div class="shot-meta cell-edit" data-field="duration">${shot.duration.toFixed(1)}s</div>
                 <div class="cell-text cell-edit ${content ? '' : 'empty'}" data-field="content">${content || '内容…'}</div>
@@ -31,18 +45,33 @@ function buildCard(shot) {
                 <div class="shot-updated">${updated}</div>
             </div>`;
     } else {
+        // #8: 宫格的时长也可以双击就地编辑
         wrap.innerHTML = `
             <div class="shot-card ${sel}" draggable="true" data-id="${shot.id}">
-                ${thumbImgHtml(shot)}
+                ${thumbImgHtml(shot, eager)}
                 <div class="shot-info">
                     <div class="shot-name" data-field="name">${shot.name}</div>
-                    <div class="shot-meta">${shot.duration.toFixed(1)}s</div>
+                    <div class="shot-meta cell-edit" data-field="duration">${shot.duration.toFixed(1)}s</div>
                 </div>
             </div>`;
     }
     const el = wrap.firstElementChild;
     el.dataset.key = cardKey(shot);
     return el;
+}
+
+// 骨架屏 (#1)：数据到达前先铺 3 屏呼吸微光空卡片
+export function showSkeleton() {
+    const n = Math.min(screenCardCount(3), 90);
+    const frag = document.createDocumentFragment();
+    for (let i = 0; i < n; i++) {
+        const d = document.createElement('div');
+        d.className = 'skel-card';
+        d.innerHTML = '<div class="skel-thumb"></div><div class="skel-line"></div>';
+        frag.appendChild(d);
+    }
+    grid.innerHTML = '';
+    grid.appendChild(frag);
 }
 
 export function renderGrid() {
@@ -52,7 +81,9 @@ export function renderGrid() {
     document.getElementById('listHeader').classList.toggle('on', isList && state.shots.length > 0);
 
     if (state.shots.length === 0) {
-        grid.innerHTML = '<div class="empty-state"><p>No shots yet. Create one in Blender.</p></div>';
+        grid.innerHTML = state.trashMode
+            ? '<div class="empty-state"><p>垃圾桶是空的</p></div>'
+            : '<div class="empty-state"><p>No shots yet. Create one in Blender.</p></div>';
         updateStats();
         return;
     }
@@ -61,8 +92,10 @@ export function renderGrid() {
     const existing = new Map();
     grid.querySelectorAll('.shot-card').forEach(el => existing.set(el.dataset.id, el));
 
+    const eagerCount = screenCardCount(3);
     const fragment = document.createDocumentFragment();
     const newCards = [];
+    let idx = 0;
     for (const shot of state.shots) {
         const key = cardKey(shot);
         let el = existing.get(shot.id);
@@ -75,16 +108,17 @@ export function renderGrid() {
             if (el && el.querySelector('input') && state.editingId === shot.id) {
                 state.editingId = null;
             }
-            el = buildCard(shot);
+            el = buildCard(shot, state.firstLoadDone ? true : idx < eagerCount);
             newCards.push(el);
         }
+        idx++;
         fragment.appendChild(el);
     }
-    existing.forEach(el => el.remove());  // 已删除的镜头
+    existing.forEach(el => el.remove());  // 已删除/移出当前视图的镜头
     grid.innerHTML = '';
     grid.appendChild(fragment);
 
-    // 首屏门控：等全部缩略图就位再统一刷出 (#16)
+    // 首屏门控：首屏缩略图就位后波浪式揭幕 (#1)
     if (!state.firstLoadDone) {
         state.firstLoadDone = true;
         gateFirstReveal();
@@ -107,8 +141,10 @@ export function renderGrid() {
 }
 
 function gateFirstReveal() {
-    const bar = document.getElementById('loadBar');
-    const imgs = [...grid.querySelectorAll('img.shot-thumb')];
+    const firstScreen = screenCardCount(1);
+    const cards = [...grid.querySelectorAll('.shot-card')];
+    const imgs = cards.slice(0, firstScreen)
+        .map(c => c.querySelector('img.shot-thumb')).filter(Boolean);
     const total = Math.max(imgs.length, 1);
     let settled = 0;
     let finished = false;
@@ -117,16 +153,20 @@ function gateFirstReveal() {
     const finish = () => {
         if (finished) return;
         finished = true;
-        bar.style.width = '100%';
         grid.classList.remove('preload');
-        grid.querySelectorAll('.shot-card').forEach(el => el.classList.add('fade-in'));
-        setTimeout(() => { bar.style.transition = 'opacity 0.4s'; bar.style.opacity = '0'; }, 350);
-        setTimeout(() => { bar.style.display = 'none'; }, 800);
+        // 波浪式错峰入场：每张卡片延迟 25ms 递增（上限 700ms）
+        cards.forEach((el, i) => {
+            el.style.animationDelay = `${Math.min(i * 25, 700)}ms`;
+            el.classList.add('fade-in');
+        });
+        // 播完清掉延迟，避免影响后续 FLIP/悬停动画
+        setTimeout(() => {
+            cards.forEach(el => { el.style.animationDelay = ''; });
+        }, 1400);
     };
     const tick = () => {
         if (finished) return;
         settled++;
-        bar.style.width = Math.round(settled / total * 92) + '%';
         if (settled >= total) finish();
     };
     if (!imgs.length) { finish(); return; }
@@ -135,7 +175,7 @@ function gateFirstReveal() {
         img.addEventListener('load', tick, { once: true });
         img.addEventListener('error', tick, { once: true });
     });
-    setTimeout(finish, 5000);  // 兜底：慢图不挡门
+    setTimeout(finish, 4000);  // 兜底：慢图不挡门
 }
 
 // FLIP 动效：记录旧位置 → 渲染后 invert → 播放到新位置
@@ -165,10 +205,13 @@ function animateFrom(oldRects) {
     });
 }
 
-// 右下角统计 (#8)
+// 右下角统计 (#8) + 垃圾桶模式标题同步 (#3)
 export function updateStats() {
     document.getElementById('statTotal').textContent = state.shots.length;
     document.getElementById('statSel').textContent = state.selectedIds.size;
+    if (state.trashMode) {
+        document.getElementById('pageTitle').textContent = `垃圾桶 · ${state.shots.length}`;
+    }
 }
 
 // 视图切换

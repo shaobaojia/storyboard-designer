@@ -41,24 +41,48 @@
         }
         .header .actions button:hover { background: #444; }
 
-        /* 首屏加载进度条 (#16) */
-        #loadBar {
-            position: fixed;
-            top: 0;
-            left: 0;
-            height: 2px;
-            width: 0;
-            background: #4a9eff;
-            transition: width 0.25s ease;
-            z-index: 2000;
+        /* 首屏骨架屏 (#1)：呼吸微光空卡片，铺 3 屏，首屏图齐后波浪式揭幕 */
+        .skel-card {
+            background: #252525;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        .skel-thumb {
+            width: 100%;
+            aspect-ratio: 16/9;
+            background: linear-gradient(100deg, #2a2a2a 30%, #363636 50%, #2a2a2a 70%);
+            background-size: 200% 100%;
+            animation: shimmer 1.4s ease-in-out infinite;
+        }
+        .skel-line {
+            height: 12px;
+            margin: 10px 12px 12px;
+            border-radius: 4px;
+            width: 55%;
+            background: linear-gradient(100deg, #2a2a2a 30%, #333 50%, #2a2a2a 70%);
+            background-size: 200% 100%;
+            animation: shimmer 1.4s ease-in-out infinite;
+        }
+        @keyframes shimmer {
+            0% { background-position: 120% 0; }
+            100% { background-position: -80% 0; }
         }
         #grid.preload { visibility: hidden; }
-        @keyframes cardIn { from { opacity: 0; transform: translateY(8px); } }
-        .shot-card.fade-in { animation: cardIn 0.32s ease; }
+        @keyframes cardIn {
+            from { opacity: 0; transform: translateY(16px) scale(0.97); }
+        }
+        .shot-card.fade-in {
+            animation: cardIn 0.45s cubic-bezier(0.22, 1, 0.36, 1);
+            animation-fill-mode: both;
+        }
+        /* 橡皮筋过冲 (#5)：撞墙时宫格整体冲出去再弹簧回正 */
+        #grid { will-change: transform; }
 
         .grid {
             display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(var(--card-min), 1fr));
+            /* #4: 固定列宽——卡片尺寸跟滑块完全连续，告别 1fr 台阶 */
+            grid-template-columns: repeat(auto-fill, var(--card-min));
+            justify-content: center;
             gap: 12px;
             margin-top: 16px;
         }
@@ -130,14 +154,14 @@
             color: #888;
         }
 
-        /* 列表视图：grid 列布局，表头与行共用一套列宽 (#12/#13/#14) */
+        /* 列表视图：grid 列布局，表头与行共用一套列宽 (#12/#13/#14)，内容:台词=7:3 (#7) */
         .list-header {
             display: none;
             position: sticky;
             top: var(--header-h);
             z-index: 600;
             background: #1a1a1a;
-            grid-template-columns: var(--list-thumb-w) 150px 60px 1fr 1fr 110px;
+            grid-template-columns: var(--list-thumb-w) 150px 60px 7fr 3fr 110px;
             column-gap: 14px;
             align-items: center;
             padding: 6px 14px;
@@ -148,7 +172,7 @@
         .list-header.on { display: grid; }
         .shot-card.list-item {
             display: grid;
-            grid-template-columns: var(--list-thumb-w) 150px 60px 1fr 1fr 110px;
+            grid-template-columns: var(--list-thumb-w) 150px 60px 7fr 3fr 110px;
             column-gap: 14px;
             align-items: center;
             margin-bottom: 6px;
@@ -363,7 +387,7 @@
             display: none;
         }
 
-        /* 拖图分区遮罩 (#5)：只在拖入时出现 */
+        /* 拖图分区遮罩 (#5/#6)：上区透明穿透，下区实心接管事件 */
         .drop-overlay {
             position: fixed;
             inset: 0;
@@ -383,7 +407,20 @@
             margin: 16px 16px 8px;
         }
         #dropZoneCard { flex: 4; }
-        #dropZoneNew { flex: 1; margin: 8px 16px 16px; }
+        /* 下区实心 + 接管指针：图片不会"透"到下层卡片，松手直接新建 */
+        #dropZoneNew {
+            flex: 1;
+            margin: 8px 16px 16px;
+            pointer-events: auto;
+            background: rgba(20,32,48,0.94);
+            border-style: solid;
+            transition: background 0.15s, border-color 0.15s, box-shadow 0.15s;
+        }
+        #dropZoneNew.active {
+            background: rgba(38,78,128,0.97);
+            border-color: #7cc0ff;
+            box-shadow: 0 0 24px rgba(74,158,255,0.5) inset;
+        }
         .drop-zone .zone-text {
             font-size: 18px;
             color: #4a9eff;
@@ -391,7 +428,8 @@
             padding: 12px 24px;
             border-radius: 8px;
         }
-        #dropZoneNew .zone-text { font-size: 15px; }
+        #dropZoneNew .zone-text { font-size: 15px; background: transparent; }
+        #dropZoneNew.active .zone-text { color: #bfe0ff; }
         .drop-zone.disabled {
             border-color: #666;
             background: rgba(100,100,100,0.05);
@@ -441,11 +479,23 @@
             max-width: 320px;
         }
         .toast.error { border-color: #c0392b; color: #ff9b9b; }
+
+        /* #9: 非交互文本一律默认光标+不可选中，只有按钮/可编辑字段有交互光标 */
+        .header h1, .list-header, .slider-label, #sizeValue,
+        #statsBadge, .empty-state, .shot-updated, .zone-text {
+            user-select: none;
+            cursor: default;
+        }
+
+        /* 垃圾桶页面模式 (#3)：隐藏新建/同步/时间线，标题变色 */
+        body.trash-mode #btnCreate,
+        body.trash-mode #btnSync,
+        body.trash-mode #btnTimeline { display: none; }
+        body.trash-mode .header h1 { color: #ff9b6b; }
+        body.trash-mode #trashBtn { background: #4a9eff; color: #fff; }
     </style>
 </head>
 <body>
-    <div id="loadBar"></div>
-
     <div class="header">
         <h1 id="pageTitle">Storyboard Grid</h1>
         <div class="actions">
@@ -492,17 +542,6 @@
             <div class="modal-actions">
                 <button class="btn-cancel">取消</button>
                 <button class="btn-primary">创建</button>
-            </div>
-        </div>
-    </div>
-
-    <div id="trashModal" class="modal-overlay" style="display:none;">
-        <div class="modal wide">
-            <h2>垃圾桶</h2>
-            <div class="trash-list" id="trashList"></div>
-            <div class="modal-actions">
-                <button class="btn-danger" id="trashPurgeAll">清空垃圾桶</button>
-                <button class="btn-cancel" id="trashClose">关闭</button>
             </div>
         </div>
     </div>

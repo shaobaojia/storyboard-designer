@@ -9,7 +9,7 @@ export function startRename(e, shotId) {
         e.preventDefault();
         e.stopPropagation();
     }
-    if (state.editingId) return;
+    if (state.editingId || state.trashMode) return;  // 垃圾桶里不可改名
     const shot = state.shots.find(s => s.id === shotId);
     if (!shot) return;
     const card = document.querySelector(`.shot-card[data-id="${shotId}"]`);
@@ -81,7 +81,7 @@ export function startFieldEdit(e, cellEl, shotId, field) {
         e.preventDefault();
         e.stopPropagation();
     }
-    if (state.editingId) return;
+    if (state.editingId || state.trashMode) return;  // 垃圾桶里不可编辑
     const shot = state.shots.find(s => s.id === shotId);
     if (!shot) return;
     const card = cellEl.closest('.shot-card');

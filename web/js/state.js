@@ -11,6 +11,7 @@ export const state = {
     lastVersion: null,
     lastErrorTs: null,
     firstLoadDone: false,  // 首屏加载门控只做一次
+    trashMode: false,      // 垃圾桶页面模式：宫格复用，菜单只剩恢复/彻底删除
     viewMode: localStorage.getItem('sb-view') || 'grid',  // 'grid' | 'list'
 };
 

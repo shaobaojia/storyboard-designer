@@ -4,8 +4,9 @@ import { renderGrid } from './render.js';
 import { toast } from './ui.js';
 
 export async function fetchShots(force) {
+    const url = state.trashMode ? '/api/trash' : '/api/shots';
     try {
-        const res = await fetch('/api/shots', force ? {cache: 'no-store'} : {});
+        const res = await fetch(url, force ? {cache: 'no-store'} : {});
         const data = await res.json();
         if (data.status === 'ok') {
             state.shots = data.shots;
@@ -114,6 +115,7 @@ export async function postBatch(action, ids) {
 }
 
 export function openShot(shotId) {
+    if (state.trashMode) return;  // 垃圾桶里的场景已停用，不可打开
     postShotAction(shotId, {action: 'open'});
     toast('已切换到该镜头');
 }

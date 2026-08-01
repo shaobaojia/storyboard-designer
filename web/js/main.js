@@ -1,6 +1,6 @@
 // 入口：接线所有模块，启动心跳与首次拉取
 import { grid } from './state.js';
-import { syncViewToggleButton, toggleView } from './render.js';
+import { syncViewToggleButton, toggleView, showSkeleton } from './render.js';
 import { fetchShots, heartbeat, loadProjectTitle, openShot, openTimeline, syncScenes, forceRefresh } from './data.js';
 import { cardClick } from './selection.js';
 import { initCardDnd, initFileDrop } from './dnd.js';
@@ -57,6 +57,7 @@ initTrash();
 
 // ---- 启动 ----
 syncViewToggleButton();
+showSkeleton();  // 骨架屏先铺上，数据到了由 renderGrid 接棒 (#1)
 setInterval(heartbeat, 1500);
 loadProjectTitle();
 fetchShots();

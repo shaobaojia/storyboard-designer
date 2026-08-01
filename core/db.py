@@ -21,11 +21,27 @@ CREATE TABLE IF NOT EXISTS shots (
     deleted     INTEGER DEFAULT 0,
     still_path  TEXT,
     thumb_path  TEXT,
+    thumb_ver   INTEGER DEFAULT 0,
     updated_at  TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_shots_seq ON shots(seq);
+
+CREATE TABLE IF NOT EXISTS meta (
+    k TEXT PRIMARY KEY,
+    v INTEGER
+);
 """
+
+
+def _bump_rev(conn):
+    """Every mutation bumps the global revision counter (meta.rev).
+
+    get_db_version reads it — one integer that changes on ANY write
+    (including reorders, which no longer touch updated_at)."""
+    conn.execute(
+        "INSERT INTO meta (k, v) VALUES ('rev', 1) "
+        "ON CONFLICT(k) DO UPDATE SET v = v + 1")
 
 
 def init_db(db_path):
@@ -41,7 +57,8 @@ def init_db(db_path):
             print("[Storyboard] Migrated DB: dropped legacy 'type' column")
         for col, ddl in (("content", "TEXT DEFAULT ''"),
                          ("dialogue", "TEXT DEFAULT ''"),
-                         ("deleted", "INTEGER DEFAULT 0")):
+                         ("deleted", "INTEGER DEFAULT 0"),
+                         ("thumb_ver", "INTEGER DEFAULT 0")):
             if col not in cols:
                 conn.execute(f"ALTER TABLE shots ADD COLUMN {col} {ddl}")
                 print(f"[Storyboard] Migrated DB: added '{col}' column")
@@ -76,11 +93,14 @@ def get_db_version(db_path):
         return "0-0"
     try:
         conn = sqlite3.connect(db_path)
-        count, latest = conn.execute(
-            "SELECT COUNT(*), COALESCE(MAX(updated_at), '') FROM shots"
-        ).fetchone()
+        count = conn.execute("SELECT COUNT(*) FROM shots").fetchone()[0]
+        try:
+            rev = conn.execute("SELECT v FROM meta WHERE k = 'rev'").fetchone()
+            rev = rev[0] if rev else 0
+        except sqlite3.Error:
+            rev = 0
         conn.close()
-        value = f"{count}-{latest}"
+        value = f"{count}-{rev}"
     except sqlite3.Error:
         value = "err"
     _version_cache[db_path] = (now, value)
@@ -101,25 +121,36 @@ def create_shot(db_path, name, scene_name, camera="", duration=2.0, shot_id=None
         "INSERT INTO shots (id, seq, name, scene_name, camera, duration, notes, still_path, thumb_path, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (shot_id, seq, name, scene_name, camera, duration, "", "", "", now)
     )
+    _bump_rev(conn)
     conn.commit()
     conn.close()
     return shot_id
 
 
 def update_shot(db_path, shot_id, **kwargs):
-    """Update shot fields. Allowed: seq, name, scene_name, camera, duration, notes, content, dialogue, deleted, still_path, thumb_path."""
+    """Update shot fields. Allowed: seq, name, scene_name, camera, duration, notes, content, dialogue, deleted, still_path, thumb_path.
+
+    Setting a non-empty thumb_path means a fresh render landed — thumb_ver
+    auto-increments so the web side refreshes exactly that one image.
+    Anything else (rename/reorder/text edits) leaves thumb_ver alone."""
     allowed = {"seq", "name", "scene_name", "camera", "duration", "notes",
                "content", "dialogue", "deleted", "still_path", "thumb_path"}
     updates = {k: v for k, v in kwargs.items() if k in allowed}
     if not updates:
         return False
 
+    bump_thumb = bool(updates.get("thumb_path"))
     updates["updated_at"] = datetime.now().isoformat()
-    set_clause = ", ".join(f"{k} = ?" for k in updates.keys())
-    values = list(updates.values()) + [shot_id]
+    set_parts = [f"{k} = ?" for k in updates.keys()]
+    values = list(updates.values())
+    if bump_thumb:
+        set_parts.append("thumb_ver = COALESCE(thumb_ver, 0) + 1")
+    set_clause = ", ".join(set_parts)
+    values.append(shot_id)
 
     conn = sqlite3.connect(db_path)
     conn.execute(f"UPDATE shots SET {set_clause} WHERE id = ?", values)
+    _bump_rev(conn)
     conn.commit()
     conn.close()
     return True
@@ -129,6 +160,7 @@ def delete_shot(db_path, shot_id):
     """Delete a shot record."""
     conn = sqlite3.connect(db_path)
     conn.execute("DELETE FROM shots WHERE id = ?", (shot_id,))
+    _bump_rev(conn)
     conn.commit()
     conn.close()
 
@@ -193,10 +225,12 @@ def next_c_name(db_path):
 
 
 def reorder_shots(db_path, shot_ids):
-    """Reorder shots by given id list. Updates seq for each."""
+    """Reorder shots by given id list. Updates seq only — NOT updated_at
+    (a reorder is not a content edit; bumping updated_at used to rebuild
+    every card and reload every thumbnail on the web side)."""
     conn = sqlite3.connect(db_path)
     for idx, shot_id in enumerate(shot_ids, start=1):
-        conn.execute("UPDATE shots SET seq = ?, updated_at = ? WHERE id = ?",
-                     (idx, datetime.now().isoformat(), shot_id))
+        conn.execute("UPDATE shots SET seq = ? WHERE id = ?", (idx, shot_id))
+    _bump_rev(conn)
     conn.commit()
     conn.close()

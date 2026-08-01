@@ -61,8 +61,20 @@ Blender 4.5 分镜设计插件——面板操作 + 内嵌 HTTP 服务 + SQLite �
 
 ## 正在做
 
-- v0.5.0（第三轮 18 条）已部署家 PC Blender 4.5，audit 34/34 + webbridge 全交互回归全 PASS，本地已 commit，**待用户发话再推 GitHub**
+- v0.6.0（第四轮 9 条）已部署家 PC Blender 4.5，audit 37/37 + webbridge 回归全 PASS，本地已 commit，**待用户发话再推 GitHub**
 - 公司 PC 部署的是旧版，如反馈良好需同步部署
+- **用户需手动存一次盘**：第三轮审计的 c0220-c0270 场景残留被用户上一次保存烤进了 .blend，重启会被 sync 复活成幽灵镜头；运行时已 purge 干净，存盘后磁盘才真正干净
+
+## 第四轮（v0.6.0）清单
+
+骨架屏（3 屏呼吸微光空卡片 → 首屏图齐波浪式错峰揭幕，干掉顶部细读条）/ **thumb_ver 图片版本戳**（只有拍屏完成才 +1，排序/改文本零图片重载，DOM 差分键剔除 updated_at）/ **垃圾桶页面模式**（整页切换复用宫格/列表/缩放/框选，右键只剩恢复/彻底删除，Delete=彻底删除，Esc 返回，批量恢复/批量彻底删除）/ 固定列宽宫格（`repeat(auto-fill, var(--card-min))` 居中，缩放彻底无段落感）/ **橡皮筋过冲**（撞墙剩余速度→#grid transform 过冲，欠阻尼弹簧 5→12→10，上限 120px）/ 拖图新建区实心化（pointer-events 接管+高亮，不再穿透到下层卡片）/ 列表内容:台词=7:3 / 宫格时长也可双击编辑 / 非交互文本全去光标（user-select:none）
+
+## 性能机制（v0.6.0 起）
+
+- DB 版本号 = `COUNT-meta.rev`：meta 表单行整数，任何写入（含排序）都 +1，心跳 0.8s 缓存，200 镜头无压力
+- 图片 URL 只带 `?v=thumb_ver`；`update_shot` 检测到非空 thumb_path 自动 thumb_ver+1（覆盖所有拍屏路径，不用逐个调用点）
+- 首屏预载窗口：前 3 屏 eager、更远处 lazy；揭幕只等首屏（约一屏卡片），不等全量
+- `reorder_shots` 只改 seq 不碰 updated_at——排序不再触发任何卡片重建/图片重载
 
 ## 第三轮（v0.5.0）清单
 
@@ -92,6 +104,9 @@ Blender 4.5 分镜设计插件——面板操作 + 内嵌 HTTP 服务 + SQLite �
 - **DOM 差分复用 × 就地编辑 = 孤儿输入框**：编辑会话 blur/取消后若只调 renderGrid，差分键没变会原样复用卡片元素——输入框留在卡片里且监听器已 done 失效，同时 editingId 卡死阻塞键盘快捷键。解法：finish 里先 `input.replaceWith(原元素)` 还原 DOM；renderGrid 复用条件加 `!el.querySelector('input')`，强制重建时顺手解锁 editingId。
 - **webbridge 合成事件 dispatched 在 document 上 target 没有 closest**：`document.dispatchEvent(new MouseEvent(...))` 的 `e.target` 是 document，`e.target.closest()` 直接 TypeError，监听器静默暴毙。凡是 handler 里用 closest 的（滑动/框选），事件要 dispatch 在 `document.body` 或具体元素上。
 - **合成 DataTransfer+File 的 drop 是真链路**：`dt.items.add(new File(...))` 走 drop 会真实写文件进镜头目录、真实给相机挂背景图。测试拖图一律用 REF_/AUDIT_ 前缀镜头，别拿用户镜头当落点；万一污染了：MCP 删 background_images + 删文件 + API rerender 三连。
+- **API 删场景只删运行时，磁盘文件会复活幽灵**：queue delete/purge 删的是当前进程的场景，.blend 没存盘的话重启后场景原样回来，sync-on-load 还会给它们重建 DB 记录——审计清理并不等于磁盘干净。要真正除根：运行干净后存一次盘。重启后镜头数莫名变多，先怀疑这个。
+- **updated_at 不能进图片 URL/差分键**：它会被排序、改文本等任何写操作刷新，一刷就是全卡片重建+全图片重载（"噼里啪啦"的根因）。图片版本要用独立的 thumb_ver（只在拍屏完成时 +1）；差分键同理只放内容字段。
+- **hidden 标签页 rAF 直接不跑**：`document.visibilityState==='hidden'` 时 requestAnimationFrame 完全停摆——惯性滑行、橡皮筋、rAF 节流的缩放在后台标签页测试全表现为"没反应"，`Page.bringToFront` 也救不回（用户切走就失效）。这类动效只能前台实测或数学离线验证。
 
 - **热重载僵尸线程**：`del sys.modules` 重载插件后旧 HTTP server 的 `serve_forever` 线程杀不掉，新旧 handler 随机抢请求 → 表现为"代码改了但请求没走新路径"。判断：`threading.enumerate()` 查 serve_forever 数量 >1 就是脏了。解法：重启 Blender。
 - **`bpy.ops.render.opengl` 只读真实视口状态**：temp_override 里改 context 对它无效——它读的是你屏幕上实际看到的视口。要切相机视角必须直接改 `space.region_3d.view_perspective`。
