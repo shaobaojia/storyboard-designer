@@ -155,6 +155,22 @@ def name_exists(db_path, name, exclude_id=None):
     return row[0] > 0
 
 
+def next_c_number(db_path):
+    """Next free c-number as int (base for local increments)."""
+    import re
+    best = 0
+    for s in get_all_shots(db_path):
+        m = re.fullmatch(r"c(\d+)", s["name"] or "")
+        if m:
+            best = max(best, int(m.group(1)))
+    return best + 10
+
+
+def next_c_name(db_path):
+    """Next c-numbered shot name: c0010, c0020, ... (max existing + 10)."""
+    return f"c{next_c_number(db_path):04d}"
+
+
 def reorder_shots(db_path, shot_ids):
     """Reorder shots by given id list. Updates seq for each."""
     conn = sqlite3.connect(db_path)

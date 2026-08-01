@@ -1,7 +1,7 @@
 bl_info = {
     "name": "Storyboard Designer",
     "author": "Hermes",
-    "version": (0, 2, 0),
+    "version": (0, 4, 0),
     "blender": (4, 5, 0),
     "location": "View3D > Sidebar > Storyboard",
     "description": "Quick previs/storyboard design system",
@@ -23,130 +23,8 @@ if addon_dir not in sys.path:
 from core.db import init_db, get_db_path, create_shot, update_shot, delete_shot, get_all_shots, get_shot
 from core.server import start_server, stop_server, get_server
 from core.queue import queue_command, ensure_timer
-
-
-def _get_project_dir():
-    """Auto-derive project dir from blend file path."""
-    blend_path = bpy.data.filepath
-    if not blend_path:
-        return None
-    blend_dir = os.path.dirname(blend_path)
-    blend_name = os.path.splitext(os.path.basename(blend_path))[0]
-    return os.path.join(blend_dir, f"{blend_name}_storyboard")
-
-
-def _sync_scenes_with_db():
-    """
-    Sync Blender scenes with DB records.
-    Blender file is authority: remove DB records for missing scenes.
-    Also deduplicate: keep only latest record per scene_name.
-    Returns (removed_count, orphan_scenes, dedup_count)
-    """
-    project_dir = _get_project_dir()
-    if not project_dir or not os.path.exists(project_dir):
-        return 0, [], 0, 0, 0
-
-    db_path = get_db_path(project_dir)
-    if not os.path.exists(db_path):
-        return 0, [], 0, 0, 0
-
-    shots = get_all_shots(db_path)
-    removed = 0
-    deduped = 0
-    orphan_scenes = []
-
-    # Build set of existing scene names
-    existing_scenes = {s.name for s in bpy.data.scenes}
-
-    # Remove DB records for missing scenes
-    import shutil
-    for shot in shots:
-        if shot["scene_name"] not in existing_scenes:
-            print(f"[Storyboard] Removing orphan DB record: {shot['name']} (scene={shot['scene_name']})")
-            delete_shot(db_path, shot["id"])
-            # Clean up shot files (new + old dir formats)
-            for cand in (f"{shot['name']}_{shot['id']}", shot["id"]):
-                shot_dir = os.path.join(project_dir, "shots", cand)
-                if os.path.exists(shot_dir):
-                    shutil.rmtree(shot_dir)
-            removed += 1
-
-    # Deduplicate: keep only latest record per scene_name
-    shots = get_all_shots(db_path)
-    scene_map = {}
-    for shot in shots:
-        scene_name = shot["scene_name"]
-        if scene_name not in scene_map:
-            scene_map[scene_name] = shot
-        else:
-            # Keep the one with later updated_at
-            existing = scene_map[scene_name]
-            if shot["updated_at"] > existing["updated_at"]:
-                # Remove old one
-                print(f"[Storyboard] Deduplicating: removing older record for {scene_name} (id={existing['id'][:8]})")
-                delete_shot(db_path, existing["id"])
-                for cand in (f"{existing['name']}_{existing['id']}", existing["id"]):
-                    shot_dir = os.path.join(project_dir, "shots", cand)
-                    if os.path.exists(shot_dir):
-                        shutil.rmtree(shot_dir)
-                scene_map[scene_name] = shot
-                deduped += 1
-            else:
-                # Remove current one
-                print(f"[Storyboard] Deduplicating: removing older record for {scene_name} (id={shot['id'][:8]})")
-                delete_shot(db_path, shot["id"])
-                for cand in (f"{shot['name']}_{shot['id']}", shot["id"]):
-                    shot_dir = os.path.join(project_dir, "shots", cand)
-                    if os.path.exists(shot_dir):
-                        shutil.rmtree(shot_dir)
-                deduped += 1
-
-    # Find scenes not in DB (potential manual imports)
-    db_scene_names = {s["scene_name"] for s in get_all_shots(db_path)}
-    for scene_name in existing_scenes:
-        if scene_name.startswith("Shot_") and scene_name not in db_scene_names:
-            orphan_scenes.append(scene_name)
-
-    # Clean orphan directories on disk: any shots/ dir whose id is not in DB.
-    # Dir formats: {name}_{id} (new) or {id} (legacy 8-char hex).
-    # Legacy dirs whose id IS valid get migrated to the new format.
-    shots_dir = os.path.join(project_dir, "shots")
-    all_shots = get_all_shots(db_path)
-    valid_ids = {s["id"] for s in all_shots}
-    id_to_name = {s["id"]: s["name"] for s in all_shots}
-    dirs_removed = 0
-    dirs_migrated = 0
-    if os.path.exists(shots_dir):
-        for d in list(os.listdir(shots_dir)):
-            full = os.path.join(shots_dir, d)
-            if not os.path.isdir(full):
-                continue
-            # Extract id: new format is everything after last underscore
-            dir_id = d.rsplit("_", 1)[-1] if "_" in d else d
-            if dir_id not in valid_ids:
-                print(f"[Storyboard] Removing orphan directory: {d}")
-                shutil.rmtree(full)
-                dirs_removed += 1
-            elif d == dir_id:
-                # Legacy format {id} for a valid shot -> migrate to {name}_{id}
-                new_name = f"{id_to_name[dir_id]}_{dir_id}"
-                new_full = os.path.join(shots_dir, new_name)
-                if not os.path.exists(new_full):
-                    print(f"[Storyboard] Migrating legacy dir: {d} -> {new_name}")
-                    os.rename(full, new_full)
-                    dirs_migrated += 1
-                else:
-                    # New-format dir already exists; merge contents then remove legacy
-                    print(f"[Storyboard] Merging legacy dir: {d} -> {new_name}")
-                    for f in os.listdir(full):
-                        src = os.path.join(full, f)
-                        dst = os.path.join(new_full, f)
-                        if not os.path.exists(dst):
-                            os.rename(src, dst)
-                    shutil.rmtree(full)
-                    dirs_migrated += 1
-
-    return removed, orphan_scenes, deduped, dirs_removed, dirs_migrated
+from core.paths import get_project_dir as _get_project_dir
+from core.sync import sync_scenes_with_db
 
 
 class STORYBOARD_OT_sync_scenes(bpy.types.Operator):
@@ -156,7 +34,7 @@ class STORYBOARD_OT_sync_scenes(bpy.types.Operator):
     bl_options = {'REGISTER'}
 
     def execute(self, context):
-        removed, orphans, deduped, dirs_removed, dirs_migrated = _sync_scenes_with_db()
+        removed, orphans, deduped, dirs_removed, dirs_migrated = sync_scenes_with_db()
         msg = f"Removed {removed} orphan records"
         if deduped:
             msg += f", deduped {deduped} duplicates"
@@ -256,38 +134,29 @@ class STORYBOARD_OT_create_shot(bpy.types.Operator):
     duration: FloatProperty(name="Duration", default=2.0, min=0.1)
 
     def execute(self, context):
+        from core.scenes import create_shot_scene
+        from core.paths import shot_dir as _shot_dir
+
         project_dir = _get_project_dir()
         if not project_dir:
             self.report({'ERROR'}, "Save blend file first")
             return {'CANCELLED'}
 
-        # Create scene
         scene_name = f"Shot_{self.shot_name}"
-        if scene_name in bpy.data.scenes:
+        new_scene = create_shot_scene(self.shot_name, scene_name,
+                                      template_scene=context.scene)
+        if not new_scene:
             self.report({'ERROR'}, f"Scene {scene_name} already exists")
             return {'CANCELLED'}
-
-        new_scene = bpy.data.scenes.new(name=scene_name)
-        new_scene.render.fps = context.scene.render.fps
-        new_scene.render.resolution_x = context.scene.render.resolution_x
-        new_scene.render.resolution_y = context.scene.render.resolution_y
-
-        # Create camera
-        cam_data = bpy.data.cameras.new(name=f"Cam_{self.shot_name}")
-        cam_obj = bpy.data.objects.new(name=f"Cam_{self.shot_name}", object_data=cam_data)
-        new_scene.collection.objects.link(cam_obj)
-        new_scene.camera = cam_obj
-        cam_obj.location = (7, -7, 5)
-        cam_obj.rotation_euler = (1.1, 0, 0.785)
 
         # Create DB record
         db_path = get_db_path(project_dir)
         shot_id = create_shot(db_path, self.shot_name, scene_name,
-                              camera=cam_obj.name, duration=self.duration)
+                              camera=new_scene.camera.name, duration=self.duration)
 
         # Create shot directory with readable name: {shot_name}_{shot_id}/
-        shot_dir = os.path.join(project_dir, "shots", f"{self.shot_name}_{shot_id}")
-        os.makedirs(shot_dir, exist_ok=True)
+        dir_path = _shot_dir(project_dir, self.shot_name, shot_id)
+        os.makedirs(dir_path, exist_ok=True)
 
         # Auto-render the new shot (create-path auto 拍屏); failure must not
         # fail the creation itself
@@ -296,7 +165,7 @@ class STORYBOARD_OT_create_shot(bpy.types.Operator):
             if context.window:
                 context.window.scene = new_scene
             from core.render import render_shot_files
-            paths = render_shot_files(new_scene, shot_dir)
+            paths = render_shot_files(new_scene, dir_path)
             if prev and context.window:
                 context.window.scene = prev
             update_shot(db_path, shot_id,
@@ -404,11 +273,8 @@ class STORYBOARD_OT_delete_shot(bpy.types.Operator):
             return {'CANCELLED'}
 
         # Delete files (new {name}_{id} format, with old-format fallback)
-        import shutil
-        for cand in (f"{shot['name']}_{shot['id']}", shot["id"]):
-            shot_dir = os.path.join(project_dir, "shots", cand)
-            if os.path.exists(shot_dir):
-                shutil.rmtree(shot_dir)
+        from core.paths import remove_shot_dirs
+        remove_shot_dirs(project_dir, shot["name"], shot["id"])
 
         # Delete DB record
         delete_shot(db_path, shot["id"])

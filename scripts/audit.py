@@ -13,7 +13,7 @@
     - HTTP 服务 8089 运行中
     - blend 文件已保存(项目目录可推导)
 """
-import socket, json, urllib.request, time, os, sys
+import socket, json, urllib.request, time, os, sys, re
 
 MCP_HOST = os.environ.get("SB_MCP", "192.168.3.71")
 MCP_PORT = int(os.environ.get("SB_MCP_PORT", "9876"))
@@ -195,7 +195,7 @@ print(os.listdir(d) if os.path.exists(d) else "MISSING")
 
     # 2a. Create
     before = state()
-    r = api("POST", "/api/shots", {"name": "AUDIT_WEB", "duration": 2.0, "type": "3d"})
+    r = api("POST", "/api/shots", {"name": "AUDIT_WEB", "duration": 2.0})
     time.sleep(3)
     after = state()
     ok = "AUDIT_WEB" in names(after) and "Shot_AUDIT_WEB" in after["scenes"]
@@ -252,17 +252,94 @@ print(os.listdir(d) if os.path.exists(d) else "MISSING")
     time.sleep(2)
     record("web", "Sync", r.get("status") == "ok", r.get("message", ""))
 
+    # ---- 2h. v0.4 endpoints ----------------------------------------------
+    print("\n[2h] v0.4 endpoints")
+
+    # next_name: c-series, multiple of 10, not colliding with existing
+    r = api("GET", "/api/next_name")
+    taken = {s["name"] for s in api("GET", "/api/shots")["shots"]}
+    ok = (r.get("status") == "ok" and re.fullmatch(r"c\d{3}0", r.get("name", ""))
+          and r["name"] not in taken)
+    record("web", "next_name", ok, r.get("name", ""))
+
+    # project: page title = blend filename (no .blend)
+    r = api("GET", "/api/project")
+    blend_stem = os.path.splitext(os.path.basename(
+        blender("import bpy\nprint(bpy.data.filepath)").strip()))[0]
+    record("web", "project title", r.get("name") == blend_stem,
+           f"{r.get('name')} vs {blend_stem}")
+
+    # version: carries version string + errors list
+    r = api("GET", "/api/version")
+    ok = (r.get("status") == "ok" and isinstance(r.get("version"), str)
+          and isinstance(r.get("errors"), list))
+    record("web", "version payload (+errors)", ok, f"errors={len(r.get('errors', []))}")
+
+    # rename: DB + scene + camera follow the new name
+    api("POST", "/api/shots", {"name": "AUDIT_REN", "duration": 2.0})
+    time.sleep(3)
+    shot = next(s for s in api("GET", "/api/shots")["shots"] if s["name"] == "AUDIT_REN")
+    api("POST", f"/api/shot/{shot['id']}", {"action": "rename", "new_name": "AUDIT_REN2"})
+    time.sleep(3)
+    st = state()
+    cam = blender('''import bpy
+s = bpy.data.scenes.get("Shot_AUDIT_REN2")
+print(s.camera.name if s and s.camera else "MISSING")
+''').strip()
+    ok = ("AUDIT_REN2" in names(st) and "Shot_AUDIT_REN2" in st["scenes"]
+          and "AUDIT_REN2" in cam)
+    record("web", "Rename (DB+scene+camera)", ok, f"camera={cam}")
+
+    # duplicate uniqueness: two copies without explicit names never collide
+    for _ in range(2):
+        api("POST", f"/api/shot/{shot['id']}", {"action": "duplicate"})
+        time.sleep(2)
+    time.sleep(2)
+    st = state()
+    dupes = sorted(n for n in names(st) if n.startswith("c") and n not in taken
+                   and n != "AUDIT_REN2" and "AUDIT" not in n)
+    ok = len(dupes) >= 2 and len(set(dupes)) == len(dupes)
+    record("web", "Duplicate unique names", ok, f"new={dupes}")
+
+    # rename_seq: selection renumbered into ascending unique c-names
+    for nm in ("AUDIT_S1", "AUDIT_S2", "AUDIT_S3"):
+        api("POST", "/api/shots", {"name": nm, "duration": 2.0})
+        time.sleep(2)
+    ids = [s["id"] for s in api("GET", "/api/shots")["shots"] if s["name"].startswith("AUDIT_S")]
+    r = api("POST", "/api/batch", {"action": "rename_seq", "shot_ids": ids})
+    time.sleep(10)
+    st = state()
+    seq_names = [n for n, i, sn in st["db"] if i in ids]
+    ok = (len(seq_names) == 3 and len(set(seq_names)) == 3
+          and all(re.fullmatch(r"c\d{3}0", n) for n in seq_names)
+          and all(n not in taken for n in seq_names))
+    record("web", "Batch rename_seq", ok, f"{seq_names}")
+
+    # set_background: camera background image at full opacity
+    png_b64 = ("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4"
+               "2mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==")
+    shot = next(s for s in api("GET", "/api/shots")["shots"] if s["name"] == "AUDIT_REN2")
+    api("POST", f"/api/shot/{shot['id']}",
+        {"action": "set_background", "filename": "audit_bg.png", "data_base64": png_b64})
+    time.sleep(4)
+    out = blender('''import bpy
+s = bpy.data.scenes.get("Shot_AUDIT_REN2")
+bgs = list(s.camera.data.background_images) if s and s.camera else []
+print(",".join(str(b.alpha) for b in bgs) if bgs else "NONE")
+''').strip()
+    record("web", "set_background alpha=1.0", out == "1.0", f"alpha={out}")
+
     # ---- 3. cleanup -------------------------------------------------------
     print("\n[3] Cleanup test shots")
-    for nm in ("AUDIT_CREATE", "AUDIT_WEB"):
-        shot = next((s for s in api("GET", "/api/shots")["shots"] if s["name"] == nm), None)
-        if shot:
+    for shot in api("GET", "/api/shots")["shots"]:
+        nm = shot["name"]
+        if "AUDIT" in nm or (nm.startswith("c") and nm not in taken):
             api("POST", f"/api/shot/{shot['id']}", {"action": "delete"})
             time.sleep(2)
     api("POST", "/api/sync", {})
     time.sleep(2)
     after = state()
-    leftover = [n for n in names(after) if "AUDIT" in n]
+    leftover = [n for n in names(after) if "AUDIT" in n or (n.startswith("c") and n not in taken)]
     record("cleanup", "test shots removed", not leftover, f"leftover={leftover}")
 
     return summary()

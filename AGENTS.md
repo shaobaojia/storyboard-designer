@@ -14,7 +14,17 @@
 
 Blender 4.5 分镜设计插件——面板操作 + 内嵌 HTTP 服务 + SQLite 数据层 + 宫格 H5 页面，实现镜头管理、拍屏出图、宫格浏览/拖拽排序、网页遥控 Blender。
 
-## 刚做完（v0.3.0 第二轮 17 条，Kimi 执行，已全量验收）
+## 刚做完（v0.4.0 纯重构，Kimi 执行，零行为变化，已全量验收）
+
+- **前端拆分**：1182 行单文件 `web/index.html` → HTML 骨架 + 13 个原生 ES modules（`web/js/`：state/ui/render/data/selection/dnd/rename/menu/create/marquee/zoom/keyboard/main），inline onclick 全改事件委托，全局状态收进 `state.js`；`<script type="module" src="/js/main.js">` 入口
+- **后端路由表化**：`core/server.py` 的 if/elif 链 → ROUTES 表 + `_match_route`（含 `/api/shot/*` 通配）+ 静态文件目录遍历防护
+- **业务逻辑下沉 `core/actions.py`**：每端点一函数返回 `(payload, status)`，handler 只做 HTTP 壳；`core/paths.py`（shot_dir/remove_shot_dirs/get_project_dir）、`core/scenes.py`（create_shot_scene 工厂，相机预设一处管）、`core/sync.py`（sync_scenes_with_db 唯一实现，干掉 sys.modules 扫描和 fallback）
+- **queue 注册表 + 错误回传**：COMMANDS name→(fn, required_params) 校验缺参；`_recent_errors` deque(10)，`/api/version` 返回 `{version, errors[]}`，前端心跳对新错误弹 error toast（首次心跳只记水位不轰炸）
+- **端口独占绑定**：`_ExclusiveThreadingHTTPServer(allow_reuse_address=False)`——Windows 的 SO_REUSEADDR 允许第二个 Blender 实例静默劫持 8089，双实例时请求随机分流、表现为"服务假死"（见坑）
+- **audit.py 扩到 21 项**：新增 next_name/project/version(含 errors)/rename(四层)/duplicate 唯一性/rename_seq/set_background alpha=1.0 用例；清理逻辑改为按快照差集删一切测试产物
+- 验收方式：audit.py 21/21 PASS + webbridge 全交互回归（弹框/全选/改名/回车/双击/右键滑动/单多选菜单/Ctrl滚轮/列表拖拽排序/错误 toast）+ MCP 双端验证 + 拖图 API 直测
+
+## 之前完成（v0.3.0 第二轮 17 条，已全量验收）
 
 - **拖图落点分流**：落在卡片=设为该镜头相机背景图（新 queue 命令 `cmd_set_camera_background`，原图存 shot 目录），落空白=新建图片镜头
 - **相机背景图 100% 不透明**：所有设背景路径补 `bg.alpha=1.0`
@@ -34,7 +44,6 @@ Blender 4.5 分镜设计插件——面板操作 + 内嵌 HTTP 服务 + SQLite �
 - 验收方式：webbridge 合成事件全链路 + MCP 双端验证 + curl 直测隔离，17 条全 PASS
 
 ## 之前完成（v0.2.0 网页端大改版，已验收）
-
 - **type 字段彻底移除**：schema/API/前后端全删，老库 `ALTER TABLE DROP COLUMN` 自动迁移
 - **创建镜头对话框**：页内模态框替代浏览器 prompt 三连；编号规则 `c0010`/`c0020` 步进 10（`/api/next_name` 扫现有 c 名 max+10）
 - **资源管理器式改名**：双击镜头名就地编辑，回车/点空白确认、Esc 取消；四层联动（DB name → 场景 `Shot_新名` → 相机 `Cam_新名` → 磁盘目录改名 + still/thumb 路径同步）；重名 409 拒绝；新增 queue 命令 `cmd_rename_shot`
@@ -51,9 +60,8 @@ Blender 4.5 分镜设计插件——面板操作 + 内嵌 HTTP 服务 + SQLite �
 
 ## 正在做
 
-- v0.3.0 已部署家 PC Blender 4.5 并全量验收，待用户实际使用反馈
+- v0.4.0 已部署家 PC Blender 4.5，audit 21/21 + 浏览器全交互回归全 PASS，本地已 commit，**待用户发话再推 GitHub**
 - 公司 PC 部署的是旧版，如反馈良好需同步部署
-- 本地 git 有 v0.2.0+v0.3.0 全部改动未 commit（6 文件），等用户发话再推
 
 ## 下一步
 
@@ -61,6 +69,9 @@ Blender 4.5 分镜设计插件——面板操作 + 内嵌 HTTP 服务 + SQLite �
 
 ## 坑（已踩过的雷）
 
+- **Windows 双 Blender 实例端口劫持**：`socketserver` 默认 `allow_reuse_address=True`，在 Windows 上 SO_REUSEADDR 语义 = 允许第二个进程绑同一端口——两个 Blender 都"成功"监听 8089/9876，连接被随机分流，表现为服务间歇性假死、curl 空响应、MCP 超时，进程却活得好好的。解法：`_ExclusiveThreadingHTTPServer(allow_reuse_address=False)`（v0.4.0 起），排查先 `netstat -ano | findstr :8089` 看是否有多个 PID 绑同一端口，有就杀到只剩一个再拉起。
+- **直接 MCP 删场景会崩 Blender**：`bpy.data.scenes.remove(s)` 与插件 queue 定时器并发时（拍屏/遍历场景中途场景没了）Blender 4.5 整个进程闪退。测试要制造孤儿镜头用**改名场景**（`s.name="Shot_X"`）代替删除；删场景永远走插件自己的 queue delete 路径。
+- **Chrome 冻结标签页 setTimeout 也被限流**：后台标签页的 `setTimeout` 被钳到分钟级，webbridge evaluate 里 `await sleep(400)` 会挂到超时——测试代码全部同步断言，异步结果（预填/toast）拆成多次 evaluate 分开读；先 `cdp Page.bringToFront` 解冻。
 - **单线程 `HTTPServer` 被 keep-alive 连接独占**：浏览器 1.5s 心跳持长连接，单线程服务会黏在这条连接上，其它请求（含 curl）全部排队卡死、接口间歇性无响应。解法：`ThreadingHTTPServer` + `daemon_threads=True`。教训：加心跳轮询前先把服务线程化。
 - **批量改名必须两阶段**：目标名被选区内靠后的镜头占用时，`cmd_rename_shot` 的场景名冲突防御会抛错、该条改名静默失败（DB 无 UNIQUE 约束不报错更隐蔽）。解法：先全改 `__ren_<id>` 临时名，再统一落正式名。
 - **SMB 盘（N:）mtime 不可靠**：粗粒度+缓存，DB 写了 mtime 不变，不能拿来做版本号；要查内容（COUNT+MAX(updated_at)）。
@@ -80,7 +91,8 @@ Blender 4.5 分镜设计插件——面板操作 + 内嵌 HTTP 服务 + SQLite �
 
 ## 细节指针
 
-- 架构：Blender 插件 + 内嵌 HTTP（0.0.0.0:8089）+ `bpy.app.timers` 主线程队列（见 `core/server.py` + `core/queue.py`）
-- 渲染：`core/render.py` 公共函数，operator 和 queue 共用
+- 架构：Blender 插件 + 内嵌 HTTP（0.0.0.0:8089）+ `bpy.app.timers` 主线程队列
+- 后端模块地图：`core/server.py`（ROUTES 表 + 静态服务）→ `core/actions.py`（每端点一函数）→ `core/queue.py`（COMMANDS 注册表 + 错误回传）/ `core/db.py`（含 next_c_name/next_c_number）/ `core/paths.py`（目录）/ `core/scenes.py`（场景工厂）/ `core/sync.py`（同步唯一实现）/ `core/render.py`（拍屏公共函数）
+- 前端模块地图：`web/index.html`（骨架+CSS）+ `web/js/`：state（共享状态）/ ui（toast+确认条）/ render（宫格+列表+FLIP）/ data（拉取+心跳+错误toast）/ selection / dnd（卡片拖拽+拖图）/ rename / menu（右键语义+菜单）/ create（弹框）/ marquee（框选）/ zoom（滑块+Ctrl滚轮）/ keyboard / main（入口接线）
 - 改名：`cmd_rename_shot`（queue.py）四层联动实现
-- 测试：改完跑 `python3 scripts/audit.py`（14项）+ `python3 scripts/audit_context_menu.py`（右键4项）；v0.2.0/v0.3.0 新端点（image/batch/rename/rename_seq/set_background/reorder/version/project）尚未纳入审计脚本，待补
+- 测试：改完跑 `python3 scripts/audit.py`（21 项，含 v0.2-v0.4 全部端点）+ `python3 scripts/audit_context_menu.py`（右键 4 项）；网页 JS 改动另需 webbridge 全交互回归
