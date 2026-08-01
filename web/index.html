@@ -14,6 +14,8 @@
             padding: 16px;
             padding-top: 0;
             padding-bottom: 80px;
+            /* 滚动条常驻：可用宽度稳定，列数反算才不会被滚动条出没顶歪 (#R6-5) */
+            overflow-y: scroll;
         }
         /* #18: 高度全部折进 padding，sticky 冻结瞬间不再跳 */
         .header {
