@@ -1,7 +1,7 @@
 bl_info = {
     "name": "Storyboard Designer",
     "author": "Hermes",
-    "version": (0, 7, 1),
+    "version": (0, 8, 0),
     "blender": (4, 5, 0),
     "location": "View3D > Sidebar > Storyboard",
     "description": "Quick previs/storyboard design system",
@@ -34,7 +34,7 @@ class STORYBOARD_OT_sync_scenes(bpy.types.Operator):
     bl_options = {'REGISTER'}
 
     def execute(self, context):
-        removed, orphans, deduped, dirs_removed, dirs_migrated = sync_scenes_with_db()
+        removed, orphans, deduped, dirs_removed, dirs_migrated, frames_removed = sync_scenes_with_db()
         msg = f"Removed {removed} orphan records"
         if deduped:
             msg += f", deduped {deduped} duplicates"
@@ -42,6 +42,8 @@ class STORYBOARD_OT_sync_scenes(bpy.types.Operator):
             msg += f", cleaned {dirs_removed} orphan dirs"
         if dirs_migrated:
             msg += f", migrated {dirs_migrated} legacy dirs"
+        if frames_removed:
+            msg += f", cleaned {frames_removed} orphan frames"
         if orphans:
             msg += f", found {len(orphans)} unmanaged scenes"
         self.report({'INFO'}, msg)
@@ -234,6 +236,87 @@ class STORYBOARD_OT_render_shot(bpy.types.Operator):
         return {'FINISHED'}
 
 
+class STORYBOARD_OT_snap_frame(bpy.types.Operator):
+    """拍当前帧：时间轴停在哪个帧就拍哪个帧，图按帧号自动排序（v0.8.0）。
+    同帧号已有图 → 弹确认后覆盖；满 5 张且是新帧号 → 软提示，不入队。"""
+    bl_idname = "storyboard.snap_frame"
+    bl_label = "拍当前帧"
+    bl_options = {'REGISTER'}
+
+    frame_no: bpy.props.IntProperty()
+    shot_id: StringProperty()
+    project_dir: StringProperty()
+    overwrite: bpy.props.BoolProperty(default=False)
+
+    def _resolve(self, context):
+        """按当前场景/时间轴解析 shot 与帧号；失败时 report 并返回 False。"""
+        from core.db import get_frames, MAX_FRAMES_PER_SHOT
+        project_dir = _get_project_dir()
+        if not project_dir:
+            self.report({'ERROR'}, "Save blend file first")
+            return False
+        scene = context.scene
+        if not scene.camera:
+            self.report({'ERROR'}, "No camera in scene")
+            return False
+        db_path = get_db_path(project_dir)
+        shot = next((s for s in get_all_shots(db_path) if s["scene_name"] == scene.name), None)
+        if not shot:
+            self.report({'ERROR'}, f"Scene {scene.name} not in storyboard DB")
+            return False
+        self.project_dir = project_dir
+        self.shot_id = shot["id"]
+        self.frame_no = scene.frame_current
+        frames = get_frames(db_path, shot["id"])
+        self.overwrite = any(f["frame_no"] == self.frame_no for f in frames)
+        if not self.overwrite and len(frames) >= MAX_FRAMES_PER_SHOT:
+            self.report({'WARNING'},
+                        f"最多 {MAX_FRAMES_PER_SHOT} 张：跳到已有帧号上覆盖重拍，或先到网页端删一帧")
+            return False
+        return True
+
+    def invoke(self, context, event):
+        if not self._resolve(context):
+            return {'CANCELLED'}
+        if self.overwrite:
+            return context.window_manager.invoke_confirm(self, event)
+        return self.execute(context)
+
+    def execute(self, context):
+        from core.queue import cmd_render_frame
+        # 兜底：execute 被直接调用（脚本/快捷键/EXEC 上下文）且未带属性时，现场解析，
+        # 否则空 project_dir 会让 sqlite 在 CWD 造出一个空白 shots.db
+        if not self.project_dir or not self.shot_id:
+            if not self._resolve(context):
+                return {'CANCELLED'}
+        try:
+            cmd_render_frame({
+                "scene_name": context.scene.name,
+                "shot_id": self.shot_id,
+                "project_dir": self.project_dir,
+                "frame_no": self.frame_no,
+            })
+        except Exception as e:
+            self.report({'ERROR'}, f"拍屏失败: {e}")
+            return {'CANCELLED'}
+        verb = "覆盖重拍" if self.overwrite else "拍屏"
+        self.report({'INFO'}, f"F{self.frame_no} {verb}完成")
+        return {'FINISHED'}
+
+
+class STORYBOARD_OT_jump_frame(bpy.types.Operator):
+    """时间轴跳到该帧：查看构图 / 停在该帧重拍（v0.8.0）"""
+    bl_idname = "storyboard.jump_frame"
+    bl_label = "Jump to Frame"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    frame_no: bpy.props.IntProperty()
+
+    def execute(self, context):
+        context.scene.frame_set(self.frame_no)
+        return {'FINISHED'}
+
+
 class STORYBOARD_OT_render_all(bpy.types.Operator):
     """Render all shots"""
     bl_idname = "storyboard.render_all"
@@ -305,6 +388,29 @@ class STORYBOARD_OT_delete_shot(bpy.types.Operator):
 
 # --- Panel ---
 
+# 面板 DB 读取缓存（v0.8.0）：draw 频率极高，DB 可能在 SMB 盘上，1s TTL 足够跟手
+_panel_db_cache = {"ts": 0.0, "key": None, "shot": None, "frames": []}
+
+
+def _panel_db_read(project_dir, scene_name):
+    import time
+    now = time.monotonic()
+    c = _panel_db_cache
+    if c["key"] == (project_dir, scene_name) and now - c["ts"] < 1.0:
+        return c["shot"], c["frames"]
+    shot, frames = None, []
+    try:
+        from core.db import get_frames
+        db_path = get_db_path(project_dir)
+        shot = next((s for s in get_all_shots(db_path) if s["scene_name"] == scene_name), None)
+        if shot:
+            frames = get_frames(db_path, shot["id"])
+    except Exception as e:
+        print(f"[Storyboard] panel DB read failed: {e}")
+    c.update(ts=now, key=(project_dir, scene_name), shot=shot, frames=frames)
+    return shot, frames
+
+
 class STORYBOARD_PT_panel(bpy.types.Panel):
     bl_idname = "VIEW3D_PT_storyboard"
     bl_label = "Storyboard Designer"
@@ -355,6 +461,23 @@ class STORYBOARD_PT_panel(bpy.types.Panel):
         else:
             layout.label(text="No camera", icon='ERROR')
 
+        # 多图镜头（v0.8.0）：拍当前帧 + 已拍帧号列表（点帧号跳转查看/重拍）
+        if project_dir and os.path.exists(project_dir) and scene.camera:
+            shot, frames = _panel_db_read(project_dir, scene.name)
+            if shot:
+                layout.separator()
+                layout.operator("storyboard.snap_frame", icon='RENDER_STILL')
+                if frames:
+                    from core.db import MAX_FRAMES_PER_SHOT
+                    col = layout.column(align=True)
+                    col.label(text=f"已拍帧 ({len(frames)}/{MAX_FRAMES_PER_SHOT}):", icon='SEQUENCE')
+                    row = col.row(align=True)
+                    for f in frames:
+                        missing = not f["image_path"] or not os.path.exists(f["image_path"])
+                        icon = 'ERROR' if missing else ('IMAGE_DATA' if f["is_cover"] else 'NONE')
+                        row.operator("storyboard.jump_frame",
+                                     text=f"F{f['frame_no']}", icon=icon).frame_no = f["frame_no"]
+
 
 # --- Registration ---
 
@@ -366,6 +489,8 @@ classes = (
     STORYBOARD_OT_open_manager,
     STORYBOARD_OT_create_shot,
     STORYBOARD_OT_render_shot,
+    STORYBOARD_OT_snap_frame,
+    STORYBOARD_OT_jump_frame,
     STORYBOARD_OT_render_all,
     STORYBOARD_OT_delete_shot,
     STORYBOARD_PT_panel,

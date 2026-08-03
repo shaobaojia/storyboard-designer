@@ -15,6 +15,7 @@ export const state = {
     trashMode: false,      // 垃圾桶页面模式：宫格复用，菜单只剩恢复/彻底删除
     viewMode: localStorage.getItem('sb-view') || 'grid',  // 'grid' | 'list'
     expandedShotIds: new Set(),  // 多图镜头展开态（视图态，不写库，刷新全折叠 v0.7.0）
+    animatingShots: new Set(),   // 弹簧编排接管中的 shotId：renderGrid 跳过它们的 FLIP/入场（v0.8.0）
 };
 
 export const grid = document.getElementById('grid');

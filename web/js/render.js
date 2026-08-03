@@ -270,6 +270,7 @@ export function renderGrid() {
     } else {
         // 新出现/有变化的卡片：淡入 + 缩略图加载完再淡显
         newCards.forEach(el => {
+            if (state.animatingShots.has(el.dataset.id)) return;  // 弹簧编排接管中，别播入场
             el.classList.add('fade-in');
             // 入场播完立刻摘类——类留着的话，下次重排 DOM 动画会重播 = 闪黑 (#R6-1)
             el.addEventListener('animationend', () => el.classList.remove('fade-in'), {once: true});
@@ -337,6 +338,7 @@ function captureRects() {
 function animateFrom(oldRects) {
     if (!oldRects || !oldRects.size) return;
     document.querySelectorAll('.shot-card').forEach(c => {
+        if (state.animatingShots.has(c.dataset.id)) return;  // 弹簧编排接管中，FLIP 让位
         const old = oldRects.get(c.dataset.id);
         if (!old) return;
         const now = c.getBoundingClientRect();

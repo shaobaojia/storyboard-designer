@@ -4,7 +4,7 @@ import { selectAll, deleteSelection, updateSelectionUI } from './selection.js';
 import { openShot, undoLast } from './data.js';
 import { exitTrashMode } from './trash.js';
 import { toast } from './ui.js';
-import { toggleExpand } from './frames.js';
+import { isExpanded, expandAnimated, collapseAnimated } from './frames.js';
 import { renderGrid } from './render.js';
 
 function gridColumns() {
@@ -64,13 +64,13 @@ export function initKeyboard() {
             const id = [...state.selectedIds][0];
             openShot(id);
         } else if (e.key === ' ' && state.selectedIds.size === 1 && !state.trashMode) {
-            // 空格 = 展开/折叠多图镜头（v0.7.0，与双击同效）
+            // 空格 = 展开/折叠多图镜头（v0.7.0，与双击同效；v0.8.0 弹簧动效）
             e.preventDefault();  // 阻止页面滚动
             const id = [...state.selectedIds][0];
             const shot = state.shots.find(s => s.id === id);
             if (shot && (shot.frames || []).length > 1) {
-                toggleExpand(id);
-                renderGrid();
+                if (isExpanded(id)) collapseAnimated(id);
+                else expandAnimated(id);
             }
         } else if (e.key.startsWith('Arrow')) {
             arrowMove(e);

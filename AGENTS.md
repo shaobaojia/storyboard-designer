@@ -80,6 +80,16 @@ CREATE INDEX IF NOT EXISTS idx_frames_shot ON frames(shot_id);
 
 Blender 4.5 分镜设计插件——面板操作 + 内嵌 HTTP 服务 + SQLite 数据层 + 宫格 H5 页面，实现镜头管理、拍屏出图、宫格浏览/拖拽排序、网页遥控 Blender。
 
+## 刚做完（v0.8.0 连片底衬+弹簧动效+面板帧号列表，Kimi 执行，audit 38/38）
+
+- **连片底衬修复（A）**：帧格 `margin-right:-12px` 吃掉宫格 gap，同行帧格深色背景真正贴在一起连片；`.frame-row-last` 还原 margin 防吸住下一个普通卡片；删除 `.frame-backing` 死 CSS（Hermes 第一版独立底衬残留，a5ff1d0 起 JS 已不生成）
+- **展开/收起双向弹簧动效（B，frames.js 编排）**：`expandAnimated`/`collapseAnimated`，曲线 `cubic-bezier(0.34,1.56,0.64,1)`，transform+opacity only。展开=每帧格从折叠卡 rect 缩弹回自己格位（错峰 40ms）；收起=帧格逐张飞向第一格（远处先收 35ms、非首格淡出），470ms 后才 toggle+renderGrid，折叠卡恰好在收敛点出现。动画期 shotId 挂 `state.animatingShots`，renderGrid 的 FLIP(`animateFrom`) 和 fade-in 对它们让位；`_animToken` 代数防快速连点时旧 setTimeout 清掉新动画。触发点：main.js 双击 + keyboard.js 空格
+- **main.js 新增 `window.__sb` 调试句柄**（state/renderGrid/expandAnimated/collapseAnimated/isExpanded）——webbridge evaluate 能直接驱动页面主世界函数，e2e 必备
+- **Blender 面板多图区（C）**：「拍当前帧」`storyboard.snap_frame`（停哪个帧拍哪个帧；同帧号→invoke_confirm 覆盖确认；满 5 张且新帧号→WARNING 软提示；execute 带 `_resolve` 兜底防空 project_dir 造野库）+ 已拍帧号列表 `F0 F48 F96`（`storyboard.jump_frame` 点帧号跳时间轴；封面='IMAGE_DATA' 图标、文件缺失='ERROR' 图标；`_panel_db_read` 1s TTL 缓存防 draw 高频打 SMB 盘）
+- **顺手修 v0.7.1 遗留 bug**：面板 sync 按钮解包 5 值 vs `sync_scenes_with_db` 返回 6 值（frames_removed）→ ValueError，面板 Sync Scenes 必崩，已改 6 值+报告带 frames_removed
+- 验收：audit **38/38 PASS**；webbridge 结构断言（`__sb` 驱动）：展开 3 帧格弹簧 transform/错峰/无 fade-in/总数 90→92 全对，收起中间态（齐飞+非首格淡出+z 序 30/31/32）全对，最终折叠还原 90 张无残留；MCP 实测 snap_frame 覆盖路径（F48 重拍出图）+ queue render_frame 新帧路径（F60 入表出文件，测后已清理）+ jump_frame 跳帧 + `_panel_db_read` 缓存读取
+- 待用户前台验收：弹簧动效手感（后台标签页验不了视觉）；面板「拍当前帧」按钮+覆盖确认弹窗+帧号列表真实点击（invoke_confirm 需 window context，MCP 测不了）
+
 ## 刚做完（v0.7.0 多图镜头，Hermes 执行，真机验收全 PASS）
 
 - **frames 数据层**：`core/db.py` 新增 frames 表（shot_id + frame_no + image_path + is_cover，上限 5 张）+ 旧库自动迁移（每个现有 shot 补 cover frame）
@@ -142,16 +152,18 @@ Blender 4.5 分镜设计插件——面板操作 + 内嵌 HTTP 服务 + SQLite �
 
 ## 正在做
 
-- **v0.7.1（Kimi 接手首修）**：①`delete_shot` 级联删 frames（v0.7.0 遗留：SQLite 无 FK 级联，purge 镜头留孤儿帧）②sync 自动清孤儿 frames（返回加 `frames_removed`）③audit trash_count 断言改基线相对（垃圾桶非空不再误报）④audit 新增"Frames cascade on purge"用例。audit **38/38 PASS**，webbridge 抽查多图镜头一叠牌(3图+角标)/双击展开(3帧格连片)/折叠还原全对，本地已 commit 未推
+- **v0.8.0（Kimi）已本地 commit 未推**：连片底衬+弹簧动效+面板帧号列表+sync 解包修复，等用户前台验收动效手感和面板点击
+- v0.7.1（Kimi 接手首修）已验证：delete_shot 级联删 frames / sync 清孤儿帧 / audit 垃圾桶基线相对断言+frames 级联用例，audit 38/38
 - v0.7.0 多图镜头已部署家PC，真机验收全 PASS（Hermes 交接），已由 Kimi 复核基线
 - 悬停横向扫视手感需用户在真实浏览器里感受（代码就位，未逐帧验证跟手度）
-- 跨行底衬分行逻辑代码就位（当前 6 列 4 帧未跨行，调窄窗口可验证）
 - ⚠️ 审计清理误伤通报：audit cleanup 把垃圾桶里 3 个无归属 c 系镜头（c0470/c0840/c0310，非 `taken` 快照内）当测试残留 purge 了——它们本来就在垃圾桶里，如需恢复思路见坑"API 删场景只删运行时"（不可恢复则接受）
+- ⚠️ v0.8.0 测试副作用通报：实测 snap_frame 时把 446baf2c（c0410 多图镜头）的 F48 覆盖重拍了一次（同场景同帧号，构图内容应一致，图片文件是新生成的）
 
 ## 下一步
 
-- 用户验收悬停扫视手感
-- 公司 PC 同步部署 v0.7.0
+- 用户前台验收：①弹簧展开/收起手感 ②面板拍当前帧+覆盖确认弹窗+帧号按钮 ③连片底衬视觉
+- 验收通过后推 GitHub（用户不主动提就不推）
+- 公司 PC 同步部署 v0.7.0+
 
 ## 第六轮（v0.6.2）清单
 
@@ -238,6 +250,10 @@ Blender 4.5 分镜设计插件——面板操作 + 内嵌 HTTP 服务 + SQLite �
 - **审计脚本测不到浏览器层 JS 问题**：如右键菜单事件冒泡这类纯前端 bug，API 审计全过但用户手动点无效。网页 JS 改动必须硬刷新后人工点一遍。
 - **addons 根目录残留旧模块文件会 shadow 标准库**：插件 `sys.path.insert(0, addon_dir)` 后，根目录散落的 `queue.py` 会顶掉 stdlib `queue`（core/queue.py 的 `import queue` 拿到错的模块）。部署目录只留 `__init__.py`/`core/`/`web/`，靠 sys.modules 里 stdlib 已缓存才没炸过，别赌运气。
 - **改名必须四层一起走**：DB name、场景名、相机名、磁盘目录 + DB 里 still_path/thumb_path（带旧目录名的绝对路径）——漏任何一层都是脏数据。
+- **webbridge tabId 会因页面重建失效**：浏览器标签页重开/崩溃换新 target 后，旧 tabId 仍能对"僵尸快照"读值（甚至读到看似 live 的 DOM），但 dispatchEvent/点击全部无效也不报错——排查先 `list_tabs` 拿当前 tabId（v0.8.0 实测旧 tabId 耗了一小时）。症状识别：自建监听器+同节点 dispatchEvent 都不触发 = tabId 已死。
+- **webbridge evaluate 能读 `window.__sb` 但 dispatchEvent 不触发监听器**：v0.8.0 实测 evaluate 跑在页面主世界（读得到 main.js 挂的 window.__sb、调编排函数全正常），但 `new MouseEvent('dblclick')`/`new Event()` 分发后连当次 evaluate 自挂的同节点监听器都不 fire（机制未查明，疑似扩展更新后的行为变化）。交互测试改用：`__sb` 直接驱动 + webbridge 原生 `click`/`mouse_click` 动作，别再用 evaluate 合成事件。
+- **`bpy.ops.x()` 从 MCP/脚本调用走 EXEC 不走 invoke**：operator 的 invoke 负责解析参数（场景→shot→帧号）时，裸 `bpy.ops.x()` 会带着空属性直接进 execute——sqlite `connect(空路径shots.db)` 还会顺手在 CWD/项目根造出 0 字节野库且文件句柄锁到进程退出（"Device or resource busy"删不掉，重启 Blender 才能删）。解法：execute 里做属性空值兜底重解析（v0.8.0 snap_frame 的 `_resolve` 模式）；显式 `'INVOKE_DEFAULT'` 在 MCP 里会因 `Missing 'window' in context` 被拒（invoke_confirm 需要真窗口），面板按钮点击不受影响。
+- **MCP 直调含 bpy.data 写的链路不稳定**：`bpy.ops.storyboard.snap_frame()` 直调 `cmd_render_frame` 时随机炸 `Writing to ID classes in this context is not allowed`（线程上下文限制，同一代码时好时坏）。凡是写场景的测试，一律走 `queue_command(...)` 主线程 timer 队列，UI 按钮（天然主线程）无此问题。
 
 ## 细节指针
 

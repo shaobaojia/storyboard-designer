@@ -193,12 +193,14 @@
             border: none;
             box-shadow: none;
             padding: 4%;
+            /* 吃掉宫格 gap(12px)：同行帧格的深色底衬真正贴在一起连片 */
+            margin-right: -12px;
         }
         /* 同行相邻帧格之间去圆角，让它们视觉上连成一体 */
         .shot-card.frame-cell { border-radius: 0; }
         .shot-card.frame-cell.frame-first { border-radius: 10px 0 0 10px; }
-        /* 每行最后一格（JS 加 .frame-row-last） */
-        .shot-card.frame-cell.frame-row-last { border-radius: 0 10px 10px 0; }
+        /* 每行最后一格（JS 加 .frame-row-last）：还原 margin，别把下一个普通卡片吸过来 */
+        .shot-card.frame-cell.frame-row-last { border-radius: 0 10px 10px 0; margin-right: 0; }
         /* 只有一个帧格时（理论上不会，兜底） */
         .shot-card.frame-cell.frame-first.frame-row-last { border-radius: 10px; }
         .shot-card.frame-cell .frame-img {
@@ -224,23 +226,6 @@
         .shot-card.frame-cell .frame-no {
             font-size: 12px;
             color: #888;
-        }
-        /* 底衬：跨 N 格的深色圆角容器，挂在每行第一格上绝对定位。
-           帧格有 padding:4%（内缩），底衬要覆盖整个格位区域：
-           left/top 用负 padding 抵消，宽度 = span * 格位宽 + (span-1) * gap。
-           格位宽 = 帧格内容宽 / (1 - 2*4%) = 帧格 offsetWidth / 0.92，
-           用 CSS 表达：100% / 0.92 ≈ 108.7%（每格），再加 gap。 */
-        .frame-backing {
-            position: absolute;
-            top: -4.5%;
-            left: -4.5%;
-            width: calc(var(--span) * 109% + (var(--span) - 1) * 12px);
-            height: 109%;
-            background: #0e0e10;
-            border: 2px solid #555;
-            border-radius: 10px;
-            z-index: 0;
-            pointer-events: none;
         }
         /* 红格子：数据在但图片缺失 */
         .frame-missing {

@@ -11,7 +11,7 @@ import { initMarquee } from './marquee.js';
 import { initZoom } from './zoom.js';
 import { initKeyboard } from './keyboard.js';
 import { initTrash } from './trash.js';
-import { toggleExpand, jumpToFrame, initStackHover } from './frames.js';
+import { isExpanded, expandAnimated, collapseAnimated, jumpToFrame, initStackHover } from './frames.js';
 
 // ---- 头部按钮 ----
 document.getElementById('viewToggle').addEventListener('click', toggleView);
@@ -56,8 +56,8 @@ grid.addEventListener('dblclick', (e) => {
 
     // 双击 = 展开/折叠（统一，不分单图多图；单图镜头无多帧可展，等同无操作）
     if (shot && (shot.frames || []).length > 1) {
-        toggleExpand(shotId);
-        renderGrid();
+        if (isExpanded(shotId)) collapseAnimated(shotId);  // 弹簧收拢（v0.8.0）
+        else expandAnimated(shotId);                       // 弹簧弹开（v0.8.0）
     }
 });
 
@@ -71,6 +71,9 @@ initZoom();
 initKeyboard();
 initTrash();
 initStackHover();  // 多图镜头折叠态悬停扫视（v0.7.0）
+
+// e2e 调试句柄：webbridge evaluate 走页面主世界时可直接驱动编排函数
+window.__sb = { state, renderGrid, expandAnimated, collapseAnimated, isExpanded };
 
 // ---- 启动 ----
 syncViewToggleButton();
