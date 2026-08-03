@@ -11,7 +11,7 @@ import { initMarquee } from './marquee.js';
 import { initZoom } from './zoom.js';
 import { initKeyboard } from './keyboard.js';
 import { initTrash } from './trash.js';
-import { isExpanded, expandAnimated, collapseAnimated, jumpToFrame, initStackHover } from './frames.js';
+import { isExpanded, expandAnimated, collapseAnimated, jumpToFrame, initStackHover, focusFrame } from './frames.js';
 
 // ---- 头部按钮 ----
 document.getElementById('viewToggle').addEventListener('click', toggleView);
@@ -23,7 +23,12 @@ document.getElementById('btnTimeline').addEventListener('click', openTimeline);
 // ---- 卡片交互（事件委托）----
 grid.addEventListener('click', (e) => {
     const card = e.target.closest('.shot-card');
-    if (card) cardClick(e, card.dataset.id);
+    if (!card) return;
+    cardClick(e, card.dataset.id);
+    // 展开态帧格：点击哪张，焦点蓝框跟到哪张（v0.8.1）
+    if (card.classList.contains('frame-cell') && card.dataset.frameId) {
+        focusFrame(card.dataset.id, card.dataset.frameId);
+    }
 });
 
 grid.addEventListener('dblclick', (e) => {

@@ -23,6 +23,7 @@ async function reorderShots(srcId, dstId) {
     } else {
         movingIds = [srcId];
     }
+    if (movingIds.includes(dstId)) return;  // 落点在自己组内 = 无操作（v0.8.1，曾把整组排到末尾）
 
     const moving = shots.filter(s => movingIds.includes(s.id));
     const rest = shots.filter(s => !movingIds.includes(s.id));
@@ -47,7 +48,8 @@ async function reorderShots(srcId, dstId) {
 export function initCardDnd() {
     grid.addEventListener('dragstart', (e) => {
         const card = e.target.closest('.shot-card');
-        if (!card || state.editingId || state.trashMode) {  // 垃圾桶里不排序
+        // 帧格不可拖（v0.8.1）：多图内部顺序按帧号排，拖帧格曾把整镜头排到末尾
+        if (!card || card.classList.contains('frame-cell') || state.editingId || state.trashMode) {
             e.preventDefault();
             return;
         }

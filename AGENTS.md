@@ -80,6 +80,16 @@ CREATE INDEX IF NOT EXISTS idx_frames_shot ON frames(shot_id);
 
 Blender 4.5 分镜设计插件——面板操作 + 内嵌 HTTP 服务 + SQLite 数据层 + 宫格 H5 页面，实现镜头管理、拍屏出图、宫格浏览/拖拽排序、网页遥控 Blender。
 
+## 刚做完（v0.8.1 多图交互五连修，Kimi 执行，audit 38/38）
+
+- **FLIP 双根因根治（用户报"拖任何镜头多图都滑一下"+"拖拽回顶"）**：①`captureRects/animateFrom` 改按 `id:frameId` 复合键（展开态 N 帧格共享 dataset.id 互相覆盖 rect，任何排序都让帧格从错误位置起飞）②测量从 `getBoundingClientRect` 改 `offsetLeft/offsetTop`——纯布局值不受 transform 影响，上一轮未播完的 invert/进行中的 transition 不再污染下一轮捕获（污染会连环放大，后台标签页 rAF 冻结时尤为明显）
+- **焦点框跟手（用户报"选中框不动"）**：那个"选中框"其实是封面 `is-cover` 蓝描边。改为：封面降级为右上角「封面」角标（`.cover-chip`），蓝框变焦点框 `frame-focused` 点击哪张跟到哪张（`state.focusedFrameId` + `frames.js focusFrame`，默认落封面）；帧格选中态用连片底衬底色 `#182431` 表达（`.selected` 的 border/box-shadow 被帧格 `border:none+box-shadow:none` 吞掉是历史遗留）
+- **帧格禁拖（用户报"一拖整镜头排到最后"）**：帧格 `draggable="false"` + dragstart 守卫 + `reorderShots` 落点在移动组内直接 no-op（自落曾 splice 到末尾）
+- **queue 缺参校验 falsy 误杀（用户报"双击帧图报错"）**：`not params.get(k)` 把 `frame_no=0`（F0 帧）判成缺参，改 `is None`
+- **运行时热修补**：`importlib.reload(core.queue)` 免重启生效（reload 原地刷新模块命名空间，旧 timer 回调经 `__globals__` 读到新 COMMANDS；`.blend` 有未保存改动时的免重启手段）
+- 验收：webbridge 结构断言——帧格全 `draggable:false`、焦点框点击跟手+持久化、选中底衬三格齐亮、连续两次 renderGrid 帧格零变换（修复前连环污染必现）、audit **38/38 PASS**、curl 直测 F0 跳帧成功（场景切换+frame_current=0）
+- 待用户前台复核："拖拽回顶"若还复现则是 Chrome 拖拽原生自动滚屏（视口边缘触发），与本 bug 无关，需另行处理
+
 ## 刚做完（v0.8.0 连片底衬+弹簧动效+面板帧号列表，Kimi 执行，audit 38/38）
 
 - **连片底衬修复（A）**：帧格 `margin-right:-12px` 吃掉宫格 gap，同行帧格深色背景真正贴在一起连片；`.frame-row-last` 还原 margin 防吸住下一个普通卡片；删除 `.frame-backing` 死 CSS（Hermes 第一版独立底衬残留，a5ff1d0 起 JS 已不生成）
@@ -152,17 +162,18 @@ Blender 4.5 分镜设计插件——面板操作 + 内嵌 HTTP 服务 + SQLite �
 
 ## 正在做
 
-- **v0.8.0（Kimi）已本地 commit 未推**：连片底衬+弹簧动效+面板帧号列表+sync 解包修复，等用户前台验收动效手感和面板点击
+- **v0.8.1（Kimi）已本地 commit 未推**：多图交互五连修（FLIP 双根因/焦点框/帧格禁拖/queue falsy），磁盘已部署+queue 已运行时热修补，等用户前台复核拖拽手感
+- v0.8.0（Kimi）：连片底衬+弹簧动效+面板帧号列表，已验收结构部分，动效手感待前台揉
 - v0.7.1（Kimi 接手首修）已验证：delete_shot 级联删 frames / sync 清孤儿帧 / audit 垃圾桶基线相对断言+frames 级联用例，audit 38/38
 - v0.7.0 多图镜头已部署家PC，真机验收全 PASS（Hermes 交接），已由 Kimi 复核基线
-- 悬停横向扫视手感需用户在真实浏览器里感受（代码就位，未逐帧验证跟手度）
 - ⚠️ 审计清理误伤通报：audit cleanup 把垃圾桶里 3 个无归属 c 系镜头（c0470/c0840/c0310，非 `taken` 快照内）当测试残留 purge 了——它们本来就在垃圾桶里，如需恢复思路见坑"API 删场景只删运行时"（不可恢复则接受）
 - ⚠️ v0.8.0 测试副作用通报：实测 snap_frame 时把 446baf2c（c0410 多图镜头）的 F48 覆盖重拍了一次（同场景同帧号，构图内容应一致，图片文件是新生成的）
 
 ## 下一步
 
-- 用户前台验收：①弹簧展开/收起手感 ②面板拍当前帧+覆盖确认弹窗+帧号按钮 ③连片底衬视觉
+- 用户前台验收：①v0.8.0 弹簧动效手感 ②面板拍当前帧+覆盖确认弹窗+帧号按钮 ③v0.8.1 拖拽排序（重点复核"回顶"是否消失）
 - 验收通过后推 GitHub（用户不主动提就不推）
+- 下次自然重启 Blender 时 v0.8.1 从磁盘完整加载（当前 core.queue 是热修补态）
 - 公司 PC 同步部署 v0.7.0+
 
 ## 第六轮（v0.6.2）清单
@@ -250,6 +261,8 @@ Blender 4.5 分镜设计插件——面板操作 + 内嵌 HTTP 服务 + SQLite �
 - **审计脚本测不到浏览器层 JS 问题**：如右键菜单事件冒泡这类纯前端 bug，API 审计全过但用户手动点无效。网页 JS 改动必须硬刷新后人工点一遍。
 - **addons 根目录残留旧模块文件会 shadow 标准库**：插件 `sys.path.insert(0, addon_dir)` 后，根目录散落的 `queue.py` 会顶掉 stdlib `queue`（core/queue.py 的 `import queue` 拿到错的模块）。部署目录只留 `__init__.py`/`core/`/`web/`，靠 sys.modules 里 stdlib 已缓存才没炸过，别赌运气。
 - **改名必须四层一起走**：DB name、场景名、相机名、磁盘目录 + DB 里 still_path/thumb_path（带旧目录名的绝对路径）——漏任何一层都是脏数据。
+- **FLIP 测量不能用 getBoundingClientRect**：它含 transform——上一轮未播完的 invert（后台标签页 rAF 冻结时必然残留）或进行中的 transition 都会被当成"旧位置"捕获，算出 bogus 位移再叠新 transform，连环污染、越翻越离谱（用户看到"拖任何镜头多图都滑一下"/"卡片飞回顶部"）。测量布局一律用 `offsetLeft/offsetTop`（纯布局值，transform 免疫），v0.8.1 已根治。
+- **`importlib.reload` 热修补 queue 层免重启**：`is_dirty=True` 不能重启 Blender 时的手段——reload 原地刷新模块命名空间，bpy.app.timers 里旧回调函数经 `__globals__` 读到新 COMMANDS/新队列，服务端线程同理；`_recent_errors` 历史会清零（可接受）。仅限纯逻辑模块，带线程的 server.py 别这么玩（僵尸线程坑）。
 - **webbridge tabId 会因页面重建失效**：浏览器标签页重开/崩溃换新 target 后，旧 tabId 仍能对"僵尸快照"读值（甚至读到看似 live 的 DOM），但 dispatchEvent/点击全部无效也不报错——排查先 `list_tabs` 拿当前 tabId（v0.8.0 实测旧 tabId 耗了一小时）。症状识别：自建监听器+同节点 dispatchEvent 都不触发 = tabId 已死。
 - **webbridge evaluate 能读 `window.__sb` 但 dispatchEvent 不触发监听器**：v0.8.0 实测 evaluate 跑在页面主世界（读得到 main.js 挂的 window.__sb、调编排函数全正常），但 `new MouseEvent('dblclick')`/`new Event()` 分发后连当次 evaluate 自挂的同节点监听器都不 fire（机制未查明，疑似扩展更新后的行为变化）。交互测试改用：`__sb` 直接驱动 + webbridge 原生 `click`/`mouse_click` 动作，别再用 evaluate 合成事件。
 - **`bpy.ops.x()` 从 MCP/脚本调用走 EXEC 不走 invoke**：operator 的 invoke 负责解析参数（场景→shot→帧号）时，裸 `bpy.ops.x()` 会带着空属性直接进 execute——sqlite `connect(空路径shots.db)` 还会顺手在 CWD/项目根造出 0 字节野库且文件句柄锁到进程退出（"Device or resource busy"删不掉，重启 Blender 才能删）。解法：execute 里做属性空值兜底重解析（v0.8.0 snap_frame 的 `_resolve` 模式）；显式 `'INVOKE_DEFAULT'` 在 MCP 里会因 `Missing 'window' in context` 被拒（invoke_confirm 需要真窗口），面板按钮点击不受影响。

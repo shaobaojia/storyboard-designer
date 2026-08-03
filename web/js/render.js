@@ -102,9 +102,17 @@ function buildExpandedCards(shot, eager) {
         const cls = ['shot-card', 'frame-cell'];
         if (isRowHead) cls.push('frame-first');
         if (isRowTail) cls.push('frame-row-last');
+        if (state.selectedIds.has(shot.id)) cls.push('selected');
+        // 焦点帧蓝框跟手点击（v0.8.1）：优先持久化的 focusedFrameId，默认落封面
+        const cover = frames.find(fr => fr.isCover) || frames[0];
+        const focusId = (state.focusedFrameId && frames.some(fr => fr.id === state.focusedFrameId))
+            ? state.focusedFrameId : (cover && cover.id);
+        const imgCls = [f.isCover ? 'is-cover' : '', f.id === focusId ? 'frame-focused' : '']
+            .filter(Boolean).join(' ');
         wrap.innerHTML = `
-            <div class="${cls.join(' ')}" draggable="true" data-id="${shot.id}" data-frame-id="${f.id}">
-                ${frameImgHtml(f, shot, eager, f.isCover ? 'is-cover' : '')}
+            <div class="${cls.join(' ')}" draggable="false" data-id="${shot.id}" data-frame-id="${f.id}">
+                ${frameImgHtml(f, shot, eager, imgCls)}
+                ${f.isCover ? '<div class="cover-chip">封面</div>' : ''}
                 <div class="shot-info">
                     ${first ? `<div class="shot-name" data-field="name">${shot.name}</div>` : `<div class="frame-no">f${f.frame_no}</div>`}
                     ${first ? `<div class="shot-meta cell-edit" data-field="duration">${shot.duration.toFixed(1)}s</div>` : ''}
@@ -327,10 +335,19 @@ function gateFirstReveal() {
 }
 
 // FLIP 动效：记录旧位置 → 渲染后 invert → 播放到新位置
+// 键必须与 renderGrid 复用键一致（v0.8.1）：展开态 N 个帧格共享 dataset.id，
+// 只按 id 存 rect 会互相覆盖——任何排序都让帧格从错误位置起飞（"多图自己滑一下"的根因）
+// 测量用 offsetLeft/offsetTop 而非 getBoundingClientRect（v0.8.1）：
+// offset* 是纯布局值，不受 transform 影响——上一轮未播完的 FLIP invert / 进行中的
+// transition 不会污染下一轮捕获（getBoundingClientRect 含 transform，会连环污染）
+function rectKeyOf(el) {
+    return el.dataset.frameId ? `${el.dataset.id}:${el.dataset.frameId}` : el.dataset.id;
+}
+
 function captureRects() {
     const map = new Map();
     document.querySelectorAll('.shot-card').forEach(c => {
-        map.set(c.dataset.id, c.getBoundingClientRect());
+        map.set(rectKeyOf(c), { left: c.offsetLeft, top: c.offsetTop });
     });
     return map;
 }
@@ -339,11 +356,10 @@ function animateFrom(oldRects) {
     if (!oldRects || !oldRects.size) return;
     document.querySelectorAll('.shot-card').forEach(c => {
         if (state.animatingShots.has(c.dataset.id)) return;  // 弹簧编排接管中，FLIP 让位
-        const old = oldRects.get(c.dataset.id);
+        const old = oldRects.get(rectKeyOf(c));
         if (!old) return;
-        const now = c.getBoundingClientRect();
-        const dx = old.left - now.left;
-        const dy = old.top - now.top;
+        const dx = old.left - c.offsetLeft;
+        const dy = old.top - c.offsetTop;
         if (!dx && !dy) return;
         c.style.transition = 'none';
         c.style.transform = `translate(${dx}px, ${dy}px)`;

@@ -131,6 +131,13 @@ export async function jumpToFrame(shotId, frameNo) {
     await postShotAction(shotId, { action: 'jump_to_frame', frame_no: frameNo });
 }
 
+// 展开态焦点帧（v0.8.1）：蓝框跟手点击，只动 class 不动 DOM
+export function focusFrame(shotId, frameId) {
+    state.focusedFrameId = frameId;
+    grid.querySelectorAll(`.shot-card.frame-cell[data-id="${shotId}"] .frame-img`)
+        .forEach(img => img.classList.toggle('frame-focused', img.dataset.frameId === frameId));
+}
+
 // ---- 悬停横向扫视（折叠态一叠牌）----
 // 鼠标 X 坐标在卡片宽度内映射到帧索引：左端=第1张，右端=第N张。
 // 即时切换（无渐变），靠预载保证跟手。

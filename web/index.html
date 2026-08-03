@@ -215,8 +215,29 @@
             position: relative;
             z-index: 1;
         }
-        .shot-card.frame-cell .frame-img.is-cover {
+        /* 焦点帧蓝框（v0.8.1）：跟手点击，默认落封面；封面身份降级为角标，不再抢焦点框 */
+        .shot-card.frame-cell .frame-img.frame-focused {
             outline: 2px solid #4a9eff;
+        }
+        .shot-card.frame-cell {
+            position: relative;
+        }
+        /* 镜头选中态在连片底衬上的表达：深蓝灰底色（.selected 的 border/box-shadow 被帧格吞掉） */
+        .shot-card.frame-cell.selected {
+            background: #182431;
+        }
+        .cover-chip {
+            position: absolute;
+            top: 6px;
+            right: 6px;
+            background: #4a9eff;
+            color: #fff;
+            font-size: 10px;
+            line-height: 1;
+            padding: 3px 6px;
+            border-radius: 4px;
+            z-index: 2;
+            pointer-events: none;
         }
         .shot-card.frame-cell .shot-info {
             position: relative;

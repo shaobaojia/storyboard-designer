@@ -88,7 +88,8 @@ def execute_command(command, params):
     if not entry:
         raise ValueError(f"Unknown command: {command}")
     fn, required = entry
-    missing = [k for k in required if not params.get(k)]
+    # 用 is None 而非 falsy：frame_no=0 是合法帧号，曾被误判缺参（v0.8.1）
+    missing = [k for k in required if params.get(k) is None]
     if missing:
         raise ValueError(f"{command}: missing params {missing}")
     return fn(params)
