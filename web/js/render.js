@@ -96,12 +96,14 @@ function buildExpandedCards(shot, eager) {
 
     frames.forEach((f, i) => {
         const wrap = document.createElement('div');
-        const isRowHead = i === 0 || rowOf[i] !== rowOf[i - 1];  // 每行第一格挂底衬
+        const isRowHead = i === 0 || rowOf[i] !== rowOf[i - 1];
+        const isRowTail = i === frames.length - 1 || rowOf[i] !== rowOf[i + 1];
         const first = i === 0;
-        const span = rowCounts[rowOf[i]];
+        const cls = ['shot-card', 'frame-cell'];
+        if (isRowHead) cls.push('frame-first');
+        if (isRowTail) cls.push('frame-row-last');
         wrap.innerHTML = `
-            <div class="shot-card frame-cell ${first ? 'frame-first' : ''}" draggable="true" data-id="${shot.id}" data-frame-id="${f.id}">
-                ${isRowHead ? `<div class="frame-backing" style="--span:${span}"></div>` : ''}
+            <div class="${cls.join(' ')}" draggable="true" data-id="${shot.id}" data-frame-id="${f.id}">
                 ${frameImgHtml(f, shot, eager, f.isCover ? 'is-cover' : '')}
                 <div class="shot-info">
                     ${first ? `<div class="shot-name" data-field="name">${shot.name}</div>` : `<div class="frame-no">f${f.frame_no}</div>`}

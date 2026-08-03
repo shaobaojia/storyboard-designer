@@ -80,7 +80,22 @@ CREATE INDEX IF NOT EXISTS idx_frames_shot ON frames(shot_id);
 
 Blender 4.5 分镜设计插件——面板操作 + 内嵌 HTTP 服务 + SQLite 数据层 + 宫格 H5 页面，实现镜头管理、拍屏出图、宫格浏览/拖拽排序、网页遥控 Blender。
 
-## 刚做完（v0.4.0 纯重构，Kimi 执行，零行为变化，已全量验收）
+## 刚做完（v0.7.0 多图镜头，Hermes 执行，真机验收全 PASS）
+
+- **frames 数据层**：`core/db.py` 新增 frames 表（shot_id + frame_no + image_path + is_cover，上限 5 张）+ 旧库自动迁移（每个现有 shot 补 cover frame）
+- **4 个 queue 命令**：`cmd_render_frame`（跳帧拍屏落 frames 表，upsert 覆盖同帧重拍）/ `cmd_set_cover_frame`（封面切换 + 同步 shots.thumb_*）/ `cmd_jump_to_frame`（切 Scene + frame_set 跳回构图）/ `cmd_delete_frame`（删帧+磁盘清理+封面自动提升）
+- **API 嵌套 frames[]**：`/api/shots` 每个 shot 带 frames 数组（imageUrl 带 `?v=thumb_ver` 版本戳，文件缺失→null→前端红格子）
+- **折叠态一叠牌**：N 张图叠放，封面在顶 + 3 层错位露边 + 左上角张数角标；悬停横向扫视（X 坐标映射帧索引，即时切换）
+- **展开态 N 格连片**：一个 shot 渲染 N 个帧格，帧格深色背景 #111113 连成一体（相邻格去圆角，首尾格圆角），图面内缩 4%，封面蓝框高亮；底衬方案从独立元素改为帧格连片（独立底衬被图完全遮挡，视觉无效）
+- **双击/空格 = 展开/折叠**（统一，不分单图多图），**回车/右键 = 打开镜头**；展开态双击某张图 = 跳回构图（shot_id + frame_no）
+- **帧级右键菜单**：设为封面 / 重拍此帧 / 跳回构图 / 删除此张（`contextFrameId` 由右键点击位置带入）
+- **红格子**：imageUrl=null 或加载失败 → 深红占位格 + 帧号 + 呼吸脉冲（hover 停）
+- **跨行底衬分行**：展开态按当前列数把 N 帧分行，每行一个连片组（isRowHead/isRowTail 圆角控制）
+- **预载**：3 屏 eager 天然覆盖多图（折叠态全部帧 eager，展开态全 eager）
+- **新建 `web/js/frames.js`**：展开状态管理（expandedShotIds，视图态不写库）+ 悬停扫视 + 跳回构图
+- 真机验收：DB 层单测全 PASS + API 形状验证 + WebBridge 全流程（一叠牌/双击展开/帧级右键/设封面/跳构图/删帧）+ Blender 侧双端确认（scene+frame 跳对）
+
+## 之前完成（v0.4.0 纯重构，Kimi 执行，零行为变化，已全量验收）
 
 - **前端拆分**：1182 行单文件 `web/index.html` → HTML 骨架 + 13 个原生 ES modules（`web/js/`：state/ui/render/data/selection/dnd/rename/menu/create/marquee/zoom/keyboard/main），inline onclick 全改事件委托，全局状态收进 `state.js`；`<script type="module" src="/js/main.js">` 入口
 - **后端路由表化**：`core/server.py` 的 if/elif 链 → ROUTES 表 + `_match_route`（含 `/api/shot/*` 通配）+ 静态文件目录遍历防护
@@ -127,9 +142,14 @@ Blender 4.5 分镜设计插件——面板操作 + 内嵌 HTTP 服务 + SQLite �
 
 ## 正在做
 
-- v0.6.3（第六轮 4 条体验修复 + 缩放改列数反算）已部署，webbridge 回归 PASS（刷新 25/25 图片零重载零 fade-in 残留、行尾 leftover=0.00px、档位/滚轮跳列全对），本地已 commit，**待用户发话再推 GitHub**
-- 公司 PC 部署的是旧版，如反馈良好需同步部署
-- 橡皮筋单回弹 + 骨架遮严只能前台手感/肉眼验收（后台标签页 rAF 不跑）
+- v0.7.0 多图镜头已部署家PC，真机验收全 PASS，待推 GitHub
+- 悬停横向扫视手感需用户在真实浏览器里感受（代码就位，未逐帧验证跟手度）
+- 跨行底衬分行逻辑代码就位（当前 6 列 4 帧未跨行，调窄窗口可验证）
+
+## 下一步
+
+- 用户验收悬停扫视手感
+- 公司 PC 同步部署 v0.7.0
 
 ## 第六轮（v0.6.2）清单
 
