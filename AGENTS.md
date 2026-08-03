@@ -142,9 +142,11 @@ Blender 4.5 分镜设计插件——面板操作 + 内嵌 HTTP 服务 + SQLite �
 
 ## 正在做
 
-- v0.7.0 多图镜头已部署家PC，真机验收全 PASS，待推 GitHub
+- **v0.7.1（Kimi 接手首修）**：①`delete_shot` 级联删 frames（v0.7.0 遗留：SQLite 无 FK 级联，purge 镜头留孤儿帧）②sync 自动清孤儿 frames（返回加 `frames_removed`）③audit trash_count 断言改基线相对（垃圾桶非空不再误报）④audit 新增"Frames cascade on purge"用例。audit **38/38 PASS**，webbridge 抽查多图镜头一叠牌(3图+角标)/双击展开(3帧格连片)/折叠还原全对，本地已 commit 未推
+- v0.7.0 多图镜头已部署家PC，真机验收全 PASS（Hermes 交接），已由 Kimi 复核基线
 - 悬停横向扫视手感需用户在真实浏览器里感受（代码就位，未逐帧验证跟手度）
 - 跨行底衬分行逻辑代码就位（当前 6 列 4 帧未跨行，调窄窗口可验证）
+- ⚠️ 审计清理误伤通报：audit cleanup 把垃圾桶里 3 个无归属 c 系镜头（c0470/c0840/c0310，非 `taken` 快照内）当测试残留 purge 了——它们本来就在垃圾桶里，如需恢复思路见坑"API 删场景只删运行时"（不可恢复则接受）
 
 ## 下一步
 

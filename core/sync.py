@@ -7,6 +7,7 @@ and orphan/legacy directories on disk are cleaned or migrated.
 """
 import os
 import shutil
+import sqlite3
 import bpy
 
 from core.db import get_db_path, delete_shot, get_all_shots
@@ -18,7 +19,7 @@ def sync_scenes_with_db():
 
     Returns (removed, orphan_scenes, deduped, dirs_removed, dirs_migrated).
     """
-    empty = (0, [], 0, 0, 0)
+    empty = (0, [], 0, 0, 0, 0)
     project_dir = get_project_dir()
     if not project_dir or not os.path.exists(project_dir):
         return empty
@@ -59,6 +60,18 @@ def sync_scenes_with_db():
         remove_shot_dirs(project_dir, loser["name"], loser["id"])
         scene_map[scene_name] = winner
         deduped += 1
+
+    # Orphan frames: shot rows purged earlier (or by older versions without
+    # cascade) must not leave frames rows behind (v0.7.0 接手审计发现)
+    con = sqlite3.connect(db_path)
+    cur = con.execute(
+        "DELETE FROM frames WHERE NOT EXISTS "
+        "(SELECT 1 FROM shots s WHERE s.id = frames.shot_id)")
+    frames_removed = cur.rowcount
+    if frames_removed:
+        print(f"[Storyboard] Removed {frames_removed} orphan frames rows")
+    con.commit()
+    con.close()
 
     # Scenes not tracked in DB (potential manual imports)
     db_scene_names = {s["scene_name"] for s in get_all_shots(db_path)}
@@ -101,4 +114,4 @@ def sync_scenes_with_db():
                     shutil.rmtree(full)
                 dirs_migrated += 1
 
-    return removed, orphan_scenes, deduped, dirs_removed, dirs_migrated
+    return removed, orphan_scenes, deduped, dirs_removed, dirs_migrated, frames_removed

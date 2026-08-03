@@ -530,9 +530,10 @@ def cmd_sync_scenes(params):
     Single implementation lives in core.sync (shared with the panel operator)."""
     from core.sync import sync_scenes_with_db
 
-    removed, orphans, deduped, dirs_removed, dirs_migrated = sync_scenes_with_db()
+    removed, orphans, deduped, dirs_removed, dirs_migrated, frames_removed = sync_scenes_with_db()
     return {"removed": removed, "orphans": len(orphans), "deduped": deduped,
-            "dirs_removed": dirs_removed, "dirs_migrated": dirs_migrated}
+            "dirs_removed": dirs_removed, "dirs_migrated": dirs_migrated,
+            "frames_removed": frames_removed}
 
 
 # Command registry: name -> (handler, [required params]).

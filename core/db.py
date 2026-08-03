@@ -184,8 +184,10 @@ def update_shot(db_path, shot_id, **kwargs):
 
 
 def delete_shot(db_path, shot_id):
-    """Delete a shot record."""
+    """Delete a shot record. Frames rows go first — SQLite FK 默认不启用、
+    没有级联，不删就会留下孤儿帧（v0.7.0 接手审计发现）。"""
     conn = sqlite3.connect(db_path)
+    conn.execute("DELETE FROM frames WHERE shot_id = ?", (shot_id,))
     conn.execute("DELETE FROM shots WHERE id = ?", (shot_id,))
     _bump_rev(conn)
     conn.commit()

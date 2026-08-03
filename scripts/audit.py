@@ -246,6 +246,7 @@ print(os.listdir(d) if os.path.exists(d) else "MISSING")
            f"undo={r.get('label')}, order restored: {back_order == orig_order}")
 
     # 2f. Soft delete -> trash -> restore -> undo dance -> purge (R3 #6)
+    trash_baseline = api("GET", "/api/version").get("trash_count", 0)
     shot = next(s for s in api("GET", "/api/shots")["shots"] if s["name"] == "AUDIT_WEB_COPY")
     api("POST", f"/api/shot/{shot['id']}", {"action": "delete"})
     time.sleep(3)
@@ -257,8 +258,8 @@ print(os.listdir(d) if os.path.exists(d) else "MISSING")
     record("web", "Soft delete -> trash", ok,
            f"in_trash={in_trash}, scene parked: {'__trash__Shot_AUDIT_WEB_COPY' in after['scenes']}")
     v = api("GET", "/api/version")
-    record("web", "  -> version.trash_count", v.get("trash_count") == 1,
-           f"trash_count={v.get('trash_count')}")
+    record("web", "  -> version.trash_count", v.get("trash_count") == trash_baseline + 1,
+           f"trash_count={v.get('trash_count')} (baseline={trash_baseline})")
 
     # restore from trash
     tid = next(s["id"] for s in api("GET", "/api/trash")["shots"] if s["name"] == "AUDIT_WEB_COPY")
@@ -503,6 +504,31 @@ print(",".join(str(b.alpha) for b in bgs) if bgs else "NONE")
            f"trash={in_trash}, restored={r.get('done')}, back={back}")
     api("POST", "/api/undo", {})  # 撤销批量恢复 = 回到垃圾桶，cleanup 会彻底清
     time.sleep(3)
+
+    # ---- 2k. v0.7.1: frames cascade on purge (接手审计发现 delete_shot 不删 frames) ----
+    api("POST", "/api/shots", {"name": "AUDIT_FRC", "duration": 2.0})
+    time.sleep(3)
+    shot = next(s for s in api("GET", "/api/shots")["shots"] if s["name"] == "AUDIT_FRC")
+    api("POST", f"/api/shot/{shot['id']}", {"action": "render_frame", "frame_no": 1})
+    time.sleep(6)
+    n_frames = blender(f'''import sqlite3
+from core.paths import get_project_dir
+from core.db import get_db_path
+con = sqlite3.connect(get_db_path(get_project_dir()))
+print(con.execute("SELECT COUNT(*) FROM frames WHERE shot_id='{shot['id']}'").fetchone()[0])
+con.close()
+''').strip()
+    api("POST", f"/api/shot/{shot['id']}", {"action": "purge"})
+    time.sleep(3)
+    n_after = blender(f'''import sqlite3
+from core.paths import get_project_dir
+from core.db import get_db_path
+con = sqlite3.connect(get_db_path(get_project_dir()))
+print(con.execute("SELECT COUNT(*) FROM frames WHERE shot_id='{shot['id']}'").fetchone()[0])
+con.close()
+''').strip()
+    record("web", "Frames cascade on purge", n_frames == "1" and n_after == "0",
+           f"frames {n_frames}->{n_after}")
 
     # ---- 3. cleanup -------------------------------------------------------
     print("\n[3] Cleanup test shots")

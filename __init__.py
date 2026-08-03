@@ -1,7 +1,7 @@
 bl_info = {
     "name": "Storyboard Designer",
     "author": "Hermes",
-    "version": (0, 6, 3),
+    "version": (0, 7, 1),
     "blender": (4, 5, 0),
     "location": "View3D > Sidebar > Storyboard",
     "description": "Quick previs/storyboard design system",
