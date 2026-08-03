@@ -35,7 +35,7 @@ CONTENT_TYPES = {
 # Exact-match API routes: (method, path) -> handler(ctx) -> (payload, status)
 # ctx = {"db_path", "project_dir", "shot_id", "data"}
 ROUTES = {
-    ("GET", "/api/shots"): lambda c: actions.list_shots(c["db_path"]),
+    ("GET", "/api/shots"): lambda c: actions.list_shots(c["db_path"], c["project_dir"]),
     ("GET", "/api/trash"): lambda c: actions.list_trash(c["db_path"]),
     ("GET", "/api/version"): lambda c: actions.get_version(c["db_path"]),
     ("GET", "/api/next_name"): lambda c: actions.get_next_name(c["db_path"]),

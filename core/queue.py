@@ -538,6 +538,161 @@ def cmd_sync_scenes(params):
 # Command registry: name -> (handler, [required params]).
 # execute_command validates required params before dispatch, so handlers can
 # assume their inputs exist (params.get still guards optionals).
+# ---------- multi-frame commands (v0.7.0) ----------
+
+def cmd_render_frame(params):
+    """Render one frame of a multi-frame shot: jump timeline to frame_no,
+    OpenGL 拍屏, write fNNNNN_still.png / fNNNNN_thumb.jpg, upsert the
+    frames row, and refresh shots.thumb_* if this frame is (or becomes) the
+    cover. Creates the frames row if it doesn't exist yet (add-frame flow);
+    overwrites the existing row's image_path on re-render."""
+    import os
+    from core.db import (get_db_path, get_all_shots, get_frames, add_frame,
+                         update_frame, update_shot)
+    from core.render import render_shot_files
+
+    scene_name = params.get("scene_name")
+    shot_id = params.get("shot_id")
+    project_dir = params.get("project_dir")
+    frame_no = int(params.get("frame_no"))
+
+    scene = bpy.data.scenes.get(scene_name)
+    if not scene:
+        raise ValueError(f"Scene not found: {scene_name}")
+    if not scene.camera:
+        raise ValueError("No camera in scene")
+
+    db_path = get_db_path(project_dir)
+    shot = next((s for s in get_all_shots(db_path) if s["id"] == shot_id), None)
+    shot_name = shot["name"] if shot else shot_id
+    shot_dir = os.path.join(project_dir, "shots", f"{shot_name}_{shot_id}")
+
+    prev = _switch_scene(scene)
+    try:
+        paths = render_shot_files(scene, shot_dir, frame_no=frame_no)
+    finally:
+        _restore_scene(prev)
+
+    # Upsert frames row: same frame_no exists → overwrite image_path; else add
+    frames = get_frames(db_path, shot_id)
+    existing = next((f for f in frames if f["frame_no"] == frame_no), None)
+    if existing:
+        update_frame(db_path, existing["id"], image_path=paths["thumb_path"])
+        frame_id = existing["id"]
+        is_cover = bool(existing["is_cover"])
+    else:
+        # First frame of a shot becomes cover by default
+        is_cover = len(frames) == 0
+        frame_id = add_frame(db_path, shot_id, frame_no,
+                             image_path=paths["thumb_path"], is_cover=is_cover)
+
+    # Cover frame → sync the shot-level thumb cache so collapsed card refreshes
+    if is_cover:
+        update_shot(db_path, shot_id,
+                    still_path=paths["still_path"],
+                    thumb_path=paths["thumb_path"],
+                    thumb_fresh=True)
+
+    return {"frame_id": frame_id, "frame_no": frame_no,
+            "thumb": paths["thumb_path"], "is_cover": is_cover}
+
+
+def cmd_set_cover_frame(params):
+    """Mark a frame as cover and sync shots.thumb_* so the collapsed card
+    and timeline show it. Pure DB + path copy, no rendering."""
+    from core.db import (get_db_path, get_frames, set_cover_frame, update_shot)
+
+    shot_id = params.get("shot_id")
+    frame_id = params.get("frame_id")
+    project_dir = params.get("project_dir")
+
+    db_path = get_db_path(project_dir)
+    frames = get_frames(db_path, shot_id)
+    target = next((f for f in frames if f["id"] == frame_id), None)
+    if not target:
+        raise ValueError(f"Frame not found: {frame_id}")
+
+    set_cover_frame(db_path, shot_id, frame_id)
+    if target["image_path"]:
+        # thumb cache points at the cover frame's image; still keeps the same
+        # file (still/thumb pair) — bump thumb_ver so the web refreshes
+        update_shot(db_path, shot_id,
+                    thumb_path=target["image_path"],
+                    thumb_fresh=True)
+    return {"shot_id": shot_id, "frame_id": frame_id}
+
+
+def cmd_jump_to_frame(params):
+    """Switch to the shot's scene and set the timeline to frame_no
+    (跳回构图). The user lands exactly where that frame was captured."""
+    shot_scene = params.get("scene_name")
+    frame_no = int(params.get("frame_no"))
+
+    scene = bpy.data.scenes.get(shot_scene)
+    if not scene:
+        raise ValueError(f"Scene not found: {shot_scene}")
+
+    bpy.context.window.scene = scene
+    scene.frame_set(frame_no)
+
+    # Camera view in all 3D viewports (same as cmd_open_shot)
+    for area in bpy.context.screen.areas:
+        if area.type == 'VIEW_3D':
+            for region in area.regions:
+                if region.type == 'WINDOW':
+                    with bpy.context.temp_override(area=area, region=region):
+                        bpy.ops.view3d.view_camera()
+
+    return {"scene": shot_scene, "frame": frame_no}
+
+
+def cmd_delete_frame(params):
+    """Delete one frame: DB row + disk files. If the deleted frame was the
+    cover, promote the lowest-frame_no sibling to cover and sync thumb."""
+    import os
+    from core.db import (get_db_path, get_frames, delete_frame,
+                         set_cover_frame, update_shot)
+
+    shot_id = params.get("shot_id")
+    frame_id = params.get("frame_id")
+    project_dir = params.get("project_dir")
+
+    db_path = get_db_path(project_dir)
+    frames = get_frames(db_path, shot_id)
+    target = next((f for f in frames if f["id"] == frame_id), None)
+    if not target:
+        raise ValueError(f"Frame not found: {frame_id}")
+    if len(frames) <= 1:
+        raise ValueError("cannot delete the last frame of a shot")
+
+    # Remove disk files (still + thumb pair), tolerate missing files
+    if target["image_path"]:
+        base = target["image_path"]
+        for p in {base, base.replace("_thumb.jpg", "_still.png")}:
+            try:
+                if os.path.exists(p):
+                    os.remove(p)
+            except OSError:
+                pass
+
+    was_cover = bool(target["is_cover"])
+    delete_frame(db_path, frame_id)
+
+    # Cover deleted → promote lowest frame_no sibling
+    if was_cover:
+        siblings = [f for f in frames if f["id"] != frame_id]
+        siblings.sort(key=lambda f: f["frame_no"])
+        new_cover = siblings[0]
+        set_cover_frame(db_path, shot_id, new_cover["id"])
+        if new_cover["image_path"]:
+            update_shot(db_path, shot_id,
+                        thumb_path=new_cover["image_path"],
+                        thumb_fresh=True)
+        return {"deleted": frame_id, "new_cover": new_cover["id"]}
+
+    return {"deleted": frame_id}
+
+
 COMMANDS = {
     "open_shot": (cmd_open_shot, ["scene_name"]),
     "rerender_shot": (cmd_rerender_shot, ["scene_name", "shot_id", "project_dir"]),
@@ -551,4 +706,8 @@ COMMANDS = {
     "create_image_shot_scene": (cmd_create_image_shot_scene, ["shot_name", "scene_name"]),
     "set_camera_background": (cmd_set_camera_background, ["scene_name", "image_path"]),
     "sync_scenes": (cmd_sync_scenes, []),
+    "render_frame": (cmd_render_frame, ["scene_name", "shot_id", "project_dir", "frame_no"]),
+    "set_cover_frame": (cmd_set_cover_frame, ["shot_id", "frame_id", "project_dir"]),
+    "jump_to_frame": (cmd_jump_to_frame, ["scene_name", "frame_no"]),
+    "delete_frame": (cmd_delete_frame, ["shot_id", "frame_id", "project_dir"]),
 }

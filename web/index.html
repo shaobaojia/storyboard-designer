@@ -145,6 +145,112 @@
             -webkit-user-drag: none;  /* 缩略图不许原生拖拽，否则触发图片拖放链路 */
             user-select: none;
         }
+        /* ---- 多图镜头（v0.7.0）---- */
+        /* 折叠态一叠牌：N 张图叠放，封面在顶，后续图错位露边（最多 3 层） */
+        .frame-stack {
+            position: relative;
+            width: 100%;
+            aspect-ratio: 16/9;
+        }
+        .frame-stack .frame-img {
+            position: absolute;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            background: #333;
+            border-radius: 6px;
+            -webkit-user-drag: none;
+            user-select: none;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.5);
+        }
+        /* 错位层：向右下偏移，深度越大偏移越小（贴近封面） */
+        .frame-stack .layer-3 { transform: translate(7px, 7px); z-index: 1; }
+        .frame-stack .layer-2 { transform: translate(5px, 5px); z-index: 2; }
+        .frame-stack .layer-1 { transform: translate(3px, 3px); z-index: 3; }
+        .frame-stack .cover { z-index: 4; }
+        /* 左上角张数角标 */
+        .stack-badge {
+            position: absolute;
+            top: 6px;
+            left: 6px;
+            z-index: 5;
+            min-width: 20px;
+            height: 20px;
+            padding: 0 5px;
+            border-radius: 10px;
+            background: rgba(74, 158, 255, 0.92);
+            color: #fff;
+            font-size: 12px;
+            font-weight: 700;
+            line-height: 20px;
+            text-align: center;
+            pointer-events: none;
+        }
+        /* 展开态帧格：占一格，图面内缩 ~8% */
+        .shot-card.frame-cell {
+            background: transparent;  /* 底衬提供背景 */
+            border: none;
+            box-shadow: none;
+            padding: 4%;
+        }
+        .shot-card.frame-cell .frame-img {
+            width: 100%;
+            aspect-ratio: 16/9;
+            object-fit: cover;
+            background: #333;
+            border-radius: 6px;
+            display: block;
+            -webkit-user-drag: none;
+            user-select: none;
+            position: relative;
+            z-index: 1;
+        }
+        .shot-card.frame-cell .frame-img.is-cover {
+            outline: 2px solid #4a9eff;
+        }
+        .shot-card.frame-cell .shot-info {
+            position: relative;
+            z-index: 1;
+            padding: 6px 8px;
+        }
+        .shot-card.frame-cell .frame-no {
+            font-size: 12px;
+            color: #888;
+        }
+        /* 底衬：跨 N 格的深色圆角容器，挂在第一格上绝对定位 */
+        .frame-backing {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: calc(var(--span) * 100% + (var(--span) - 1) * 12px);  /* 12px = grid gap */
+            height: 100%;
+            background: #1c1c1e;
+            border-radius: 10px;
+            z-index: 0;
+            pointer-events: none;
+        }
+        /* 红格子：数据在但图片缺失 */
+        .frame-missing {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #4a1a1a;
+            border: 2px dashed #a33;
+            cursor: pointer;
+        }
+        .frame-missing .missing-no {
+            color: #e88;
+            font-size: 13px;
+            font-weight: 600;
+        }
+        /* 红格子呼吸脉冲（hover 停止） */
+        @keyframes missingPulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.55; }
+        }
+        .frame-missing { animation: missingPulse 2.2s ease-in-out infinite; }
+        .frame-missing:hover { animation: none; }
         .shot-info {
             padding: 8px 10px;
         }

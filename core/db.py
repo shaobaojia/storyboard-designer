@@ -31,6 +31,17 @@ CREATE TABLE IF NOT EXISTS meta (
     k TEXT PRIMARY KEY,
     v INTEGER
 );
+
+CREATE TABLE IF NOT EXISTS frames (
+    id          TEXT PRIMARY KEY,
+    shot_id     TEXT NOT NULL,
+    frame_no    INTEGER NOT NULL,
+    image_path  TEXT,
+    is_cover    INTEGER DEFAULT 0,
+    updated_at  TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_frames_shot ON frames(shot_id);
 """
 
 
@@ -64,6 +75,22 @@ def init_db(db_path):
                 print(f"[Storyboard] Migrated DB: added '{col}' column")
     except sqlite3.OperationalError:
         pass  # Very old SQLite: harmless
+    # Multi-frame migration: backfill one cover frame per existing shot
+    try:
+        orphan_shots = conn.execute(
+            "SELECT s.id, s.still_path FROM shots s "
+            "WHERE NOT EXISTS (SELECT 1 FROM frames f WHERE f.shot_id = s.id)"
+        ).fetchall()
+        now = datetime.now().isoformat()
+        for shot_id, still_path in orphan_shots:
+            conn.execute(
+                "INSERT INTO frames (id, shot_id, frame_no, image_path, is_cover, updated_at) "
+                "VALUES (?, ?, 0, ?, 1, ?)",
+                (str(uuid.uuid4())[:8], shot_id, still_path or None, now))
+        if orphan_shots:
+            print(f"[Storyboard] Migrated DB: backfilled cover frame for {len(orphan_shots)} shots")
+    except sqlite3.OperationalError:
+        pass
     conn.commit()
     conn.close()
     return db_path
@@ -231,6 +258,92 @@ def reorder_shots(db_path, shot_ids):
     conn = sqlite3.connect(db_path)
     for idx, shot_id in enumerate(shot_ids, start=1):
         conn.execute("UPDATE shots SET seq = ? WHERE id = ?", (idx, shot_id))
+    _bump_rev(conn)
+    conn.commit()
+    conn.close()
+
+
+# ---------- frames (multi-image shots) ----------
+
+MAX_FRAMES_PER_SHOT = 5
+
+
+def add_frame(db_path, shot_id, frame_no, image_path=None, is_cover=False, frame_id=None):
+    """Add a frame to a shot. Enforces the 5-frame cap. Returns frame id.
+    Raises ValueError if the shot already has MAX_FRAMES_PER_SHOT frames."""
+    conn = sqlite3.connect(db_path)
+    count = conn.execute("SELECT COUNT(*) FROM frames WHERE shot_id = ?",
+                         (shot_id,)).fetchone()[0]
+    if count >= MAX_FRAMES_PER_SHOT:
+        conn.close()
+        raise ValueError(f"shot already has {MAX_FRAMES_PER_SHOT} frames (cap)")
+    frame_id = frame_id or str(uuid.uuid4())[:8]
+    now = datetime.now().isoformat()
+    conn.execute(
+        "INSERT INTO frames (id, shot_id, frame_no, image_path, is_cover, updated_at) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        (frame_id, shot_id, frame_no, image_path, 1 if is_cover else 0, now))
+    _bump_rev(conn)
+    conn.commit()
+    conn.close()
+    return frame_id
+
+
+def update_frame(db_path, frame_id, **kwargs):
+    """Update frame fields. Allowed: frame_no, image_path, is_cover."""
+    allowed = {"frame_no", "image_path", "is_cover"}
+    updates = {k: v for k, v in kwargs.items() if k in allowed}
+    if not updates:
+        return False
+    updates["updated_at"] = datetime.now().isoformat()
+    set_clause = ", ".join(f"{k} = ?" for k in updates)
+    values = list(updates.values()) + [frame_id]
+    conn = sqlite3.connect(db_path)
+    conn.execute(f"UPDATE frames SET {set_clause} WHERE id = ?", values)
+    _bump_rev(conn)
+    conn.commit()
+    conn.close()
+    return True
+
+
+def delete_frame(db_path, frame_id):
+    """Delete a frame record (caller's job to remove the disk file)."""
+    conn = sqlite3.connect(db_path)
+    conn.execute("DELETE FROM frames WHERE id = ?", (frame_id,))
+    _bump_rev(conn)
+    conn.commit()
+    conn.close()
+
+
+def get_frames(db_path, shot_id):
+    """Get all frames of a shot, ordered by frame_no ascending."""
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    rows = [dict(r) for r in conn.execute(
+        "SELECT * FROM frames WHERE shot_id = ? ORDER BY frame_no", (shot_id,))]
+    conn.close()
+    return rows
+
+
+def get_all_frames(db_path):
+    """Get all frames grouped by shot_id: {shot_id: [frame, ...]}."""
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    rows = [dict(r) for r in conn.execute("SELECT * FROM frames ORDER BY frame_no")]
+    conn.close()
+    grouped = {}
+    for r in rows:
+        grouped.setdefault(r["shot_id"], []).append(r)
+    return grouped
+
+
+def set_cover_frame(db_path, shot_id, frame_id):
+    """Mark one frame as the cover (clears the flag on all siblings)."""
+    conn = sqlite3.connect(db_path)
+    now = datetime.now().isoformat()
+    conn.execute("UPDATE frames SET is_cover = 0 WHERE shot_id = ?", (shot_id,))
+    conn.execute("UPDATE frames SET is_cover = 1, updated_at = ? WHERE id = ?",
+                 (now, frame_id))
     _bump_rev(conn)
     conn.commit()
     conn.close()

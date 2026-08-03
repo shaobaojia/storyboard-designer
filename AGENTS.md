@@ -2,6 +2,72 @@
 
 > 给下一个 Agent（或下一个自己）的交接备忘录。**收工推送前必须更新「刚做完 / 正在做 / 下一步 / 坑」四个字段。**
 
+## 多图镜头（v0.7.0 进行中）— 接口契约（前后端唯一权威，先锁后做）
+
+**设计文档**：`多图镜头-前端交互设计说明.md`（用户 2026-08-01 提供）。上限 5 张/镜头。
+
+### 数据层
+
+新增 `frames` 表（就放 shots.db，单文件多表）：
+
+```sql
+CREATE TABLE IF NOT EXISTS frames (
+    id          TEXT PRIMARY KEY,
+    shot_id     TEXT NOT NULL REFERENCES shots(id),
+    frame_no    INTEGER NOT NULL,   -- 取景坐标：拍屏时所在的 Blender 帧号。纯技术元数据
+    image_path  TEXT,               -- NULL 或文件缺失 → 前端渲染红格子
+    is_cover    INTEGER DEFAULT 0,  -- 封面标记，每镜头恰一张为 1
+    updated_at  TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_frames_shot ON frames(shot_id);
+```
+
+- `shots.thumb_path/thumb_ver` 保留 = 封面帧的冗余缓存（折叠态/时间线只读它，不 join frames），拍屏/设封面时同步更新
+- 旧库迁移：init_db 时给每个现有 shot 补一条 frames 记录（frame_no=0, image_path=still_path, is_cover=1）
+
+### API 返回结构（`/api/shots` 每个 shot 的形状）
+
+```json
+{
+  "id": "...", "seq": 10, "name": "c0010", "duration": 2.0,
+  "thumb_ver": 3,
+  "frames": [
+    {"frame_no": 0,  "imageUrl": "/shots/c0010_abc/f0001.jpg?v=3", "isCover": true},
+    {"frame_no": 48, "imageUrl": null, "isCover": false}
+  ]
+}
+```
+
+- 单图镜头 = `frames` 长度 1；多图按 `frame_no` 升序
+- `imageUrl` 带 `?v=thumb_ver` 版本戳（沿用现有缓存策略）
+- 前端不接收独立"张数"字段，以 `frames.length` 为准
+
+### 交互约定（用户 2026-08-01 拍板）
+
+| 操作 | 入口 |
+|---|---|
+| 展开/折叠 | **双击卡片**（统一，不分单图多图）或 **空格键** |
+| 打开镜头（Blender） | **右键菜单「打开镜头」** 或 **回车键** |
+| 展开态双击某张图 | 跳回该构图（shot_id + frame_no → 切 Scene + 跳帧） |
+
+### DOM/动画约定（用户拍板）
+
+- N 张图的 DOM 节点**折叠态就渲染**（一叠牌 = N 节点叠放 + transform 错位露边），展开只是位移，不增删节点
+- 底衬常驻 DOM，折叠态 opacity:0 脱离布局，展开淡入
+- 动画只用 transform + opacity（FLIP 已有：`captureRects → animateFrom`）
+- 展开态内新增帧 = 帧级增量 append（卡片不动）；折叠态封面变化 = 走现有差分重建 + img 移植
+- 预载：3 屏 eager 策略扩展，把多图镜头的全部帧算进预载量
+
+### 待后端落地清单（对应设计文档第 7 节）
+
+1. frames CRUD + `/api/shots` 嵌套返回
+2. 多帧拍屏 queue 命令（shot_id + frame_no → 跳到该帧拍屏落 frames 表）
+3. 设封面端点（shot_id + frame_no → 更新 is_cover + 同步 shots.thumb_path/thumb_ver）
+4. 跳回构图端点（shot_id + frame_no → 切 Scene + `scene.frame_set(frame_no)`）
+5. 删除单帧（frames 行 + 磁盘文件，确认由前端发）
+
+
+
 ## 接手前必读（环境/前置条件）
 
 - 运行环境：Blender 4.5（公司PC/家PC）

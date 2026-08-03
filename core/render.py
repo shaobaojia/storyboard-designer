@@ -8,19 +8,30 @@ import os
 import bpy
 
 
-def render_shot_files(scene, shot_dir, thumb_width=320):
+def render_shot_files(scene, shot_dir, thumb_width=320, frame_no=None):
     """Render still.png and thumb.jpg for a scene into shot_dir.
 
     Uses viewport OpenGL render ("视图渲染图像") — WYSIWYG, what you see in
     the viewport is what you get. Requires a valid 3D viewport context, so
     must be called from the Blender main thread with a window.
 
+    frame_no=None renders the legacy still.png/thumb.jpg pair (single-frame
+    shots, backward compatible). With frame_no set, the timeline jumps to
+    that frame first and outputs fNNNNN_still.png / fNNNNN_thumb.jpg.
+
     Returns dict with still_path and thumb_path.
     """
     os.makedirs(shot_dir, exist_ok=True)
 
+    # Multi-frame: jump the timeline to the requested frame before rendering
+    if frame_no is not None:
+        scene.frame_set(frame_no)
+
     # Viewport OpenGL render (拍屏, "视图渲染图像") — matches what user sees
-    still_path = os.path.join(shot_dir, "still.png")
+    if frame_no is None:
+        still_path = os.path.join(shot_dir, "still.png")
+    else:
+        still_path = os.path.join(shot_dir, f"f{frame_no:05d}_still.png")
     scene.render.image_settings.file_format = 'PNG'
     scene.render.filepath = still_path
 
@@ -70,7 +81,10 @@ def render_shot_files(scene, shot_dir, thumb_width=320):
         bpy.ops.render.render(write_still=True, scene=scene.name)
 
     # Generate thumbnail
-    thumb_path = os.path.join(shot_dir, "thumb.jpg")
+    if frame_no is None:
+        thumb_path = os.path.join(shot_dir, "thumb.jpg")
+    else:
+        thumb_path = os.path.join(shot_dir, f"f{frame_no:05d}_thumb.jpg")
     img = bpy.data.images.load(still_path)
     w, h = img.size
     if w > thumb_width:

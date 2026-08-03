@@ -14,7 +14,8 @@ import uuid
 from core import undo
 from core.db import (
     get_db_version, create_shot, update_shot, delete_shot, get_shot,
-    get_all_shots, get_trash, reorder_shots, name_exists, next_c_name, next_c_number
+    get_all_shots, get_trash, reorder_shots, name_exists, next_c_name, next_c_number,
+    get_all_frames, get_frames, set_cover_frame,
 )
 from core.paths import shot_dir
 
@@ -31,8 +32,39 @@ def _queue(command, params):
 
 # ---------- queries ----------
 
-def list_shots(db_path):
-    return {"status": "ok", "shots": get_all_shots(db_path)}, 200
+def _shot_dir_name(shot):
+    return f"{shot['name']}_{shot['id']}"
+
+
+def _frame_to_api(frame, shot, project_dir):
+    """Shape one frames row for the web: imageUrl with cache-busting version,
+    null when the image is missing (red-cell fallback on the front end)."""
+    img = frame.get("image_path")
+    if img and os.path.exists(img):
+        rel = os.path.basename(img)
+        url = f"/shots/{_shot_dir_name(shot)}/{rel}?v={shot.get('thumb_ver') or 0}"
+    else:
+        url = None
+    return {
+        "id": frame["id"],
+        "frame_no": frame["frame_no"],
+        "imageUrl": url,
+        "isCover": bool(frame["is_cover"]),
+    }
+
+
+def _attach_frames(shots, db_path, project_dir):
+    """Nest frames[] into each shot dict (multi-image contract, v0.7.0)."""
+    grouped = get_all_frames(db_path)
+    for shot in shots:
+        frames = grouped.get(shot["id"], [])
+        shot["frames"] = [_frame_to_api(f, shot, project_dir) for f in frames]
+    return shots
+
+
+def list_shots(db_path, project_dir):
+    shots = get_all_shots(db_path)
+    return {"status": "ok", "shots": _attach_frames(shots, db_path, project_dir)}, 200
 
 
 def get_version(db_path):
@@ -458,5 +490,53 @@ def shot_action(project_dir, db_path, shot_id, data):
         new_name = data.get("new_name") or next_c_name(db_path)
         new_name = _duplicate_one(project_dir, db_path, shot, new_name)
         return {"status": "ok", "message": "queued", "new_name": new_name}, 200
+
+    # ---------- multi-frame actions (v0.7.0) ----------
+
+    elif action == "render_frame":
+        # 拍屏指定帧（新增帧或重拍同帧，覆盖由后端 upsert 处理）
+        frame_no = data.get("frame_no")
+        if frame_no is None:
+            return {"status": "error", "message": "frame_no required"}, 400
+        _queue("render_frame", {
+            "scene_name": shot["scene_name"],
+            "shot_id": shot_id,
+            "project_dir": project_dir,
+            "frame_no": int(frame_no),
+        })
+        return {"status": "ok", "message": "queued"}, 200
+
+    elif action == "set_cover":
+        frame_id = data.get("frame_id")
+        if not frame_id:
+            return {"status": "error", "message": "frame_id required"}, 400
+        _queue("set_cover_frame", {
+            "shot_id": shot_id,
+            "frame_id": frame_id,
+            "project_dir": project_dir,
+        })
+        return {"status": "ok", "message": "queued"}, 200
+
+    elif action == "jump_to_frame":
+        # 跳回构图：切 Scene + 时间轴跳帧
+        frame_no = data.get("frame_no")
+        if frame_no is None:
+            return {"status": "error", "message": "frame_no required"}, 400
+        _queue("jump_to_frame", {
+            "scene_name": shot["scene_name"],
+            "frame_no": int(frame_no),
+        })
+        return {"status": "ok", "message": "queued"}, 200
+
+    elif action == "delete_frame":
+        frame_id = data.get("frame_id")
+        if not frame_id:
+            return {"status": "error", "message": "frame_id required"}, 400
+        _queue("delete_frame", {
+            "shot_id": shot_id,
+            "frame_id": frame_id,
+            "project_dir": project_dir,
+        })
+        return {"status": "ok", "message": "queued"}, 200
 
     return {"status": "error", "message": "unknown action"}, 400

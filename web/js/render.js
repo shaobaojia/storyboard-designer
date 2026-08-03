@@ -6,7 +6,11 @@ import { state, grid } from './state.js';
 const KEY_FIELDS = ['name', 'duration', 'content', 'dialogue', 'thumb_ver'];
 
 function cardKey(shot) {
-    return KEY_FIELDS.map(k => shot[k] ?? '').join('');
+    const base = KEY_FIELDS.map(k => shot[k] ?? '').join('');
+    // 多图镜头：帧列表（id+imageUrl+isCover）进差分键，帧变了才重建
+    const frames = (shot.frames || []).map(f => `${f.id}:${f.imageUrl}:${f.isCover}`).join('');
+    const expanded = state.expandedShotIds.has(shot.id) ? 'X' : '';
+    return base + '' + frames + '' + expanded;
 }
 
 // 首屏预载窗口：前 3 屏 eager，更远处 lazy（#2/#16）
@@ -28,6 +32,89 @@ function thumbImgHtml(shot, eager) {
         : `<div class="shot-thumb" style="display:flex;align-items:center;justify-content:center;color:#666;">No render</div>`;
 }
 
+// ---- 多图镜头（v0.7.0）----
+const SVG_NOIMG = `data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%22320%22 height=%22180%22><rect fill=%22%23333%22 width=%22320%22 height=%22180%22/><text fill=%22%23666%22 x=%2250%25%22 y=%2250%25%22 text-anchor=%22middle%22>No image</text></svg>`;
+
+function frameImgHtml(frame, shot, eager, extraClass = '') {
+    const load = eager ? 'eager' : 'lazy';
+    if (frame.imageUrl) {
+        return `<img class="frame-img ${extraClass}" draggable="false" data-frame-id="${frame.id}" data-frame-no="${frame.frame_no}" src="${frame.imageUrl}" loading="${load}" onerror="this.src='${SVG_NOIMG}'">`;
+    }
+    // 红格子：数据在但图片缺失/加载失败
+    return `<div class="frame-img frame-missing ${extraClass}" data-frame-id="${frame.id}" data-frame-no="${frame.frame_no}" title="帧 ${frame.frame_no} 缺图，右键重拍"><span class="missing-no">f${frame.frame_no}</span></div>`;
+}
+
+// 折叠态一叠牌：N 张图叠放，封面在顶，后续图错位露边（最多露 3 层）
+function stackHtml(shot, eager) {
+    const frames = shot.frames || [];
+    const cover = frames.find(f => f.isCover) || frames[0];
+    const others = frames.filter(f => f !== cover).slice(0, 3);  // 只露 3 层
+    let html = '<div class="frame-stack">';
+    // 底层错位牌（先渲染的在最下）
+    others.forEach((f, i) => {
+        const depth = others.length - i;  // 越靠后越贴近封面
+        html += frameImgHtml(f, shot, eager, `stack-layer layer-${depth}`);
+    });
+    // 封面在顶
+    if (cover) html += frameImgHtml(cover, shot, eager, 'cover');
+    html += `<div class="stack-badge">${frames.length}</div>`;
+    html += '</div>';
+    return html;
+}
+
+// 展开态：一个 shot 渲染 N 个格位（帧格），底衬按行分段（每行一个实例，
+// 跨行时次行自动出现对应宽度的底衬，不跨行时只有一个）
+// 返回元素数组（renderGrid 逐个 append 进 fragment）
+function buildExpandedCards(shot, eager) {
+    const frames = shot.frames || [];
+    const cards = [];
+
+    // 当前宫格列数（与 zoom.js 的列数反算一致），用于判断展开后每行装几帧
+    const cols = (() => {
+        try {
+            return getComputedStyle(grid).gridTemplateColumns.split(' ').filter(Boolean).length || 1;
+        } catch { return 1; }
+    })();
+
+    // 展开的起始位置 = 该 shot 在 shots 数组里的索引 → 决定第一行能放几帧
+    // （流式布局下，展开的第一个格位 = 折叠态卡片所在位置）
+    // 逐帧分配行号：第一行剩余位置 = cols - (startIdx % cols)，之后每行 cols 个
+    const startIdx = state.shots.findIndex(s => s.id === shot.id);
+    let rowStart = startIdx === -1 ? 0 : startIdx % cols;
+
+    // 计算每帧的行号 + 该行内的帧数（用于底衬宽度）
+    const rowOf = [];      // 每帧的行号
+    const rowCounts = [];  // 每行的帧数
+    let curRow = 0;
+    let colInRow = rowStart;
+    frames.forEach((f, i) => {
+        if (i > 0 && colInRow >= cols) { curRow++; colInRow = 0; }
+        rowOf[i] = curRow;
+        rowCounts[curRow] = (rowCounts[curRow] || 0) + 1;
+        colInRow++;
+    });
+
+    frames.forEach((f, i) => {
+        const wrap = document.createElement('div');
+        const isRowHead = i === 0 || rowOf[i] !== rowOf[i - 1];  // 每行第一格挂底衬
+        const first = i === 0;
+        const span = rowCounts[rowOf[i]];
+        wrap.innerHTML = `
+            <div class="shot-card frame-cell ${first ? 'frame-first' : ''}" draggable="true" data-id="${shot.id}" data-frame-id="${f.id}">
+                ${isRowHead ? `<div class="frame-backing" style="--span:${span}"></div>` : ''}
+                ${frameImgHtml(f, shot, eager, f.isCover ? 'is-cover' : '')}
+                <div class="shot-info">
+                    ${first ? `<div class="shot-name" data-field="name">${shot.name}</div>` : `<div class="frame-no">f${f.frame_no}</div>`}
+                    ${first ? `<div class="shot-meta cell-edit" data-field="duration">${shot.duration.toFixed(1)}s</div>` : ''}
+                </div>
+            </div>`;
+        const el = wrap.firstElementChild;
+        el.dataset.key = cardKey(shot);
+        cards.push(el);
+    });
+    return cards;
+}
+
 function buildCard(shot, eager) {
     const sel = state.selectedIds.has(shot.id) ? 'selected' : '';
     const wrap = document.createElement('div');
@@ -45,15 +132,30 @@ function buildCard(shot, eager) {
                 <div class="shot-updated">${updated}</div>
             </div>`;
     } else {
+        const frames = shot.frames || [];
+        const isMulti = frames.length > 1;
+        const expanded = state.expandedShotIds.has(shot.id);
         // #8: 宫格的时长也可以双击就地编辑
-        wrap.innerHTML = `
-            <div class="shot-card ${sel}" draggable="true" data-id="${shot.id}">
-                ${thumbImgHtml(shot, eager)}
-                <div class="shot-info">
-                    <div class="shot-name" data-field="name">${shot.name}</div>
-                    <div class="shot-meta cell-edit" data-field="duration">${shot.duration.toFixed(1)}s</div>
-                </div>
-            </div>`;
+        if (isMulti && !expanded) {
+            // 折叠态多图：一叠牌
+            wrap.innerHTML = `
+                <div class="shot-card multi ${sel}" draggable="true" data-id="${shot.id}">
+                    ${stackHtml(shot, eager)}
+                    <div class="shot-info">
+                        <div class="shot-name" data-field="name">${shot.name}</div>
+                        <div class="shot-meta cell-edit" data-field="duration">${shot.duration.toFixed(1)}s</div>
+                    </div>
+                </div>`;
+        } else {
+            wrap.innerHTML = `
+                <div class="shot-card ${sel}" draggable="true" data-id="${shot.id}">
+                    ${thumbImgHtml(shot, eager)}
+                    <div class="shot-info">
+                        <div class="shot-name" data-field="name">${shot.name}</div>
+                        <div class="shot-meta cell-edit" data-field="duration">${shot.duration.toFixed(1)}s</div>
+                    </div>
+                </div>`;
+        }
     }
     const el = wrap.firstElementChild;
     el.dataset.key = cardKey(shot);
@@ -96,8 +198,12 @@ export function renderGrid() {
     }
 
     // DOM 差分：按 id 复用未变化的卡片，只重建变了的
+    // 展开态多图：一个 shot 渲染 N 个格位，复用键 = shotId 或 shotId:frameId
     const existing = new Map();
-    grid.querySelectorAll('.shot-card').forEach(el => existing.set(el.dataset.id, el));
+    grid.querySelectorAll('.shot-card').forEach(el => {
+        const key = el.dataset.frameId ? `${el.dataset.id}:${el.dataset.frameId}` : el.dataset.id;
+        existing.set(key, el);
+    });
 
     const eagerCount = screenCardCount(3);
     const fragment = document.createDocumentFragment();
@@ -105,23 +211,31 @@ export function renderGrid() {
     let idx = 0;
     for (const shot of state.shots) {
         const key = cardKey(shot);
-        let el = existing.get(shot.id);
-        // 复用条件：差分键一致 且 卡片里没有残留输入框（编辑会话的安全网）
-        if (el && el.dataset.key === key && !el.querySelector('input')) {
-            existing.delete(shot.id);
-            el.classList.toggle('selected', state.selectedIds.has(shot.id));
-        } else {
+        const isExpandedMulti = state.viewMode !== 'list' &&
+            (shot.frames || []).length > 1 && state.expandedShotIds.has(shot.id);
+
+        // 展开态：一个 shot 产 N 个格位，逐个走复用/重建
+        const produced = isExpandedMulti ? buildExpandedCards(shot, true) : [buildCard(shot, state.firstLoadDone ? true : idx < eagerCount)];
+
+        for (const el of produced) {
+            const reuseKey = el.dataset.frameId ? `${el.dataset.id}:${el.dataset.frameId}` : el.dataset.id;
+            const oldEl = existing.get(reuseKey);
+            // 复用条件：差分键一致 且 卡片里没有残留输入框（编辑会话的安全网）
+            if (oldEl && oldEl.dataset.key === key && !oldEl.querySelector('input')) {
+                existing.delete(reuseKey);
+                oldEl.classList.toggle('selected', state.selectedIds.has(shot.id));
+                fragment.appendChild(oldEl);
+                continue;
+            }
             // 卡片被强制重建时，若它正挂着输入框，说明编辑会话已被打断，解锁编辑态
-            if (el && el.querySelector('input') && state.editingId === shot.id) {
+            if (oldEl && oldEl.querySelector('input') && state.editingId === shot.id) {
                 state.editingId = null;
             }
-            const oldEl = el;  // 已有卡片重建 = 静默换脸，绝不再放 fade-in (#2)
-            el = buildCard(shot, state.firstLoadDone ? true : idx < eagerCount);
             if (oldEl) {
                 // img 移植：src 没变就把加载好的旧 img 直接挪过来，零闪烁；
                 // src 变了（新拍屏）只给新 img 做透明度渐变，卡片本身不动
-                const oldImg = oldEl.querySelector('img.shot-thumb');
-                const newImg = el.querySelector('img.shot-thumb');
+                const oldImg = oldEl.querySelector('img.shot-thumb, img.frame-img.cover, img.frame-img');
+                const newImg = el.querySelector('img.shot-thumb, img.frame-img.cover, img.frame-img');
                 if (oldImg && newImg) {
                     if (newImg.src === oldImg.src && oldImg.complete) {
                         newImg.replaceWith(oldImg);
@@ -139,9 +253,9 @@ export function renderGrid() {
             } else {
                 newCards.push(el);  // 只有真正新来的卡片才播入场动画
             }
+            fragment.appendChild(el);
         }
         idx++;
-        fragment.appendChild(el);
     }
     existing.forEach(el => el.remove());  // 已删除/移出当前视图的镜头
     grid.innerHTML = '';

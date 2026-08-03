@@ -6,15 +6,19 @@ import { updateSelectionUI, clearSelection } from './selection.js';
 import { startRename } from './rename.js';
 
 // ---- 右键菜单 ----
-export function showContextMenu(x, y, shotId) {
+export function showContextMenu(x, y, shotId, frameId = null) {
     if (!state.selectedIds.has(shotId)) {
         state.selectedIds.clear();
         state.selectedIds.add(shotId);
         updateSelectionUI();
     }
     state.contextShotId = shotId;
+    state.contextFrameId = frameId;  // 帧级菜单：右键点在哪张帧上（v0.7.0）
 
     const menu = document.getElementById('contextMenu');
+    const shot = state.shots.find(s => s.id === shotId);
+    const isMulti = shot && (shot.frames || []).length > 1;
+
     if (state.trashMode) {
         // 垃圾桶模式 (#3)：只剩恢复/彻底删除
         menu.innerHTML = state.selectedIds.size > 1
@@ -26,6 +30,19 @@ export function showContextMenu(x, y, shotId) {
             : `
             <button data-action="restore">恢复</button>
             <button class="danger" data-action="purge">彻底删除</button>
+        `;
+    } else if (frameId && isMulti) {
+        // 帧级菜单：右键点在展开态的某张帧图上（v0.7.0）
+        const frame = shot.frames.find(f => f.id === frameId);
+        const coverLabel = frame && frame.isCover ? '✓ 已是封面' : '设为封面';
+        menu.innerHTML = `
+            <div class="menu-title">帧 ${frame ? 'f' + frame.frame_no : ''}</div>
+            <button data-action="frame-cover" ${frame && frame.isCover ? 'disabled' : ''}>${coverLabel}</button>
+            <button data-action="frame-rerender">重拍此帧</button>
+            <button data-action="frame-jump">跳回构图</button>
+            <button class="danger" data-action="frame-delete" ${shot.frames.length <= 1 ? 'disabled' : ''}>删除此张</button>
+            <hr>
+            <button data-action="open">Open Shot</button>
         `;
     } else if (state.selectedIds.size > 1) {
         menu.innerHTML = `
@@ -53,15 +70,47 @@ export function showContextMenu(x, y, shotId) {
 export function hideContextMenu() {
     document.getElementById('contextMenu').style.display = 'none';
     state.contextShotId = null;
+    state.contextFrameId = null;
 }
 
 async function menuAction(action) {
     if (!state.contextShotId) return;
     const shotId = state.contextShotId;
+    const frameId = state.contextFrameId;
     const batchIds = [...state.selectedIds];
     hideContextMenu();
 
     const shot = state.shots.find(s => s.id === shotId);
+
+    // 帧级操作（v0.7.0）：frameId 由右键点击位置带入
+    if (frameId && shot) {
+        const frame = shot.frames.find(f => f.id === frameId);
+        switch (action) {
+            case 'frame-cover':
+                await postShotAction(shotId, {action: 'set_cover', frame_id: frameId});
+                toast('已设为封面');
+                setTimeout(fetchShots, 1200);
+                return;
+            case 'frame-rerender':
+                await postShotAction(shotId, {action: 'render_frame', frame_no: frame.frame_no});
+                toast(`已排队重拍帧 f${frame.frame_no}`);
+                setTimeout(fetchShots, 2500);
+                return;
+            case 'frame-jump':
+                await postShotAction(shotId, {action: 'jump_to_frame', frame_no: frame.frame_no});
+                return;
+            case 'frame-delete':
+                if (await askConfirm(`删除帧 f${frame.frame_no}？`)) {
+                    await postShotAction(shotId, {action: 'delete_frame', frame_id: frameId});
+                    toast('已删除');
+                    setTimeout(fetchShots, 1200);
+                }
+                return;
+            case 'open':
+                openShot(shotId);
+                return;
+        }
+    }
 
     switch (action) {
         case 'open':
@@ -304,7 +353,10 @@ export function initContextMenu() {
             }
         } else if (st.button === 2 && st.card) {
             // 原地松开在卡片上 = 弹镜头菜单（仅右键；中键原地松开无操作）
-            showContextMenu(e.clientX, e.clientY, st.card.dataset.id);
+            // 点在展开态帧图上 → 帧级菜单（v0.7.0）
+            const frameImg = e.target.closest('.frame-img');
+            const frameId = frameImg ? frameImg.dataset.frameId : null;
+            showContextMenu(e.clientX, e.clientY, st.card.dataset.id, frameId);
         }
     });
 }

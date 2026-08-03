@@ -1,9 +1,11 @@
-// 键盘快捷键：Ctrl+A 全选 / Delete 删除 / Enter 打开 / Ctrl+Z 撤销 / 方向键跳格 / Esc 出垃圾桶
+// 键盘快捷键：Ctrl+A 全选 / Delete 删除 / Enter 打开 / 空格 展开折叠 / Ctrl+Z 撤销 / 方向键跳格 / Esc 出垃圾桶
 import { state } from './state.js';
 import { selectAll, deleteSelection, updateSelectionUI } from './selection.js';
 import { openShot, undoLast } from './data.js';
 import { exitTrashMode } from './trash.js';
 import { toast } from './ui.js';
+import { toggleExpand } from './frames.js';
+import { renderGrid } from './render.js';
 
 function gridColumns() {
     if (state.viewMode === 'list') return 1;
@@ -61,6 +63,15 @@ export function initKeyboard() {
             e.preventDefault();
             const id = [...state.selectedIds][0];
             openShot(id);
+        } else if (e.key === ' ' && state.selectedIds.size === 1 && !state.trashMode) {
+            // 空格 = 展开/折叠多图镜头（v0.7.0，与双击同效）
+            e.preventDefault();  // 阻止页面滚动
+            const id = [...state.selectedIds][0];
+            const shot = state.shots.find(s => s.id === id);
+            if (shot && (shot.frames || []).length > 1) {
+                toggleExpand(id);
+                renderGrid();
+            }
         } else if (e.key.startsWith('Arrow')) {
             arrowMove(e);
         }

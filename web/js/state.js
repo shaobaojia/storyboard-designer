@@ -5,6 +5,7 @@ export const state = {
     anchorId: null,        // Shift 范围选择/方向键的锚点
     dragSrcEl: null,
     contextShotId: null,
+    contextFrameId: null,  // 帧级右键菜单：右键点在哪张帧上（v0.7.0）
     editingId: null,
     marqueeActive: false,
     panning: false,
@@ -13,6 +14,7 @@ export const state = {
     firstLoadDone: false,  // 首屏加载门控只做一次
     trashMode: false,      // 垃圾桶页面模式：宫格复用，菜单只剩恢复/彻底删除
     viewMode: localStorage.getItem('sb-view') || 'grid',  // 'grid' | 'list'
+    expandedShotIds: new Set(),  // 多图镜头展开态（视图态，不写库，刷新全折叠 v0.7.0）
 };
 
 export const grid = document.getElementById('grid');
