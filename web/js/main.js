@@ -106,7 +106,7 @@ initTrash();
 initStackHover();  // 多图镜头折叠态悬停扫视（v0.7.0）
 
 // e2e 调试句柄：webbridge evaluate 走页面主世界时可直接驱动编排函数
-window.__sb = { state, renderGrid, expandAnimated, collapseAnimated, isExpanded,
+window.__sb = { state, renderGrid, expandAnimated, collapseAnimated, isExpanded, toggleView,
     toggleListMulti(shotId) {
         if (isExpanded(shotId)) collapseAnimated(shotId);
         else expandAnimated(shotId);

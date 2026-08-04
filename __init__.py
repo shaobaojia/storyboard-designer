@@ -514,9 +514,20 @@ def _auto_start_server():
     return None  # timer 只跑一次
 
 
+# --- Auto-sync: 定期同步场景→DB，防止意外退出丢数据 ---
+def _auto_sync():
+    try:
+        from core.sync import sync_scenes_with_db
+        sync_scenes_with_db()
+    except Exception:
+        pass  # 静默失败，不打扰用户
+    return 30.0  # 每 30 秒同步一次
+
+
 @bpy.app.handlers.persistent
 def _on_file_loaded(*_args):
     bpy.app.timers.register(_auto_start_server, first_interval=0.5)
+    bpy.app.timers.register(_auto_sync, first_interval=5.0)  # 5秒后首次，之后每30秒
 
 
 def register():

@@ -58,7 +58,7 @@ function stackHtml(shot, eager) {
     });
     // 封面在顶
     if (cover) html += frameImgHtml(cover, shot, eager, 'cover');
-    html += `<div class="stack-badge">${frames.length}</div>`;
+    html += `<button class="stack-badge" onclick="window.__sb.toggleListMulti('${shot.id}');event.stopPropagation();" title="展开/折叠">${frames.length}</button>`;
     html += '</div>';
     return html;
 }
@@ -113,7 +113,7 @@ function buildExpandedCards(shot, eager) {
         wrap.innerHTML = `
             <div class="${cls.join(' ')}" draggable="false" data-id="${shot.id}" data-frame-id="${f.id}">
                 ${frameImgHtml(f, shot, eager, imgCls)}
-                ${f.isCover ? '<div class="cover-chip">封面</div>' : ''}
+                ${f.isCover ? `<div class="cover-chip">封面</div><button class="stack-badge expanded-badge" onclick="window.__sb.toggleListMulti('${shot.id}');event.stopPropagation();" title="折叠">${frames.length}</button>` : ''}
                 <div class="shot-info">
                     ${first ? `<div class="shot-name" data-field="name">${shot.name}</div>` : `<div class="frame-no">f${f.frame_no}</div>`}
                     ${first ? `<div class="shot-meta cell-edit" data-field="duration">${shot.duration.toFixed(1)}s</div>` : ''}
@@ -409,9 +409,10 @@ export function toggleView() {
     state.viewMode = state.viewMode === 'grid' ? 'list' : 'grid';
     localStorage.setItem('sb-view', state.viewMode);
     syncViewToggleButton();
-    // 两种视图的卡片结构不同，差分键挡不住，强制全量重建
     grid.querySelectorAll('.shot-card').forEach(el => { el.dataset.key = ''; });
     renderGrid();
+    // 刷新缩放滑块（列表/宫格各自的范围不同）
+    if (window.__zoomApply) window.__zoomApply();
 }
 
 export function syncViewToggleButton() {

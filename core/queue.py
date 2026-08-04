@@ -150,10 +150,8 @@ def cmd_open_shot(params):
     # Switch to camera view in all 3D viewports
     for area in bpy.context.screen.areas:
         if area.type == 'VIEW_3D':
-            for region in area.regions:
-                if region.type == 'WINDOW':
-                    with bpy.context.temp_override(area=area, region=region):
-                        bpy.ops.view3d.view_camera()
+            space = area.spaces.active
+            space.region_3d.view_perspective = 'CAMERA'
 
     return {"scene": scene_name, "camera": scene.camera.name if scene.camera else None}
 
@@ -445,7 +443,13 @@ def cmd_create_shot_scene(params):
     if not new_scene:
         return {"error": f"Scene {scene_name} already exists"}
 
-    # Auto-render (item: create-path auto 拍屏) — failure must not fail creation
+    # 设置场景时长（帧范围）
+    duration = params.get("duration", 2.0)
+    fps = new_scene.render.fps
+    new_scene.frame_start = 1
+    new_scene.frame_end = max(1, int(duration * fps))
+
+    # Auto-render (item: create-path auto 拍屏)
     shot_id = params.get("shot_id")
     project_dir = params.get("project_dir")
     if shot_id and project_dir:
@@ -637,13 +641,11 @@ def cmd_jump_to_frame(params):
     bpy.context.window.scene = scene
     scene.frame_set(frame_no)
 
-    # Camera view in all 3D viewports (same as cmd_open_shot)
+    # Camera view in all 3D viewports
     for area in bpy.context.screen.areas:
         if area.type == 'VIEW_3D':
-            for region in area.regions:
-                if region.type == 'WINDOW':
-                    with bpy.context.temp_override(area=area, region=region):
-                        bpy.ops.view3d.view_camera()
+            space = area.spaces.active
+            space.region_3d.view_perspective = 'CAMERA'
 
     return {"scene": shot_scene, "frame": frame_no}
 

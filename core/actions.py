@@ -158,6 +158,7 @@ def create_shot_action(project_dir, db_path, data):
             "scene_name": scene_name,
             "shot_id": shot_id,
             "project_dir": project_dir,
+            "duration": data.get("duration", 2.0),
         })
         print(f"[Storyboard] Queued create_shot_scene for {name}")
     except Exception as e:

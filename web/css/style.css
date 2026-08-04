@@ -1,0 +1,754 @@
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        :root { --card-min: 200px; --list-thumb-w: 80px; --header-h: 61px; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: #1a1a1a;
+            color: #e0e0e0;
+            padding: 16px;
+            padding-top: 0;
+            padding-bottom: 80px;
+            /* 滚动条常驻：可用宽度稳定，列数反算才不会被滚动条出没顶歪 (#R6-5) */
+            overflow-y: scroll;
+        }
+        /* #18: 高度全部折进 padding，sticky 冻结瞬间不再跳 */
+        .header {
+            position: sticky;
+            top: 0;
+            z-index: 700;
+            background: #1a1a1a;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            height: var(--header-h);
+            padding: 10px 0 28px;
+            border-bottom: 1px solid #333;
+        }
+        .header h1 { font-size: 18px; font-weight: 600; }
+        .header .actions button {
+            background: #333;
+            border: none;
+            color: #e0e0e0;
+            padding: 6px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-left: 8px;
+            font-size: 13px;
+        }
+        .header .actions button:hover { background: #444; }
+
+        /* 首屏骨架屏 (#1)：呼吸微光空卡片，铺 3 屏，首屏图齐后波浪式揭幕 */
+        .skel-card {
+            background: #252525;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        .skel-thumb {
+            width: 100%;
+            aspect-ratio: 16/9;
+            background: linear-gradient(100deg, #2a2a2a 30%, #363636 50%, #2a2a2a 70%);
+            background-size: 200% 100%;
+            animation: shimmer 1.4s ease-in-out infinite;
+        }
+        .skel-line {
+            height: 12px;
+            margin: 12px 12px 22px;  /* 底部块总高对齐真实卡片 shot-info，交叉淡化不露底 */
+            border-radius: 4px;
+            width: 55%;
+            background: linear-gradient(100deg, #2a2a2a 30%, #333 50%, #2a2a2a 70%);
+            background-size: 200% 100%;
+            animation: shimmer 1.4s ease-in-out infinite;
+        }
+        @keyframes shimmer {
+            0% { background-position: 120% 0; }
+            100% { background-position: -80% 0; }
+        }
+        /* 骨架覆盖层 (#3)：盖在真实宫格上，揭幕时交叉淡化，全程无黑屏 */
+        /* flow-root = 建 BFC 防 #grid 的 margin-top 塌陷——
+           塌陷会让骨架层比真实卡片低 16px，顶部漏一窄条图片 (#R6-3) */
+        #gridWrap { position: relative; display: flow-root; }
+        #skelLayer {
+            position: absolute;
+            top: 16px;
+            left: 0;
+            right: 0;
+            display: grid;
+            grid-template-columns: repeat(auto-fill, var(--card-min));
+            justify-content: start;
+            gap: 12px;
+            z-index: 5;
+            transition: opacity 0.35s ease;
+        }
+        #skelLayer.out { opacity: 0; pointer-events: none; }
+        @keyframes cardIn {
+            from { opacity: 0; transform: translateY(16px) scale(0.97); }
+        }
+        .shot-card.fade-in {
+            animation: cardIn 0.45s cubic-bezier(0.22, 1, 0.36, 1);
+            animation-fill-mode: both;
+        }
+        /* 橡皮筋过冲 (#5)：撞墙时宫格整体冲出去再弹簧回正 */
+        #grid { will-change: transform; }
+
+        .grid {
+            display: grid;
+            /* #4: 固定列宽——卡片尺寸跟滑块完全连续，告别 1fr 台阶 (#1: 左对齐) */
+            grid-template-columns: repeat(auto-fill, var(--card-min));
+            justify-content: start;
+            gap: 12px;
+            margin-top: 16px;
+        }
+        .grid.list-mode {
+            display: block;
+        }
+        .shot-card {
+            background: #252525;
+            border-radius: 8px;
+            overflow: hidden;
+            cursor: grab;
+            transition: transform 0.28s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.15s;
+            position: relative;
+            border: 2px solid transparent;
+        }
+        .shot-card:hover {
+            box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+        }
+        .shot-card.selected {
+            border-color: #4a9eff;
+            box-shadow: 0 0 0 2px rgba(74,158,255,0.3);
+        }
+        .shot-card.dragging {
+            opacity: 0.5;
+            cursor: grabbing;
+        }
+        .shot-card.drag-over {
+            border: 2px dashed #4a9eff;
+        }
+        /* 拖图悬停卡片的动效 (#5) */
+        .shot-card.file-hover {
+            transform: scale(1.04);
+            border-color: #4a9eff;
+            box-shadow: 0 0 18px rgba(74,158,255,0.45);
+        }
+        .shot-thumb {
+            width: 100%;
+            aspect-ratio: 16/9;
+            object-fit: cover;
+            background: #333;
+            display: block;
+            -webkit-user-drag: none;  /* 缩略图不许原生拖拽，否则触发图片拖放链路 */
+            user-select: none;
+        }
+        /* ---- 多图镜头（v0.7.0）---- */
+        /* 折叠态一叠牌：N 张图叠放，封面在顶，后续图错位露边（最多 3 层） */
+        .frame-stack {
+            position: relative;
+            width: 100%;
+            aspect-ratio: 16/9;
+        }
+        .frame-stack .frame-img {
+            position: absolute;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            background: #333;
+            border-radius: 6px;
+            -webkit-user-drag: none;
+            user-select: none;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.5);
+        }
+        /* 错位层：向右下偏移，深度越大偏移越小（贴近封面） */
+        .frame-stack .layer-3 { transform: translate(7px, 7px); z-index: 1; }
+        .frame-stack .layer-2 { transform: translate(5px, 5px); z-index: 2; }
+        .frame-stack .layer-1 { transform: translate(3px, 3px); z-index: 3; }
+        .frame-stack .cover { z-index: 4; }
+        /* 左上角张数角标 */
+        .stack-badge {
+            position: absolute;
+            top: 6px;
+            left: 6px;
+            z-index: 5;
+            min-width: 20px;
+            height: 20px;
+            padding: 0 5px;
+            border-radius: 10px;
+            border: none;
+            cursor: pointer;
+            background: rgba(74, 158, 255, 0.92);
+            color: #fff;
+            font-size: 12px;
+            line-height: 20px;
+            text-align: center;
+        }
+        .stack-badge:hover { background: rgba(74, 158, 255, 1); }
+        .stack-badge.expanded-badge { top: 4px; left: 4px; z-index: 6; }
+            font-weight: 700;
+            line-height: 20px;
+            text-align: center;
+            pointer-events: none;
+        }
+        /* 展开态帧格：占一格，图面内缩 ~8%，深色背景自然连片成组 */
+        .shot-card.frame-cell {
+            background: #111113;
+            border: none;
+            box-shadow: none;
+            padding: 4%;
+            /* 吃掉宫格 gap(12px)：同行帧格的深色底衬真正贴在一起连片 */
+            margin-right: -12px;
+        }
+        /* 同行相邻帧格之间去圆角，让它们视觉上连成一体 */
+        .shot-card.frame-cell { border-radius: 0; }
+        .shot-card.frame-cell.frame-first { border-radius: 10px 0 0 10px; }
+        /* 每行最后一格（JS 加 .frame-row-last）：还原 margin，别把下一个普通卡片吸过来 */
+        .shot-card.frame-cell.frame-row-last { border-radius: 0 10px 10px 0; margin-right: 0; }
+        /* 只有一个帧格时（理论上不会，兜底） */
+        .shot-card.frame-cell.frame-first.frame-row-last { border-radius: 10px; }
+        .shot-card.frame-cell .frame-img {
+            width: 100%;
+            aspect-ratio: 16/9;
+            object-fit: cover;
+            background: #333;
+            border-radius: 6px;
+            display: block;
+            -webkit-user-drag: none;
+            user-select: none;
+            position: relative;
+            z-index: 1;
+        }
+        /* 焦点帧蓝框（v0.8.1）：跟手点击，默认落封面；封面身份降级为角标，不再抢焦点框 */
+        .shot-card.frame-cell .frame-img.frame-focused {
+            outline: 2px solid #4a9eff;
+        }
+        .shot-card.frame-cell {
+            position: relative;
+        }
+        /* 镜头选中态在连片底衬上的表达：深蓝灰底色（.selected 的 border/box-shadow 被帧格吞掉） */
+        .shot-card.frame-cell.selected {
+            background: #182431;
+        }
+        .cover-chip {
+            position: absolute;
+            top: 6px;
+            right: 6px;
+            background: #4a9eff;
+            color: #fff;
+            font-size: 10px;
+            line-height: 1;
+            padding: 3px 6px;
+            border-radius: 4px;
+            z-index: 2;
+            pointer-events: none;
+        }
+        .collapse-btn {
+            position: absolute;
+            top: 6px;
+            left: 6px;
+            background: rgba(255,255,255,0.08);
+            color: #888;
+            border: none;
+            font-size: 11px;
+            line-height: 1;
+            padding: 3px 6px;
+            border-radius: 4px;
+            cursor: pointer;
+            z-index: 2;
+            transition: background 0.15s, color 0.15s;
+        }
+        .collapse-btn:hover {
+            background: rgba(255,255,255,0.15);
+            color: #fff;
+        }
+        .shot-card.frame-cell .shot-info {
+            position: relative;
+            z-index: 1;
+            padding: 6px 8px;
+        }
+        .shot-card.frame-cell .frame-no {
+            font-size: 12px;
+            color: #888;
+        }
+        /* 红格子：数据在但图片缺失 */
+        .frame-missing {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #4a1a1a;
+            border: 2px dashed #a33;
+            cursor: pointer;
+        }
+        .frame-missing .missing-no {
+            color: #e88;
+            font-size: 13px;
+            font-weight: 600;
+        }
+        /* 红格子呼吸脉冲（hover 停止） */
+        @keyframes missingPulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.55; }
+        }
+        .frame-missing { animation: missingPulse 2.2s ease-in-out infinite; }
+        .frame-missing:hover { animation: none; }
+        .shot-info {
+            padding: 8px 10px;
+        }
+        .shot-name {
+            font-size: 13px;
+            font-weight: 600;
+            margin-bottom: 2px;
+            cursor: text;
+            user-select: none;
+        }
+        .shot-name-input, .field-input {
+            font-size: 13px;
+            font-weight: 600;
+            margin-bottom: 2px;
+            width: 100%;
+            background: #111;
+            color: #e0e0e0;
+            border: 1px solid #4a9eff;
+            border-radius: 3px;
+            padding: 1px 4px;
+            outline: none;
+        }
+        .shot-meta {
+            font-size: 11px;
+            color: #888;
+        }
+
+        /* 列表视图：grid 列布局，表头与行共用一套列宽 (#12/#13/#14)，内容:台词=7:3 (#7) */
+        .list-header {
+            display: none;
+            position: sticky;
+            top: var(--header-h);
+            z-index: 600;
+            background: #1a1a1a;
+            grid-template-columns: var(--list-thumb-w) 150px 60px 7fr 3fr 110px;
+            column-gap: 14px;
+            align-items: center;
+            padding: 6px 14px;
+            font-size: 11px;
+            color: #888;
+            border-bottom: 1px solid #333;
+        }
+        .list-header.on { display: grid; }
+        .shot-card.list-item {
+            display: grid;
+            grid-template-columns: var(--list-thumb-w) 150px 60px 7fr 3fr 110px;
+            column-gap: 14px;
+            align-items: center;
+            margin-bottom: 6px;
+            border-radius: 6px;
+            padding: 4px 10px 4px 4px;
+        }
+        /* 多图展开：缩略图列自适应加宽 */
+        .shot-card.list-item.expanded {
+            position: relative;
+            overflow: visible;
+        }
+        .thumb-wrap {
+            width: var(--list-thumb-w);
+            aspect-ratio: 16/9;
+        }
+        .thumb-wrap .shot-thumb {
+            width: 100%;
+            height: 100%;
+            border-radius: 4px;
+            object-fit: cover;
+        }
+        .shot-card.list-item.expanded .list-frames {
+            position: absolute;
+            left: 4px;
+            top: 4px;
+            bottom: 4px;
+            z-index: 10;
+            background: #1a1d24;
+            border-radius: 4px;
+            padding: 2px;
+            gap: 2px;
+            box-sizing: border-box;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+            pointer-events: none;
+            display: inline-flex;
+            white-space: nowrap;
+        }
+
+        .shot-card.list-item.expanded .list-frames .frame-thumb {
+            pointer-events: auto;
+            width: auto;
+            height: 100%;
+            aspect-ratio: 16/9;
+        }
+        .shot-card.list-item .shot-thumb {
+            width: var(--list-thumb-w);
+            border-radius: 4px;
+            object-fit: cover;
+        }
+        .shot-card.list-item .shot-thumb,
+        .shot-card.list-item .list-frames .frame-thumb img {
+            aspect-ratio: 16/9;
+        }
+        .shot-card.list-item .shot-name { margin-bottom: 0; }
+        .multi-badge {
+            display: inline-block;
+            margin-left: 6px;
+            font-size: 11px;
+            font-weight: 400;
+            color: #4a9eff;
+            background: rgba(74,158,255,0.1);
+            padding: 1px 6px;
+            border-radius: 3px;
+            vertical-align: middle;
+            border: none;
+            cursor: pointer;
+            transition: background 0.15s, color 0.15s;
+        }
+        .multi-badge:hover { background: rgba(74,158,255,0.2); color: #fff; }
+        .multi-badge.expanded { color: #ff9f4a; background: rgba(255,159,74,0.1); }
+        .multi-badge.expanded:hover { background: rgba(255,159,74,0.2); }
+        /* badge button inside float panel */
+        .list-frames .multi-badge {
+            margin-left: 4px;
+            align-self: center;
+            flex-shrink: 0;
+            pointer-events: auto;
+        }
+        .shot-card.list-item .shot-name-input,
+        .shot-card.list-item .field-input { width: 100%; margin-bottom: 0; font-weight: 400; }
+        .shot-card.list-item .shot-meta { white-space: nowrap; }
+        .shot-card.list-item .cell-text {
+            font-size: 12px;
+            color: #bbb;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            cursor: text;
+        }
+        .shot-card.list-item .cell-text.empty { color: #555; }
+        .shot-card.list-item .shot-updated {
+            font-size: 11px;
+            color: #666;
+            white-space: nowrap;
+            text-align: right;
+        }
+        .list-frames {
+            display: inline-flex;
+            gap: 3px;
+            align-items: center;
+        }
+        .list-frames .frame-thumb {
+            width: 56px;
+            aspect-ratio: 16/9;
+            border-radius: 3px;
+            overflow: hidden;
+            cursor: pointer;
+            border: 2px solid transparent;
+            flex-shrink: 0;
+            transition: border-color 0.15s;
+        }
+        .list-frames .frame-thumb img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+        .list-frames .frame-thumb.is-cover { border-color: transparent; }
+        .list-frames .frame-thumb:hover { border-color: #888; }
+        .list-frames .frame-missing {
+            width: 100%;
+            height: 100%;
+            background: #3a1a1a;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 9px;
+            color: #c44;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: #666;
+        }
+        .empty-state p { margin-top: 12px; }
+        .context-menu {
+            position: fixed;
+            background: #2a2a2a;
+            border: 1px solid #444;
+            border-radius: 6px;
+            padding: 4px 0;
+            min-width: 150px;
+            z-index: 1000;
+            box-shadow: 0 4px 16px rgba(0,0,0,0.5);
+        }
+        .context-menu button {
+            display: block;
+            width: 100%;
+            padding: 8px 14px;
+            background: none;
+            border: none;
+            color: #e0e0e0;
+            text-align: left;
+            cursor: pointer;
+            font-size: 13px;
+        }
+        .context-menu button:hover { background: #3a3a3a; }
+        .context-menu button.danger { color: #ff6b6b; }
+        .context-menu button.danger:hover { background: #4a2a2a; }
+        .context-menu .menu-title {
+            padding: 6px 14px;
+            font-size: 11px;
+            color: #888;
+            border-bottom: 1px solid #3a3a3a;
+            margin-bottom: 2px;
+        }
+
+        /* 左下角工具条：滑块 + 视图切换 + 垃圾桶 (#11) */
+        .size-slider {
+            position: fixed;
+            left: 16px;
+            bottom: 16px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            background: #252525;
+            border: 1px solid #3a3a3a;
+            border-radius: 6px;
+            padding: 8px 12px;
+            z-index: 900;
+        }
+        .size-slider input[type="range"] {
+            width: 140px;
+            accent-color: #4a9eff;
+            cursor: pointer;
+        }
+        .size-slider .slider-label { font-size: 11px; color: #888; }
+        .size-slider .bar-btn {
+            background: #333;
+            border: none;
+            color: #e0e0e0;
+            padding: 5px 10px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+            position: relative;
+        }
+        .size-slider .bar-btn:hover { background: #444; }
+        .size-slider .bar-btn.active-view { background: #4a9eff; color: #fff; }
+        #trashCount {
+            background: #c0392b;
+            color: #fff;
+            border-radius: 8px;
+            font-size: 10px;
+            padding: 1px 5px;
+            margin-left: 4px;
+            display: none;
+        }
+        #trashCount.on { display: inline-block; }
+
+        /* 右下角统计 (#8) */
+        #statsBadge {
+            position: fixed;
+            right: 16px;
+            bottom: 16px;
+            background: #252525;
+            border: 1px solid #3a3a3a;
+            border-radius: 6px;
+            padding: 8px 12px;
+            font-size: 12px;
+            color: #999;
+            z-index: 900;
+        }
+        #statsBadge b { color: #e0e0e0; font-weight: 600; }
+
+        /* 创建镜头对话框 + 垃圾桶弹窗 */
+        .modal-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.6);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1100;
+        }
+        .modal {
+            background: #252525;
+            border: 1px solid #444;
+            border-radius: 8px;
+            padding: 20px;
+            width: 300px;
+        }
+        .modal.wide { width: 460px; max-height: 70vh; display: flex; flex-direction: column; }
+        .modal h2 { font-size: 15px; margin-bottom: 14px; }
+        .modal .field { margin-bottom: 12px; }
+        .modal label { display: block; font-size: 12px; color: #888; margin-bottom: 4px; }
+        .modal input {
+            width: 100%;
+            background: #111;
+            border: 1px solid #3a3a3a;
+            border-radius: 4px;
+            color: #e0e0e0;
+            padding: 6px 8px;
+            font-size: 13px;
+            outline: none;
+        }
+        .modal input:focus { border-color: #4a9eff; }
+        .modal .modal-actions {
+            display: flex;
+            justify-content: flex-end;
+            gap: 8px;
+            margin-top: 16px;
+        }
+        .modal .modal-actions button {
+            padding: 6px 14px;
+            border-radius: 4px;
+            border: none;
+            cursor: pointer;
+            font-size: 13px;
+        }
+        .modal .btn-primary { background: #4a9eff; color: #fff; }
+        .modal .btn-primary:hover { background: #3a8eef; }
+        .modal .btn-cancel { background: #333; color: #e0e0e0; }
+        .modal .btn-cancel:hover { background: #444; }
+        .modal .btn-danger { background: #c0392b; color: #fff; }
+        .modal .btn-danger:hover { background: #a93226; }
+
+        /* 垃圾桶列表 */
+        .trash-list { overflow-y: auto; flex: 1; }
+        .trash-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 8px 4px;
+            border-bottom: 1px solid #333;
+            font-size: 13px;
+        }
+        .trash-row .t-name { flex: 1; }
+        .trash-row button {
+            padding: 4px 10px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+            background: #333;
+            color: #e0e0e0;
+        }
+        .trash-row button:hover { background: #444; }
+        .trash-row button.danger { background: #4a2a2a; color: #ff6b6b; }
+        .trash-row button.danger:hover { background: #c0392b; color: #fff; }
+        .trash-empty { color: #666; text-align: center; padding: 30px 0; font-size: 13px; }
+
+        /* 框选选框 */
+        .marquee-box {
+            position: fixed;
+            border: 1px solid #4a9eff;
+            background: rgba(74,158,255,0.12);
+            z-index: 800;
+            pointer-events: none;
+            display: none;
+        }
+
+        /* 拖图分区遮罩 (#5/#6)：上区透明穿透，下区实心接管事件 */
+        .drop-overlay {
+            position: fixed;
+            inset: 0;
+            z-index: 1050;
+            display: none;
+            flex-direction: column;
+            pointer-events: none;
+            background: rgba(26,26,26,0.45);
+        }
+        .drop-zone {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border: 3px dashed #4a9eff;
+            border-radius: 12px;
+            background: rgba(74,158,255,0.08);
+            margin: 16px 16px 8px;
+        }
+        #dropZoneCard { flex: 4; }
+        /* 下区实心 + 接管指针：图片不会"透"到下层卡片，松手直接新建 */
+        #dropZoneNew {
+            flex: 1;
+            margin: 8px 16px 16px;
+            pointer-events: auto;
+            background: rgba(20,32,48,0.94);
+            border-style: solid;
+            transition: background 0.15s, border-color 0.15s, box-shadow 0.15s;
+        }
+        #dropZoneNew.active {
+            background: rgba(38,78,128,0.97);
+            border-color: #7cc0ff;
+            box-shadow: 0 0 24px rgba(74,158,255,0.5) inset;
+        }
+        .drop-zone .zone-text {
+            font-size: 18px;
+            color: #4a9eff;
+            background: rgba(26,26,26,0.85);
+            padding: 12px 24px;
+            border-radius: 8px;
+        }
+        #dropZoneNew .zone-text { font-size: 15px; background: transparent; }
+        #dropZoneNew.active .zone-text { color: #bfe0ff; }
+        .drop-zone.disabled {
+            border-color: #666;
+            background: rgba(100,100,100,0.05);
+        }
+        .drop-zone.disabled .zone-text { color: #777; }
+
+        /* 删除确认条 */
+        .confirm-bar {
+            position: fixed;
+            left: 50%;
+            bottom: 20px;
+            transform: translateX(-50%);
+            background: #2a2a2a;
+            border: 1px solid #555;
+            border-radius: 8px;
+            padding: 10px 16px;
+            display: none;
+            align-items: center;
+            gap: 12px;
+            z-index: 1200;
+            box-shadow: 0 6px 20px rgba(0,0,0,0.6);
+            font-size: 13px;
+        }
+        .confirm-bar button {
+            padding: 5px 14px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 13px;
+        }
+        .confirm-bar .btn-danger { background: #c0392b; color: #fff; }
+        .confirm-bar .btn-danger:hover { background: #a93226; }
+        .confirm-bar .btn-cancel { background: #333; color: #e0e0e0; }
+
+        /* 轻提示（抬高避开右下角统计条） */
+        .toast {
+            position: fixed;
+            right: 16px;
+            bottom: 60px;
+            background: #333;
+            border: 1px solid #555;
+            border-radius: 6px;
+            padding: 10px 14px;
+            font-size: 13px;
+            z-index: 1300;
+            display: none;
+            max-width: 320px;
+        }
+        .toast.error { border-color: #c0392b; color: #ff9b9b; }
+
+        /* #9: 非交互文本一律默认光标+不可选中，只有按钮/可编辑字段有交互光标 */
+        .header h1, .list-header, .slider-label, #sizeValue,
+        #statsBadge, .empty-state, .shot-updated, .zone-text {
+            user-select: none;
+            cursor: default;
+        }
+
+        /* 垃圾桶页面模式 (#3)：隐藏新建/同步/时间线，标题变色 */
+        body.trash-mode #btnCreate,
+        body.trash-mode #btnSync,
+        body.trash-mode #btnTimeline { display: none; }
+        body.trash-mode .header h1 { color: #ff9b6b; }
+        body.trash-mode #trashBtn { background: #4a9eff; color: #fff; }
