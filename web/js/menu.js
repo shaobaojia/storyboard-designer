@@ -58,8 +58,8 @@ export function showContextMenu(x, y, shotId, frameId = null) {
         const expanded = isExpanded(shotId);
         const expandLabel = expanded ? '折叠' : '展开';
         menu.innerHTML = `
+            ${isMulti ? `<button data-action="toggle-expand">${expandLabel}</button>` : ''}
             <button data-action="open">Open Shot</button>
-            ${isMulti && expanded ? `<button data-action="toggle-expand">${expandLabel}</button>` : ''}
             <button data-action="rerender">Re-render</button>
             <button data-action="rename">Rename</button>
             <button data-action="duplicate">Duplicate</button>
@@ -366,10 +366,14 @@ export function initContextMenu() {
             }
         } else if (st.button === 2 && st.card) {
             // 原地松开在卡片上 = 弹镜头菜单（仅右键；中键原地松开无操作）
-            // 点在展开态帧图上 → 帧级菜单（v0.7.0）
-            const frameImg = e.target.closest('.frame-img');
+            // 点在展开态帧图上 → 帧级菜单（v0.7.0）。折叠态多图是一叠牌，
+            // 帧图叠放在卡片上，若不管展开态直接 closest('.frame-img')，
+            // 折叠态右键会误弹帧级菜单——必须只在展开态生效（v0.8.2）。
+            // 列表展开态帧图 class 是 .frame-thumb（render.js），一并匹配（v0.8.2）
+            const shotId = st.card.dataset.id;
+            const frameImg = isExpanded(shotId) ? e.target.closest('.frame-img, .frame-thumb') : null;
             const frameId = frameImg ? frameImg.dataset.frameId : null;
-            showContextMenu(e.clientX, e.clientY, st.card.dataset.id, frameId);
+            showContextMenu(e.clientX, e.clientY, shotId, frameId);
         }
     });
 }

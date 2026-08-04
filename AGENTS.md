@@ -2,6 +2,35 @@
 
 > 给下一个 Agent（或下一个自己）的交接备忘录。**收工推送前必须更新「刚做完 / 正在做 / 下一步 / 坑」四个字段。**
 
+## 刚做完（第六轮：右键菜单三修 + CSS 衬底复活 + 列表缩放动态上限，Kimi 执行，audit 38/38）
+
+**需求 1：多图镜头折叠态右键菜单与单图一致。**
+- 实测确认宫格折叠态多图误弹**帧级菜单**（展开/设封面/重拍/跳构图/删帧），单图是普通菜单
+- 根因：menu.js 帧级判定只看 `e.target.closest('.frame-img')` 不看展开态；宫格折叠态=一叠牌，N 帧图叠放，右键落在帧图上就误命中
+- 修复：帧级判定加展开态门控 `const frameImg = isExpanded(shotId) ? e.target.closest('.frame-img, .frame-thumb') : null;`
+
+**需求 2：所有多图镜头右键菜单加「展开」项，位于 Open Shot 上面。**
+- menu.js else 分支 toggle-expand 挪到 open 之前，去掉 expanded 门控（折叠态显示「展开」、展开态显示「折叠」）；单图不渲染该按钮
+- 帧级菜单本就带 toggle-expand 在顶部，无需改
+
+**需求 3（顺带补全）：列表展开态帧图右键弹帧级菜单。**
+- 之前列表展开态右键帧图弹普通菜单——列表帧图 class 是 `.frame-thumb`（render.js），而帧级判定只认 `.frame-img`（v0.7.0 只给宫格做了）
+- 修复：closest 选择器扩为 `.frame-img, .frame-thumb`（同一处）
+
+**需求 4：宫格多图展开态衬底检查 → 发现衬底失效并修复。**
+- 实测：帧格 computed background=#252525（应为 #111113）、margin-right=0（应为 -12px）、padding=0（应为 4%）——连片底衬完全不生效
+- 根因：**CSS 孤儿声明块**（第四轮 22b385f 重写 `.stack-badge` 时残留 `font-weight: 700; ... pointer-events: none; }` 无选择器尾巴）→ CSS 解析器错误恢复吞掉紧跟其后的 `.shot-card.frame-cell` 规则（background/margin-right/padding 全没进浏览器）
+- 修复：删孤儿块，`.stack-badge` 补回 font-weight: 700（pointer-events:none 不加，按钮要可点击）
+- 排查法：浏览器 cssRules 总数(148) < 本地规则块数(154)，差的就是被吞的；curl 看服务器文件完好但浏览器缺规则 = 解析被前面语法破坏
+
+**需求 5：列表缩放最大极值 = 多图镜头展开浮层刚顶到页面右缘（第四轮只做了固定 55%）。**
+- 实测：55%（760px）下展开 3 帧浮层右缘 2338 vs 页面 1413，**溢出 925px**
+- 修复（zoom.js）：maxW 动态公式 `(availWidth - 24 - (N-1)*2 - 43 + 7.11*N) / N`，N=当前最大帧数（fetchShots 后经 `__zoomApply` 重算，未来加 4/5 帧镜头上限自动收紧）；data.js fetchShots 成功后调 `window.__zoomApply?.()`
+- 实测：3 帧项目 max 444px（原 760），展开浮层右缘 1390 vs 1413，溢出 -23px（刚顶到）
+- 常数：LIST_FLOAT_OFFSET=24（grid左16+浮层left4+padding4）、LIST_BADGE_W=43（角标）、LIST_FRAME_DELTA=7.11（listThumbW→帧宽 aspect 链实测差）
+
+- 验证：WebBridge 真实右键两视图×五场景全过（列表/宫格 × 折叠/展开/单图）；衬底 computed+几何连片零 gap；缩放线性 step=1；audit **38/38 PASS**
+
 ## 刚做完（第五轮：多图帧级实时刷新，Kimi 执行，audit 38/38）
 
 **需求：多图镜头在 Blender 重拍某一帧，网页端要实时更新（尤其非封面帧）。**
@@ -234,12 +263,13 @@ WebBridge 21/21 PASS：宫格卡片/展开折叠/帧格焦点/列表行/浮层�
 
 ## 正在做
 
-- 第五轮（多图帧级实时刷新）已完成，audit 38/38，已推 GitHub
+- 第六轮（右键菜单三修 + CSS 衬底复活 + 列表缩放动态上限）已完成，audit 38/38，本 commit 推送
+- 第五轮（多图帧级实时刷新）已推 GitHub
 - 5 个幽灵场景已改名 `__ghost_*` 保留（未删，用户可确认后清理）
 
 ## 下一步
 
-- 用户前台验收第五轮：Blender 面板重拍多图非封面帧 → Edge 网页自动更新
+- 用户前台验收第六轮：折叠态右键一致性 / 菜单展开项 / 列表帧级菜单 / 衬底连片 / 列表缩放顶右缘
 - 幽灵场景 `__ghost_c0040/c0160/c0310/c0470/c0840` 待用户确认是否彻底删除（含 .blend 存盘防复活）
 - 第 9 项惯性功能按需重新启动
 - 后续可开工的优化项：稳健性待办列表（见下方）
@@ -350,6 +380,7 @@ WebBridge 21/21 PASS：宫格卡片/展开折叠/帧格焦点/列表行/浮层�
 - **BaseHTTPRequestHandler 的 if/elif 链断裂**：独立 `if` 替代 `elif` 会导致 200 + 404 双响应拼包，JSON 解析报 Extra data。
 - **`scene.copy()` 是链接复制**：大纲显示红色，新场景和原场景共享物体数据。用 `bpy.ops.scene.new(type='FULL_COPY')` 才能完全独立。
 - **ES module 函数不在 window 上**：`toggleView`、`__zoomApply` 等是模块导出，WebBridge evaluate 调不到。每个需要测试入口的函数都必须显式挂到 `window.__sb` 或 `window.__zoomApply`。忘记挂载 → 调不动 → 误以为功能坏了。
+- **CSS 孤儿声明块会吞掉后续规则**：选择器行被删/改坏后残留 `属性: 值; }` 无头尾巴（v0.8.2 衬底失效根因），CSS 解析器错误恢复时把紧跟其后的整条规则（如 `.shot-card.frame-cell` 的 background/margin）丢掉，浏览器 computed 静默回退。curl 看服务器文件完好、浏览器 cssRules 却缺规则 = 前面有语法破坏。排查法：对比 `document.styleSheets[0].cssRules.length` 与本地 `grep -c "{"` 规则块数，差的就是被吞的；改完 CSS 顺手跑一次该对比。
 - **`region_3d.camera` 在 Blender 4.5 不存在**：设 `view_perspective='CAMERA'` 后相机自动从 `scene.camera` 取，不要手动设 camera 属性。
 - **审计脚本测不到浏览器层 JS 问题**：如右键菜单事件冒泡这类纯前端 bug，API 审计全过但用户手动点无效。网页 JS 改动必须硬刷新后人工点一遍。
 - **addons 根目录残留旧模块文件会 shadow 标准库**：插件 `sys.path.insert(0, addon_dir)` 后，根目录散落的 `queue.py` 会顶掉 stdlib `queue`（core/queue.py 的 `import queue` 拿到错的模块）。部署目录只留 `__init__.py`/`core/`/`web/`，靠 sys.modules 里 stdlib 已缓存才没炸过，别赌运气。

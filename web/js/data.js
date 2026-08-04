@@ -11,6 +11,8 @@ export async function fetchShots(force) {
         if (data.status === 'ok') {
             state.shots = data.shots;
             renderGrid();
+            // 数据到位后重算缩放上限（列表 maxW 依赖最大帧数，v0.8.2）
+            if (window.__zoomApply) window.__zoomApply();
         }
     } catch (e) {
         console.error('Failed to fetch shots:', e);

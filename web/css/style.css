@@ -177,16 +177,12 @@
             background: rgba(74, 158, 255, 0.92);
             color: #fff;
             font-size: 12px;
+            font-weight: 700;
             line-height: 20px;
             text-align: center;
         }
         .stack-badge:hover { background: rgba(74, 158, 255, 1); }
         .stack-badge.expanded-badge { top: 4px; left: 4px; z-index: 6; }
-            font-weight: 700;
-            line-height: 20px;
-            text-align: center;
-            pointer-events: none;
-        }
         /* 展开态帧格：占一格，图面内缩 ~8%，深色背景自然连片成组 */
         .shot-card.frame-cell {
             background: #111113;

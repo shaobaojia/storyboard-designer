@@ -5,7 +5,13 @@ const GAP = 12;
 const MIN_W = 120;
 const MAX_W = 480;
 const LIST_MIN_W = 40;
-const LIST_MAX_FACTOR = 1.6; // 最大缩略图宽度系数
+// 列表最大缩略图宽度：由「最大帧数镜头展开时浮层右缘顶到页面右缘」反推。
+// 浮层右缘 = gridLeft(16) + 浮层left(4) + padding(2×2) + N×帧宽 + (N-1)×gap(2) + badge(≈43)
+// 帧宽 ≈ listThumbW - 7.11（aspect-ratio 16/9 链实测：760→753）
+// → maxW = (availWidth - 16 - 4 - 4 - (N-1)*2 - 43 + 7.11*N) / N
+const LIST_FLOAT_OFFSET = 16 + 4 + 4;   // grid 左缘 + 浮层 left + padding
+const LIST_BADGE_W = 43;                // 展开态帧数角标宽度（实测 "3帧◀"）
+const LIST_FRAME_DELTA = 7.11;          // listThumbW → 帧缩略图实际宽度差
 
 export function initZoom() {
     const sizeSlider = document.getElementById('sizeSlider');
@@ -27,8 +33,12 @@ export function initZoom() {
 
     const apply = () => {
         if (window.__sb && window.__sb.state.viewMode === 'list') {
-            // 列表：线性像素
-            const maxW = Math.round(availWidth() * 0.55); // 面板右侧留白
+            // 列表：线性像素，最大 = 最大帧数镜头展开浮层刚顶到页面右缘
+            const shots = window.__sb.state.shots || [];
+            const maxFrames = shots.reduce((m, s) => Math.max(m, (s.frames || []).length), 1);
+            const maxW = Math.max(LIST_MIN_W,
+                Math.round((availWidth() - LIST_FLOAT_OFFSET - (maxFrames - 1) * 2
+                            - LIST_BADGE_W + LIST_FRAME_DELTA * maxFrames) / maxFrames));
             listThumbW = Math.min(maxW, Math.max(LIST_MIN_W, listThumbW));
             document.documentElement.style.setProperty('--list-thumb-w', listThumbW + 'px');
             sizeValue.textContent = Math.round(listThumbW) + 'px';
