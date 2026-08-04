@@ -17,6 +17,9 @@ export async function fetchShots(force) {
     } catch (e) {
         console.error('Failed to fetch shots:', e);
         if (!state.shots.length) {
+            // 骨架层必须一并揭掉，否则失败提示被盖住 = 卡骨架屏（v0.8.2）
+            const skel = document.getElementById('skelLayer');
+            if (skel) { skel.classList.add('out'); setTimeout(() => skel.remove(), 420); }
             grid.innerHTML = '<div class="empty-state"><p>Failed to load shots. Is the server running?</p></div>';
         }
     }

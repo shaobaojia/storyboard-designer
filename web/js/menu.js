@@ -105,11 +105,10 @@ async function menuAction(action) {
                 await postShotAction(shotId, {action: 'jump_to_frame', frame_no: frame.frame_no});
                 return;
             case 'frame-delete':
-                if (await askConfirm(`删除帧 f${frame.frame_no}？`)) {
-                    await postShotAction(shotId, {action: 'delete_frame', frame_id: frameId});
-                    toast('已删除');
-                    setTimeout(fetchShots, 1200);
-                }
+                // v0.8.2：删帧不再确认（软操作，帧可重拍找回）
+                await postShotAction(shotId, {action: 'delete_frame', frame_id: frameId});
+                toast('已删除');
+                setTimeout(fetchShots, 1200);
                 return;
             case 'toggle-expand':
                 if (isExpanded(shotId)) collapseAnimated(shotId);
@@ -141,11 +140,10 @@ async function menuAction(action) {
             toast('已排队复制');
             break;
         case 'delete':
-            if (shot && await askConfirm(`删除 ${shot.name}？移入垃圾桶，可恢复。`)) {
-                await postShotAction(shotId, {action: 'delete'});
-                state.selectedIds.delete(shotId);
-                fetchShots();
-            }
+            // v0.8.2：软删除不再确认（进垃圾桶可恢复）
+            await postShotAction(shotId, {action: 'delete'});
+            state.selectedIds.delete(shotId);
+            fetchShots();
             break;
         case 'batch-duplicate':
             await postBatch('duplicate', batchIds);
@@ -161,11 +159,11 @@ async function menuAction(action) {
             setTimeout(fetchShots, 1500);
             break;
         case 'batch-delete':
-            if (await askConfirm(`批量删除 ${batchIds.length} 个镜头？移入垃圾桶，可恢复。`)) {
-                await postBatch('delete', batchIds);
-                clearSelection();
-                fetchShots();
-            }
+            // v0.8.2：批量软删除不再确认（进垃圾桶可恢复）
+            await postBatch('delete', batchIds);
+            toast(`已删除 ${batchIds.length} 个镜头（垃圾桶可恢复）`);
+            clearSelection();
+            fetchShots();
             break;
         // ---- 垃圾桶模式操作 (#3) ----
         case 'restore':

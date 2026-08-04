@@ -2,6 +2,23 @@
 
 > 给下一个 Agent（或下一个自己）的交接备忘录。**收工推送前必须更新「刚做完 / 正在做 / 下一步 / 坑」四个字段。**
 
+## 刚做完（第七轮：面板删除崩溃修复 + 删除确认策略调整 + Delete 删帧，Kimi 执行，audit 38/38）
+
+**需求 1：Blender 面板删除镜头必崩（用户实测确认）。**
+- 根因：两条删除路径不一致——queue 的 `cmd_delete_shot` 有"先切走当前激活场景再 batch_remove"的保护（Safe: switches away first if active），面板 operator `STORYBOARD_OT_delete_shot` 是独立实现、直接 `bpy.data.batch_remove(ids=(scene,))`，删除正在激活的场景时 window 仍引用被删 datablock → Blender 4.5 必崩（"Blender has stopped working"弹窗）
+- 修复：面板路径复用 `cmd_delete_shot`（切走 + batch_remove + 删目录），不再自己 batch_remove
+- 验证：删当前激活场景三清 + 不崩；连续删 3 个场景压力测试无残留不崩
+- **教训：所有删场景路径必须走 queue 的 cmd_delete_shot，别自己 batch_remove**
+
+**需求 2：删除镜头/删帧不再确认，只保留垃圾桶彻底删除的确认。**
+- menu.js：删帧（frame-delete）、删镜头（delete）、批量删（batch-delete）去掉 askConfirm，直接执行 + toast
+- selection.js：Delete 键软删（单个/批量）去掉确认；垃圾桶 purge 确认保留
+- 保留 4 处 askConfirm 全是「彻底删除…不可恢复」（menu.js purge/batch-purge + selection.js trashMode purge）
+
+**需求 3：Delete 键在帧级焦点（蓝框）时删帧而非删镜头。**
+- keyboard.js：Delete 分支先查 `.frame-img.frame-focused` + `state.focusedFrameId`，命中则 `delete_frame` + 清焦点 + toast，否则走 `deleteSelection()`
+- 验证：帧 96 蓝框 → Delete → 只删帧 96 镜头完好；无焦点 → Delete → 软删镜头，其它镜头帧不受影响
+
 ## 刚做完（第六轮：右键菜单三修 + CSS 衬底复活 + 列表缩放动态上限，Kimi 执行，audit 38/38）
 
 **需求 1：多图镜头折叠态右键菜单与单图一致。**
@@ -263,13 +280,13 @@ WebBridge 21/21 PASS：宫格卡片/展开折叠/帧格焦点/列表行/浮层�
 
 ## 正在做
 
-- 第六轮（右键菜单三修 + CSS 衬底复活 + 列表缩放动态上限）已完成，audit 38/38，本 commit 推送
-- 第五轮（多图帧级实时刷新）已推 GitHub
+- 第七轮（面板删除崩溃修复 + 删除确认策略 + Delete 删帧）已完成，audit 38/38，本 commit 推送
+- 第六轮（右键菜单三修 + CSS 衬底 + 列表缩放）已推 GitHub
 - 5 个幽灵场景已改名 `__ghost_*` 保留（未删，用户可确认后清理）
 
 ## 下一步
 
-- 用户前台验收第六轮：折叠态右键一致性 / 菜单展开项 / 列表帧级菜单 / 衬底连片 / 列表缩放顶右缘
+- 用户前台验收第七轮：面板删除不再崩 / 软删无确认 / 垃圾桶 purge 有确认 / Delete 删帧
 - 幽灵场景 `__ghost_c0040/c0160/c0310/c0470/c0840` 待用户确认是否彻底删除（含 .blend 存盘防复活）
 - 第 9 项惯性功能按需重新启动
 - 后续可开工的优化项：稳健性待办列表（见下方）
@@ -381,6 +398,7 @@ WebBridge 21/21 PASS：宫格卡片/展开折叠/帧格焦点/列表行/浮层�
 - **`scene.copy()` 是链接复制**：大纲显示红色，新场景和原场景共享物体数据。用 `bpy.ops.scene.new(type='FULL_COPY')` 才能完全独立。
 - **ES module 函数不在 window 上**：`toggleView`、`__zoomApply` 等是模块导出，WebBridge evaluate 调不到。每个需要测试入口的函数都必须显式挂到 `window.__sb` 或 `window.__zoomApply`。忘记挂载 → 调不动 → 误以为功能坏了。
 - **CSS 孤儿声明块会吞掉后续规则**：选择器行被删/改坏后残留 `属性: 值; }` 无头尾巴（v0.8.2 衬底失效根因），CSS 解析器错误恢复时把紧跟其后的整条规则（如 `.shot-card.frame-cell` 的 background/margin）丢掉，浏览器 computed 静默回退。curl 看服务器文件完好、浏览器 cssRules 却缺规则 = 前面有语法破坏。排查法：对比 `document.styleSheets[0].cssRules.length` 与本地 `grep -c "{"` 规则块数，差的就是被吞的；改完 CSS 顺手跑一次该对比。
+- **面板 delete_shot 直接 batch_remove 当前激活场景必崩**（v0.8.2 修复）：queue 的 `cmd_delete_shot` 有"先切走当前场景再删"的保护（Safe: switches away first if active），但面板 operator 是独立实现、直接 `bpy.data.batch_remove(ids=(scene,))`——删除正在激活的场景时 window 仍引用被删 datablock → Blender 4.5 必崩（"Blender has stopped working"弹窗）。修复：面板路径复用 `cmd_delete_shot`。**教训：所有删场景路径必须走 queue 的 cmd_delete_shot，别自己 batch_remove**。
 - **`region_3d.camera` 在 Blender 4.5 不存在**：设 `view_perspective='CAMERA'` 后相机自动从 `scene.camera` 取，不要手动设 camera 属性。
 - **审计脚本测不到浏览器层 JS 问题**：如右键菜单事件冒泡这类纯前端 bug，API 审计全过但用户手动点无效。网页 JS 改动必须硬刷新后人工点一遍。
 - **addons 根目录残留旧模块文件会 shadow 标准库**：插件 `sys.path.insert(0, addon_dir)` 后，根目录散落的 `queue.py` 会顶掉 stdlib `queue`（core/queue.py 的 `import queue` 拿到错的模块）。部署目录只留 `__init__.py`/`core/`/`web/`，靠 sys.modules 里 stdlib 已缓存才没炸过，别赌运气。

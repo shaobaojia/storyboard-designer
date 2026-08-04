@@ -58,16 +58,14 @@ export async function deleteSelection() {
     }
     if (ids.length === 1) {
         const shot = state.shots.find(s => s.id === ids[0]);
-        if (shot && await askConfirm(`删除 ${shot.name}？移入垃圾桶，可恢复。`)) {
-            await postShotAction(ids[0], {action: 'delete'});
-            state.selectedIds.delete(ids[0]);
-            fetchShots();
-        }
+        // v0.8.2：软删除不再确认（进垃圾桶可恢复）
+        await postShotAction(ids[0], {action: 'delete'});
+        state.selectedIds.delete(ids[0]);
+        fetchShots();
     } else if (ids.length > 1) {
-        if (await askConfirm(`批量删除 ${ids.length} 个镜头？移入垃圾桶，可恢复。`)) {
-            await postBatch('delete', ids);
-            clearSelection();
-            fetchShots();
-        }
+        // v0.8.2：批量软删除不再确认（进垃圾桶可恢复）
+        await postBatch('delete', ids);
+        clearSelection();
+        fetchShots();
     }
 }

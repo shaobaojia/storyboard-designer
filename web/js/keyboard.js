@@ -1,7 +1,7 @@
 // 键盘快捷键：Ctrl+A 全选 / Delete 删除 / Enter 打开 / 空格 展开折叠 / Ctrl+Z 撤销 / 方向键跳格 / Esc 出垃圾桶
 import { state } from './state.js';
 import { selectAll, deleteSelection, updateSelectionUI } from './selection.js';
-import { openShot, undoLast } from './data.js';
+import { openShot, undoLast, fetchShots, postShotAction } from './data.js';
 import { exitTrashMode } from './trash.js';
 import { toast } from './ui.js';
 import { isExpanded, expandAnimated, collapseAnimated } from './frames.js';
@@ -58,6 +58,20 @@ export function initKeyboard() {
             exitTrashMode();
         } else if (e.key === 'Delete' && state.selectedIds.size > 0) {
             e.preventDefault();
+            // v0.8.2：帧级焦点优先——Delete 删焦点帧而非镜头（蓝框所在的帧）
+            const focused = document.querySelector('.frame-img.frame-focused');
+            if (focused && state.focusedFrameId) {
+                const cell = focused.closest('.shot-card.frame-cell');
+                const shotId = cell ? cell.dataset.id : null;
+                if (shotId) {
+                    const frameNo = focused.dataset.frameNo;
+                    await postShotAction(shotId, {action: 'delete_frame', frame_id: state.focusedFrameId});
+                    state.focusedFrameId = null;
+                    toast(`已删除帧 f${frameNo}`);
+                    setTimeout(fetchShots, 1200);
+                    return;
+                }
+            }
             await deleteSelection();
         } else if (e.key === 'Enter' && state.selectedIds.size === 1 && !state.trashMode) {
             e.preventDefault();

@@ -217,7 +217,6 @@ function removeSkeleton() {
     layer.classList.add('out');
     setTimeout(() => layer.remove(), 420);
 }
-
 export function renderGrid() {
     const oldRects = captureRects();
     const isList = state.viewMode === 'list';
@@ -225,6 +224,8 @@ export function renderGrid() {
     document.getElementById('listHeader').classList.toggle('on', isList && state.shots.length > 0);
 
     if (state.shots.length === 0) {
+        // 空态：必须先揭掉骨架层，否则提示被盖住 = 卡骨架屏（v0.8.2）
+        removeSkeleton();
         grid.innerHTML = state.trashMode
             ? '<div class="empty-state"><p>垃圾桶是空的</p></div>'
             : '<div class="empty-state"><p>No shots yet. Create one in Blender.</p></div>';

@@ -373,14 +373,17 @@ class STORYBOARD_OT_delete_shot(bpy.types.Operator):
         # Delete DB record
         delete_shot(db_path, shot["id"])
 
-        # Delete scene（重场景瞬删：batch_remove + 临时关全局撤销，避免整文件撤销快照卡死）
-        prefs = bpy.context.preferences.edit
-        undo_was = prefs.use_global_undo
-        prefs.use_global_undo = False
-        try:
-            bpy.data.batch_remove(ids=(scene,))
-        finally:
-            prefs.use_global_undo = undo_was
+        # Delete scene —— 复用 queue 的安全删除路径（v0.8.2 崩溃修复）：
+        # cmd_delete_shot 会先把当前激活场景切走再 batch_remove。
+        # 面板路径之前直接 batch_remove，删除"正在激活的场景"时
+        # window 仍引用被删的 datablock → Blender 4.5 必崩。
+        from core.queue import cmd_delete_shot
+        cmd_delete_shot({
+            "scene_name": scene.name,
+            "shot_name": shot["name"],
+            "shot_id": shot["id"],
+            "project_dir": project_dir,
+        })
 
         self.report({'INFO'}, f"Deleted shot: {shot['name']}")
         return {'FINISHED'}
