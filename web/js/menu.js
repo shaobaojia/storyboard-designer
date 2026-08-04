@@ -1,6 +1,7 @@
 // 右键语义（原地松开=菜单，拖动=惯性滑动）+ 右键菜单
 import { state } from './state.js';
 import { toast, askConfirm } from './ui.js';
+import { isExpanded, expandAnimated, collapseAnimated } from './frames.js';
 import { fetchShots, postShotAction, postBatch, openShot } from './data.js';
 import { updateSelectionUI, clearSelection } from './selection.js';
 import { startRename } from './rename.js';
@@ -37,6 +38,7 @@ export function showContextMenu(x, y, shotId, frameId = null) {
         const coverLabel = frame && frame.isCover ? '✓ 已是封面' : '设为封面';
         menu.innerHTML = `
             <div class="menu-title">帧 ${frame ? 'f' + frame.frame_no : ''}</div>
+            <button data-action="toggle-expand">${isExpanded(shotId) ? '折叠' : '展开'}</button>
             <button data-action="frame-cover" ${frame && frame.isCover ? 'disabled' : ''}>${coverLabel}</button>
             <button data-action="frame-rerender">重拍此帧</button>
             <button data-action="frame-jump">跳回构图</button>
@@ -53,8 +55,11 @@ export function showContextMenu(x, y, shotId, frameId = null) {
             <button class="danger" data-action="batch-delete">批量删除</button>
         `;
     } else {
+        const expanded = isExpanded(shotId);
+        const expandLabel = expanded ? '折叠' : '展开';
         menu.innerHTML = `
             <button data-action="open">Open Shot</button>
+            ${isMulti ? `<button data-action="toggle-expand">${expandLabel}</button>` : ''}
             <button data-action="rerender">Re-render</button>
             <button data-action="rename">Rename</button>
             <button data-action="duplicate">Duplicate</button>
@@ -106,6 +111,10 @@ async function menuAction(action) {
                     setTimeout(fetchShots, 1200);
                 }
                 return;
+            case 'toggle-expand':
+                if (isExpanded(shotId)) collapseAnimated(shotId);
+                else expandAnimated(shotId);
+                return;
             case 'open':
                 openShot(shotId);
                 return;
@@ -113,6 +122,10 @@ async function menuAction(action) {
     }
 
     switch (action) {
+        case 'toggle-expand':
+            if (isExpanded(shotId)) collapseAnimated(shotId);
+            else expandAnimated(shotId);
+            break;
         case 'open':
             openShot(shotId);
             break;

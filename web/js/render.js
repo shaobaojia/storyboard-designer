@@ -10,7 +10,8 @@ function cardKey(shot) {
     // 多图镜头：帧列表（id+imageUrl+isCover）进差分键，帧变了才重建
     const frames = (shot.frames || []).map(f => `${f.id}:${f.imageUrl}:${f.isCover}`).join('');
     const expanded = state.expandedShotIds.has(shot.id) ? 'X' : '';
-    return base + '' + frames + '' + expanded;
+    const mode = state.viewMode;  // 视图模式变化时强制重建卡片
+    return base + '' + frames + '' + expanded + '' + mode;
 }
 
 // 首屏预载窗口：前 3 屏 eager，更远处 lazy（#2/#16）
@@ -116,6 +117,7 @@ function buildExpandedCards(shot, eager) {
                 <div class="shot-info">
                     ${first ? `<div class="shot-name" data-field="name">${shot.name}</div>` : `<div class="frame-no">f${f.frame_no}</div>`}
                     ${first ? `<div class="shot-meta cell-edit" data-field="duration">${shot.duration.toFixed(1)}s</div>` : ''}
+                    ${first ? '<button class="collapse-btn" title="折叠" data-action="collapse">▲</button>' : ''}
                 </div>
             </div>`;
         const el = wrap.firstElementChild;
@@ -132,10 +134,30 @@ function buildCard(shot, eager) {
         const updated = (shot.updated_at || '').replace('T', ' ').slice(5, 16);
         const content = shot.content || '';
         const dialogue = shot.dialogue || '';
+        const frames = shot.frames || [];
+        const isMulti = frames.length > 1;
+        const expanded = isMulti && state.expandedShotIds.has(shot.id);
+        const toggleId = shot.id.replace(/[^a-zA-Z0-9]/g,'');
+        const multiBadge = isMulti ? `<button class="multi-badge${expanded ? ' expanded' : ''}" onclick="window.__sb.toggleListMulti('${shot.id}');event.stopPropagation();">${frames.length}帧${expanded ? ' ◀' : ' ▶'}</button>` : '';
+        // 展开态：封面图保持行高，帧缩略图浮层叠加
+        let framesOverlay = '';
+        if (expanded) {
+            const frameThumbs = frames.map(f => {
+                const imgUrl = f.imageUrl || '';
+                const cls = f.isCover ? 'frame-thumb is-cover' : 'frame-thumb';
+                return `<div class="${cls}" data-frame-id="${f.id}" data-frame-no="${f.frame_no}" data-shot-id="${shot.id}">
+                    ${imgUrl ? `<img src="${imgUrl}" loading="eager">` : '<div class="frame-missing">f' + f.frame_no + '</div>'}
+                </div>`;
+            }).join('');
+            framesOverlay = `<div class="list-frames">${frameThumbs}${multiBadge}</div>`;
+        }
         wrap.innerHTML = `
-            <div class="shot-card list-item ${sel}" draggable="true" data-id="${shot.id}">
-                ${thumbImgHtml(shot, eager)}
-                <div class="shot-name" data-field="name">${shot.name}</div>
+            <div class="shot-card list-item ${sel}${isMulti ? ' multi' : ''}${expanded ? ' expanded' : ''}" draggable="true" data-id="${shot.id}">
+                <div class="thumb-wrap">
+                    ${thumbImgHtml(shot, eager)}
+                    ${framesOverlay}
+                </div>
+                <div class="shot-name" data-field="name">${shot.name}${expanded ? '' : multiBadge}</div>
                 <div class="shot-meta cell-edit" data-field="duration">${shot.duration.toFixed(1)}s</div>
                 <div class="cell-text cell-edit ${content ? '' : 'empty'}" data-field="content">${content || '内容…'}</div>
                 <div class="cell-text cell-edit ${dialogue ? '' : 'empty'}" data-field="dialogue">${dialogue || '台词…'}</div>
@@ -167,9 +189,12 @@ function buildCard(shot, eager) {
                 </div>`;
         }
     }
-    const el = wrap.firstElementChild;
-    el.dataset.key = cardKey(shot);
-    return el;
+    // 用 wrap 返回，让 renderGrid 处理多子元素（列表视图的 list-item + list-frames）
+    const key = cardKey(shot);
+    for (const child of wrap.children) {
+        if (child.dataset) child.dataset.key = key;
+    }
+    return wrap;
 }
 
 // 骨架屏 (#1/#3)：独立覆盖层盖在真实宫格上，揭幕时交叉淡化，全程无黑屏
@@ -225,7 +250,7 @@ export function renderGrid() {
             (shot.frames || []).length > 1 && state.expandedShotIds.has(shot.id);
 
         // 展开态：一个 shot 产 N 个格位，逐个走复用/重建
-        const produced = isExpandedMulti ? buildExpandedCards(shot, true) : [buildCard(shot, state.firstLoadDone ? true : idx < eagerCount)];
+        const produced = isExpandedMulti ? buildExpandedCards(shot, true) : [...buildCard(shot, state.firstLoadDone ? true : idx < eagerCount).children];
 
         for (const el of produced) {
             const reuseKey = el.dataset.frameId ? `${el.dataset.id}:${el.dataset.frameId}` : el.dataset.id;

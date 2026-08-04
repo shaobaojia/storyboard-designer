@@ -25,9 +25,27 @@ grid.addEventListener('click', (e) => {
     const card = e.target.closest('.shot-card');
     if (!card) return;
     cardClick(e, card.dataset.id);
+    // 折叠按钮（展开态左上角）
+    const collapseBtn = e.target.closest('.collapse-btn');
+    if (collapseBtn && card.dataset.id) {
+        collapseAnimated(card.dataset.id);
+        return;
+    }
+    // 列表视图展开态帧缩略图：点击=设焦点，双击=跳构图
+    const frameThumb = e.target.closest('.frame-thumb');
+    if (frameThumb) {
+        const sid = frameThumb.dataset.shotId;
+        const fid = frameThumb.dataset.frameId;
+        focusFrame(sid, fid);
+        return;
+    }
     // 展开态帧格：点击哪张，焦点蓝框跟到哪张（v0.8.1）
     if (card.classList.contains('frame-cell') && card.dataset.frameId) {
         focusFrame(card.dataset.id, card.dataset.frameId);
+    } else {
+        // 点击非帧格卡片：清除所有帧焦点，避免残留蓝框
+        state.focusedFrameId = null;
+        grid.querySelectorAll('.frame-img.frame-focused').forEach(img => img.classList.remove('frame-focused'));
     }
 });
 
@@ -52,6 +70,12 @@ grid.addEventListener('dblclick', (e) => {
     const shotId = card.dataset.id;
     const shot = state.shots.find(s => s.id === shotId);
 
+    // 列表视图展开态：双击帧缩略图 = 跳回该构图
+    const listThumb = e.target.closest('.frame-thumb');
+    if (listThumb) {
+        jumpToFrame(listThumb.dataset.shotId, parseInt(listThumb.dataset.frameNo));
+        return;
+    }
     // 展开态双击某张帧图 = 跳回该构图（v0.7.0）
     const frameImg = e.target.closest('.frame-img');
     if (frameImg && card.classList.contains('frame-cell')) {
@@ -59,11 +83,15 @@ grid.addEventListener('dblclick', (e) => {
         return;
     }
 
-    // 双击 = 展开/折叠（统一，不分单图多图；单图镜头无多帧可展，等同无操作）
+    // 多图镜头：折叠→展开，展开→折叠
     if (shot && (shot.frames || []).length > 1) {
-        if (isExpanded(shotId)) collapseAnimated(shotId);  // 弹簧收拢（v0.8.0）
-        else expandAnimated(shotId);                       // 弹簧弹开（v0.8.0）
+        if (isExpanded(shotId)) collapseAnimated(shotId);
+        else expandAnimated(shotId);
+        return;
     }
+
+    // 单图镜头：双击 → 在 Blender 中打开该镜头
+    openShot(shotId);
 });
 
 // ---- 各交互模块 ----
@@ -78,7 +106,12 @@ initTrash();
 initStackHover();  // 多图镜头折叠态悬停扫视（v0.7.0）
 
 // e2e 调试句柄：webbridge evaluate 走页面主世界时可直接驱动编排函数
-window.__sb = { state, renderGrid, expandAnimated, collapseAnimated, isExpanded };
+window.__sb = { state, renderGrid, expandAnimated, collapseAnimated, isExpanded,
+    toggleListMulti(shotId) {
+        if (isExpanded(shotId)) collapseAnimated(shotId);
+        else expandAnimated(shotId);
+    }
+};
 
 // ---- 启动 ----
 syncViewToggleButton();

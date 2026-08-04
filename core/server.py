@@ -135,6 +135,7 @@ class StoryboardHTTPServer:
                 self.send_response(200)
                 self.send_header("Content-Type", content_type)
                 self.send_header("Access-Control-Allow-Origin", "*")
+                self.send_header("Cache-Control", "no-cache")
                 self.end_headers()
                 with open(filepath, "rb") as f:
                     self.wfile.write(f.read())
