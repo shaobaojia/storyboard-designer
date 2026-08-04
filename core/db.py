@@ -100,6 +100,27 @@ def init_db(db_path):
             print("[Storyboard] Migrated DB: added frames.ver column")
     except sqlite3.OperationalError:
         pass
+    # v0.8.4: 统一展示用缩略图——frames 行指向 still.png（1920 全尺寸）的改指
+    # 同目录 thumb.jpg（卡片/帧格渲染 320 缩略，加载快；全尺寸 still 仍留档磁盘）
+    try:
+        rows = conn.execute(
+            "SELECT id, image_path FROM frames WHERE image_path LIKE '%still.png'"
+        ).fetchall()
+        moved = 0
+        for fid, img_path in rows:
+            if not img_path:
+                continue
+            if img_path.endswith("still.png"):
+                thumb_candidate = os.path.join(os.path.dirname(img_path), "thumb.jpg")
+            else:
+                thumb_candidate = img_path[:-len("_still.png")] + "_thumb.jpg"
+            if thumb_candidate and os.path.exists(thumb_candidate):
+                conn.execute("UPDATE frames SET image_path=? WHERE id=?", (thumb_candidate, fid))
+                moved += 1
+        if moved:
+            print(f"[Storyboard] Migrated DB: {moved} frame rows -> thumb.jpg (v0.8.4)")
+    except sqlite3.OperationalError:
+        pass
     conn.commit()
     conn.close()
     return db_path

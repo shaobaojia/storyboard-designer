@@ -2,6 +2,21 @@
 
 > 给下一个 Agent（或下一个自己）的交接备忘录。**收工推送前必须更新「刚做完 / 正在做 / 下一步 / 坑」四个字段。**
 
+## 刚做完（第九轮 v0.8.4：拍当前帧全面接管 RenderShot——用户拍板三项，Kimi 执行，audit 38/38）
+
+**用户决策（2026-08 拍板）**：①接受统一模型——单图=1 帧镜头，不分单帧/多帧镜头（"结构上更清爽，逻辑上自恰"）②MAX_FRAMES_PER_SHOT=5 不变 ③Render All 果断删（90+ 镜头下是笑话）。
+
+- **删**：`STORYBOARD_OT_render_shot` / `STORYBOARD_OT_render_all` + 面板两按钮 + 注册表（operator 删除必须重启 Blender，热重载覆盖不了注册表）；`__init__.py` 清 update_shot 死 import
+- **删**：`cmd_rerender_shot` / `_render_and_update`；新增 `_cover_frame_no(db_path, shot_id)`（封面帧号，无帧行兜底 0）
+- **API rerender 语义 = 重拍封面帧**（actions.py 两处转 `render_frame` + `frame_no=_cover_frame_no`）
+- **四处自动拍屏改走 cmd_render_frame**：面板 create（f0）/ queue create_shot_scene（f0）/ create_image_shot_scene（f0）/ set_camera_background（封面帧）；**duplicate 升级为复制 frames 行 + 帧文件拷贝**（保留全部帧 + 封面标记 + 封面 still 同步；无帧行兜底拍 f0）——顺带修了"复制多图镜头丢帧"隐藏 bug
+- **db.py init_db 迁移**：frames 行 image_path 以 still.png 结尾 → 改指同目录 thumb.jpg（统一展示用缩略图，卡片不加载 1920 大图；幂等，纯 Python 已测）
+- **前端**：单图卡片渲染统一走封面帧图（列表/宫格同源 `coverFrame.imageUrl`，thumb.jpg 仅 legacy 兜底）；菜单「Re-render」→「重拍封面」
+- **audit 同步**：1a 改 timer 包装（auto-render 需主线程，MCP 线程静默失败）；1b 改验"创建自动拍 f0 + frames 行"；2c 改验"重拍封面帧"（f00000_* 文件）；2k 期望帧数 1→2（创建自动 f0 + render_frame）
+- **遗留语义**：新镜头 f0 输出 `f00000_still.png/f00000_thumb.jpg`（frame_no=0 走 frame_no is not None 分支），老镜头迁移后 f0 指 `thumb.jpg`——两者都是 320 缩略图、内容同源，可接受；重拍 f0 后统一为 f00000_thumb.jpg
+- **验证**：audit 38/38；WebBridge 单图卡片（宫格/列表）显示封面帧图 ✓ 右键"重拍封面" ✓ 多图展开正常 ✓；duplicate 保帧（c0090 3 帧 → 副本 3 帧 [0,37,53] 封面标记保留）✓
+- **render_all 崩溃随删除解决**（86 镜头 3.9GB 必崩的历史遗留不再存在）；批量重渲染（前端右键）走队列逐 tick 重拍封面帧，天然不崩
+
 ## 刚做完（第八轮 v0.8.3：帧格间距固定 + 列表封面角标 + 悬停扫视恢复 + 列表封面帧图，Kimi 执行，audit 38/38）
 
 **需求 1：多帧展开最后一张图"矮一截"（用户实测）。**
@@ -300,15 +315,13 @@ WebBridge 21/21 PASS：宫格卡片/展开折叠/帧格焦点/列表行/浮层�
 
 ## 正在做
 
-- 第八轮（v0.8.3：帧格间距固定 + 列表封面角标 + 悬停扫视恢复 + 列表封面帧图）已完成，audit 38/38，本地已 commit，**待用户发话再推 GitHub**
-- 第六轮（右键菜单三修 + CSS 衬底 + 列表缩放）已推 GitHub
-- ⚠️ **render_all 大工程必崩未修**（见坑列表）：用户点面板 Render All 前先提醒，或先修（稳健性待办第 2 项思路）
+- 第九轮（v0.8.4：拍当前帧全面接管 RenderShot——删 RenderShot/Render All + 统一 frames 模型 + duplicate 保帧 + f0 缩略图迁移）已完成，audit 38/38，**待用户发话再推 GitHub**（当前即待推状态）
+- 第八轮（v0.8.3）已推 GitHub（7184485）
 - 测试现场：c0410 测试中被删了帧 70/96（只剩 0/111），如需恢复用面板 snap_frame 重拍即可；测试残留镜头已清（c0010111/c001011 已 purge）
 
 ## 下一步
 
-- 用户前台验收第八轮：宫格展开帧图间距均匀/底衬不出界 / 列表封面角标 / 悬停扫过恢复封面 / 列表缩略图跟随封面变更
-- **修 render_all 崩溃**（86 镜头工程必崩，用户实际会用）
+- 用户前台验收第九轮：面板只剩「拍当前帧 + 帧号列表」（Render Shot/All 已消失）/ 单图镜头与多图行为统一（右键「重拍封面」、帧格、扫视）/ 复制多图镜头保留全部帧 / 批量重渲染 = 逐镜头重拍封面帧
 - 幽灵场景累计 12 个 `__ghost_*`（第五轮 5 个 + 第七轮 7 个：c0050/c0100/c0230/c0340/c0480/c0560/c0970）待用户确认是否彻底删除（含 .blend 存盘防复活）；**反复出现说明 sync 待办第 7 项（孤儿场景自动收敛）值得优先做**
 - 第 9 项惯性功能按需重新启动
 - 后续可开工的优化项：稳健性待办列表（见下方）
@@ -421,7 +434,12 @@ WebBridge 21/21 PASS：宫格卡片/展开折叠/帧格焦点/列表行/浮层�
 - **ES module 函数不在 window 上**：`toggleView`、`__zoomApply` 等是模块导出，WebBridge evaluate 调不到。每个需要测试入口的函数都必须显式挂到 `window.__sb` 或 `window.__zoomApply`。忘记挂载 → 调不动 → 误以为功能坏了。
 - **CSS 孤儿声明块会吞掉后续规则**：选择器行被删/改坏后残留 `属性: 值; }` 无头尾巴（v0.8.2 衬底失效根因），CSS 解析器错误恢复时把紧跟其后的整条规则（如 `.shot-card.frame-cell` 的 background/margin）丢掉，浏览器 computed 静默回退。curl 看服务器文件完好、浏览器 cssRules 却缺规则 = 前面有语法破坏。排查法：对比 `document.styleSheets[0].cssRules.length` 与本地 `grep -c "{"` 规则块数，差的就是被吞的；改完 CSS 顺手跑一次该对比。
 - **面板 delete_shot 直接 batch_remove 当前激活场景必崩**（v0.8.2 修复）：queue 的 `cmd_delete_shot` 有"先切走当前场景再删"的保护（Safe: switches away first if active），但面板 operator 是独立实现、直接 `bpy.data.batch_remove(ids=(scene,))`——删除正在激活的场景时 window 仍引用被删 datablock → Blender 4.5 必崩（"Blender has stopped working"弹窗）。修复：面板路径复用 `cmd_delete_shot`。**教训：所有删场景路径必须走 queue 的 cmd_delete_shot，别自己 batch_remove**。
-- **render_all 大工程必崩（未修，待办）**：86 镜头工程跑 `render_all`（同步遍历逐个 `render_shot`），内存飙到 3.9GB 后 Blender 崩溃弹窗。疑似：重渲染 + queue auto_sync timer 并发、或长时间主线程占用 + Windows 内存压力。面板审计时复现，**尚未修复**——用户后续用 render_all 前先提醒，或按稳健性待办第 2 项（每 tick 1 个重命令）改造。
+- **render_all 大工程必崩（v0.8.4 已随功能删除解决）**：86 镜头工程跑 `render_all`（同步遍历逐个 `render_shot`），内存飙到 3.9GB 后 Blender 崩溃弹窗。~~疑似：重渲染 + queue auto_sync timer 并发、或长时间主线程占用 + Windows 内存压力。尚未修复~~——v0.8.4 用户拍板删除 Render All（90+ 镜头下无意义），批量重渲染由前端右键走队列逐 tick 重拍封面帧，天然不崩。
+- **duplicate 必须复制 frames 数据，不能只拍一张**（v0.8.4 修）：旧 `cmd_duplicate_shot` 复制场景后只拍 legacy still+thumb，**多图镜头复制后 frames 表为空** → 前端按单图显示、展开不了。统一模型下改为逐帧 copy2 帧文件 + add_frame（保留 is_cover）+ update_shot 同步封面；封面 still 文件名推导：`thumb.jpg/still.png → still.png`、`fNNNNN_thumb.jpg → fNNNNN_still.png`（别用 replace("_thumb.jpg","_still.png")——thumb.jpg 会变 thumb_still.png）。源镜头无帧行时兜底拍 f0。
+- **render_shot_files(frame_no=0) 输出 f00000_still.png/f00000_thumb.jpg，不是 still.png/thumb.jpg**（v0.8.4 坑）：frame_no is not None 分支走 `f{frame_no:05d}_*` 命名。创建镜头/重拍封面帧后目录里没有 still.png/thumb.jpg（除非旧文件残留）——audit 检查文件、duplicate 的 still 推导、前端兜底路径都要按 f00000_* 预期。shot 级 thumb_path 被 cmd_render_frame 封面同步指到帧文件，前端只消费 frames。
+- **init_db 迁移只在 server 启动 / init_project 时跑**（v0.8.4 测试翻车）：`get_db_path` 只拼路径不触发迁移。纯 Python 验证迁移逻辑要直接调 `init_db(db_path)`；测试库建表用 `conn.executescript(DB_SCHEMA)` 而非手写简化表（shots 有 seq NOT NULL 列，手写会 IntegrityError）。迁移必须幂等。
+- **MCP 线程测 operator 必须 timer 包装**（v0.8.4 audit 翻车）：`bpy.ops.storyboard.create_shot()` 从 MCP execute_code 直调走后台线程，operator 内 auto-render（cmd_render_frame → render_shot_files）需要主线程 window context——静默失败（try/except 吞掉），创建成功但 frames=0 缩略图没出，误判成"自动拍屏坏了"。正确姿势：`bpy.app.timers.register(run, first_interval=0.2)` 包一层让 execute 在主线程跑（与面板点击同路径）。**凡 audit 里测面板 operator 的用例，创建类操作一律 timer 包装**。
+- **大重构（删 operator / 改注册表 / 加迁移）必须重启 Blender 验证**（v0.8.4 教训）：operator 注册表删除、init_db 迁移都在启动时机执行，`importlib.reload` 热重载覆盖不了（热修补只适用纯逻辑模块）。改完这类代码 = 部署 + taskkill blender + 重启（读 instances.json 拿当前 blend 路径恢复现场）+ audit + WebBridge 回归。重启是 Agent 的活，别让用户自己重启。
 - **`region_3d.camera` 在 Blender 4.5 不存在**：设 `view_perspective='CAMERA'` 后相机自动从 `scene.camera` 取，不要手动设 camera 属性。
 - **审计脚本测不到浏览器层 JS 问题**：如右键菜单事件冒泡这类纯前端 bug，API 审计全过但用户手动点无效。网页 JS 改动必须硬刷新后人工点一遍。
 - **addons 根目录残留旧模块文件会 shadow 标准库**：插件 `sys.path.insert(0, addon_dir)` 后，根目录散落的 `queue.py` 会顶掉 stdlib `queue`（core/queue.py 的 `import queue` 拿到错的模块）。部署目录只留 `__init__.py`/`core/`/`web/`，靠 sys.modules 里 stdlib 已缓存才没炸过，别赌运气。

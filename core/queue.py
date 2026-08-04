@@ -115,24 +115,23 @@ def _restore_scene(prev):
         pass
 
 
-def _render_and_update(scene, shot_id, shot_name, project_dir):
-    """Render still+thumb for a scene and update DB. Shared by rerender & auto-render."""
-    import os
-    from core.db import get_db_path, update_shot
-    from core.render import render_shot_files
+def _cover_frame_no(db_path, shot_id):
+    """封面帧号：多图模型下所有镜头都有 frames 行（v0.7.0 迁移保证）。
+    无行时兜底 0（legacy 兼容）。"""
+    from core.db import get_frames
+    frames = get_frames(db_path, shot_id)
+    cover = next((f for f in frames if f.get("is_cover")), None)
+    return cover["frame_no"] if cover else 0
 
-    prev = _switch_scene(scene)
-    shot_dir = os.path.join(project_dir, "shots", f"{shot_name}_{shot_id}")
-    try:
-        paths = render_shot_files(scene, shot_dir)
-    finally:
-        _restore_scene(prev)
 
-    update_shot(get_db_path(project_dir), shot_id,
-                still_path=paths["still_path"],
-                thumb_path=paths["thumb_path"],
-                thumb_fresh=True)  # 真拍屏才 bump thumb_ver，网页只刷新这张图
-    return paths
+def _render_frame_of(db_path, shot, frame_no, project_dir):
+    """按帧号渲染（cmd_render_frame 的同步调用版，供创建/拖图等主线程路径复用）。"""
+    cmd_render_frame({
+        "scene_name": shot["scene_name"],
+        "shot_id": shot["id"],
+        "project_dir": project_dir,
+        "frame_no": frame_no,
+    })
 
 
 def cmd_open_shot(params):
@@ -154,35 +153,6 @@ def cmd_open_shot(params):
             space.region_3d.view_perspective = 'CAMERA'
 
     return {"scene": scene_name, "camera": scene.camera.name if scene.camera else None}
-
-
-def cmd_rerender_shot(params):
-    """Re-render a shot (still + thumb) via viewport OpenGL (拍屏).
-
-    Switches the active scene to the target first so the viewport shows the
-    correct scene — opengl renders whatever the viewport is looking at.
-    """
-    scene_name = params.get("scene_name")
-    shot_id = params.get("shot_id")
-    project_dir = params.get("project_dir")
-
-    scene = bpy.data.scenes.get(scene_name)
-    if not scene:
-        raise ValueError(f"Scene not found: {scene_name}")
-    if not scene.camera:
-        raise ValueError("No camera in scene")
-
-    import os
-    from core.db import get_db_path, get_all_shots
-
-    # Find shot name for directory naming
-    db_path = get_db_path(project_dir)
-    shots = get_all_shots(db_path)
-    shot = next((s for s in shots if s["id"] == shot_id), None)
-    shot_name = shot["name"] if shot else shot_id
-
-    paths = _render_and_update(scene, shot_id, shot_name, project_dir)
-    return {"still": paths["still_path"], "thumb": paths["thumb_path"]}
 
 
 def cmd_duplicate_shot(params):
@@ -271,12 +241,63 @@ def cmd_duplicate_shot(params):
         ids.insert(at, shot_id)
         reorder_shots(db_path, ids)
 
-    # Auto-render the new shot (failure must not fail the duplicate)
-    try:
-        if new_scene.camera and project_dir:
-            _render_and_update(new_scene, shot_id, new_name, project_dir)
-    except Exception as e:
-        print(f"[Storyboard] Auto-render after duplicate failed: {e}")
+    # 复制帧数据（v0.8.4：统一 frames 模型——复制保留全部帧与帧文件，
+    # 不再只拍一张 legacy 图；源镜头无帧行时兜底拍 f0）
+    from core.db import get_frames, add_frame, update_shot
+    src_shot = next((s for s in get_all_shots(db_path) if s["scene_name"] == scene_name), None)
+    src_frames = get_frames(db_path, src_shot["id"]) if src_shot else []
+    cover_thumb = None
+    cover_still = None
+    if src_frames:
+        for f in src_frames:
+            src_file = f.get("image_path")
+            dst_file = None
+            if src_file and os.path.exists(src_file):
+                dst_file = os.path.join(shot_dir, os.path.basename(src_file))
+                try:
+                    if os.path.normpath(src_file) != os.path.normpath(dst_file):
+                        _shutil.copy2(src_file, dst_file)
+                except Exception as e:
+                    print(f"[Storyboard] Duplicate frame copy failed: {e}")
+                    dst_file = None
+            add_frame(db_path, shot_id, f["frame_no"],
+                      image_path=dst_file, is_cover=bool(f["is_cover"]))
+            if f.get("is_cover"):
+                cover_thumb = dst_file
+                # 封面帧的全尺寸存档：fNNNNN_thumb.jpg -> fNNNNN_still.png；thumb.jpg -> still.png
+                still_name = None
+                if src_file:
+                    b = os.path.basename(src_file)
+                    if b in ("thumb.jpg", "still.png"):
+                        still_name = "still.png"
+                    elif b.endswith("_thumb.jpg"):
+                        still_name = b[:-len("_thumb.jpg")] + "_still.png"
+                if still_name:
+                    src_still = os.path.join(os.path.dirname(src_file), still_name)
+                    dst_still = os.path.join(shot_dir, still_name)
+                    if os.path.exists(src_still):
+                        try:
+                            if os.path.normpath(src_still) != os.path.normpath(dst_still):
+                                _shutil.copy2(src_still, dst_still)
+                            cover_still = dst_still
+                        except Exception as e:
+                            print(f"[Storyboard] Duplicate still copy failed: {e}")
+        if cover_thumb:
+            update_shot(db_path, shot_id,
+                        still_path=cover_still or "",
+                        thumb_path=cover_thumb,
+                        thumb_fresh=True)
+    elif new_scene.camera and project_dir:
+        # 无帧行（理论不发生，v0.7.0 迁移保证所有镜头有帧）：兜底拍 f0
+        try:
+            cmd_render_frame({
+                "scene_name": new_scene.name,
+                "shot_id": shot_id,
+                "project_dir": project_dir,
+                "frame_no": 0,
+            })
+        except Exception as e:
+            print(f"[Storyboard] Auto-render after duplicate failed: {e}")
 
     return {"new_scene": new_scene.name, "shot_id": shot_id}
 
@@ -449,12 +470,17 @@ def cmd_create_shot_scene(params):
     new_scene.frame_start = 1
     new_scene.frame_end = max(1, int(duration * fps))
 
-    # Auto-render (item: create-path auto 拍屏)
+    # Auto-render as frame 0 (create-path auto 拍屏, v0.8.4: 统一 frames 模型)
     shot_id = params.get("shot_id")
     project_dir = params.get("project_dir")
     if shot_id and project_dir:
         try:
-            _render_and_update(new_scene, shot_id, shot_name, project_dir)
+            cmd_render_frame({
+                "scene_name": new_scene.name,
+                "shot_id": shot_id,
+                "project_dir": project_dir,
+                "frame_no": 0,
+            })
         except Exception as e:
             print(f"[Storyboard] Auto-render after create failed: {e}")
 
@@ -478,7 +504,12 @@ def cmd_create_image_shot_scene(params):
 
     if shot_id and project_dir:
         try:
-            _render_and_update(new_scene, shot_id, shot_name, project_dir)
+            cmd_render_frame({
+                "scene_name": new_scene.name,
+                "shot_id": shot_id,
+                "project_dir": project_dir,
+                "frame_no": 0,
+            })
         except Exception as e:
             print(f"[Storyboard] Auto-render after image-create failed: {e}")
 
@@ -523,9 +554,18 @@ def cmd_set_camera_background(params):
     cam_data.show_background_images = True
 
     if shot_id and project_dir:
-        if not shot_name:
-            shot_name = scene_name
-        _render_and_update(scene, shot_id, shot_name, project_dir)
+        # v0.8.4：拖图换背景 = 重拍封面帧（显示的图）；无帧行兜底 f0
+        try:
+            from core.db import get_db_path
+            db_path = get_db_path(project_dir)
+            cmd_render_frame({
+                "scene_name": scene.name,
+                "shot_id": shot_id,
+                "project_dir": project_dir,
+                "frame_no": _cover_frame_no(db_path, shot_id),
+            })
+        except Exception as e:
+            print(f"[Storyboard] Re-render after set-background failed: {e}")
 
     return {"scene": scene_name, "background": os.path.basename(image_path)}
 
@@ -699,7 +739,6 @@ def cmd_delete_frame(params):
 
 COMMANDS = {
     "open_shot": (cmd_open_shot, ["scene_name"]),
-    "rerender_shot": (cmd_rerender_shot, ["scene_name", "shot_id", "project_dir"]),
     "duplicate_shot": (cmd_duplicate_shot, ["scene_name", "project_dir"]),
     "delete_shot": (cmd_delete_shot, ["scene_name"]),
     "trash_shot": (cmd_trash_shot, ["scene_name", "trash_scene_name"]),

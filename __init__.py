@@ -20,7 +20,7 @@ addon_dir = os.path.dirname(os.path.abspath(__file__))
 if addon_dir not in sys.path:
     sys.path.insert(0, addon_dir)
 
-from core.db import init_db, get_db_path, create_shot, update_shot, delete_shot, get_all_shots, get_shot
+from core.db import init_db, get_db_path, create_shot, delete_shot, get_all_shots, get_shot
 from core.server import start_server, stop_server, get_server
 from core.queue import queue_command, ensure_timer
 from core.paths import get_project_dir as _get_project_dir
@@ -169,20 +169,16 @@ class STORYBOARD_OT_create_shot(bpy.types.Operator):
         dir_path = _shot_dir(project_dir, self.shot_name, shot_id)
         os.makedirs(dir_path, exist_ok=True)
 
-        # Auto-render the new shot (create-path auto 拍屏); failure must not
-        # fail the creation itself
+        # Auto-render the new shot as frame 0 (create-path auto 拍屏, v0.8.4:
+        # 统一 frames 模型，第一帧自动成为封面)；失败不得影响创建本身
         try:
-            prev = context.window.scene if context.window else None
-            if context.window:
-                context.window.scene = new_scene
-            from core.render import render_shot_files
-            paths = render_shot_files(new_scene, dir_path)
-            if prev and context.window:
-                context.window.scene = prev
-            update_shot(db_path, shot_id,
-                        still_path=paths["still_path"],
-                        thumb_path=paths["thumb_path"],
-                        thumb_fresh=True)
+            from core.queue import cmd_render_frame
+            cmd_render_frame({
+                "scene_name": new_scene.name,
+                "shot_id": shot_id,
+                "project_dir": project_dir,
+                "frame_no": 0,
+            })
         except Exception as e:
             print(f"[Storyboard] Auto-render after panel create failed: {e}")
 
@@ -191,49 +187,6 @@ class STORYBOARD_OT_create_shot(bpy.types.Operator):
 
     def invoke(self, context, event):
         return context.window_manager.invoke_props_dialog(self)
-
-
-class STORYBOARD_OT_render_shot(bpy.types.Operator):
-    """Render current shot: still.png + thumb.jpg"""
-    bl_idname = "storyboard.render_shot"
-    bl_label = "Render Shot"
-    bl_options = {'REGISTER'}
-
-    def execute(self, context):
-        project_dir = _get_project_dir()
-        if not project_dir:
-            self.report({'ERROR'}, "Save blend file first")
-            return {'CANCELLED'}
-
-        scene = context.scene
-        if not scene.camera:
-            self.report({'ERROR'}, "No camera in scene")
-            return {'CANCELLED'}
-
-        # Find shot in DB by scene name
-        db_path = get_db_path(project_dir)
-        shots = get_all_shots(db_path)
-        shot = next((s for s in shots if s["scene_name"] == scene.name), None)
-        if not shot:
-            self.report({'ERROR'}, f"Scene {scene.name} not in storyboard DB")
-            return {'CANCELLED'}
-
-        shot_dir = os.path.join(project_dir, "shots", f"{shot['name']}_{shot['id']}")
-
-        # Render via shared logic (same as web rerender path)
-        from core.render import render_shot_files
-        paths = render_shot_files(scene, shot_dir)
-        still_path = paths["still_path"]
-        thumb_path = paths["thumb_path"]
-
-        # Update DB
-        update_shot(db_path, shot["id"],
-                    still_path=still_path,
-                    thumb_path=thumb_path,
-                    thumb_fresh=True)
-
-        self.report({'INFO'}, f"Rendered: {shot['name']}")
-        return {'FINISHED'}
 
 
 class STORYBOARD_OT_snap_frame(bpy.types.Operator):
@@ -314,35 +267,6 @@ class STORYBOARD_OT_jump_frame(bpy.types.Operator):
 
     def execute(self, context):
         context.scene.frame_set(self.frame_no)
-        return {'FINISHED'}
-
-
-class STORYBOARD_OT_render_all(bpy.types.Operator):
-    """Render all shots"""
-    bl_idname = "storyboard.render_all"
-    bl_label = "Render All Shots"
-    bl_options = {'REGISTER'}
-
-    def execute(self, context):
-        project_dir = _get_project_dir()
-        if not project_dir:
-            self.report({'ERROR'}, "Save blend file first")
-            return {'CANCELLED'}
-
-        db_path = get_db_path(project_dir)
-        shots = get_all_shots(db_path)
-        original_scene = context.scene
-
-        for shot in shots:
-            scene = bpy.data.scenes.get(shot["scene_name"])
-            if not scene or not scene.camera:
-                continue
-
-            context.window.scene = scene
-            bpy.ops.storyboard.render_shot()
-
-        context.window.scene = original_scene
-        self.report({'INFO'}, f"Rendered {len(shots)} shots")
         return {'FINISHED'}
 
 
@@ -450,8 +374,6 @@ class STORYBOARD_PT_panel(bpy.types.Panel):
 
         # Shot management
         layout.operator("storyboard.create_shot", icon='ADD')
-        layout.operator("storyboard.render_shot", icon='RENDER_STILL')
-        layout.operator("storyboard.render_all", icon='RENDER_ANIMATION')
         layout.operator("storyboard.delete_shot", icon='TRASH')
         layout.operator("storyboard.sync_scenes", icon='FILE_REFRESH')
 
@@ -491,10 +413,8 @@ classes = (
     STORYBOARD_OT_stop_server,
     STORYBOARD_OT_open_manager,
     STORYBOARD_OT_create_shot,
-    STORYBOARD_OT_render_shot,
     STORYBOARD_OT_snap_frame,
     STORYBOARD_OT_jump_frame,
-    STORYBOARD_OT_render_all,
     STORYBOARD_OT_delete_shot,
     STORYBOARD_PT_panel,
 )

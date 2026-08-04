@@ -30,6 +30,12 @@ def _queue(command, params):
     queue_mod.queue_command(command, params)
 
 
+def _cover_frame_no(db_path, shot_id):
+    """封面帧号（懒加载 core.queue，兼容热重载）。无帧行兜底 0。"""
+    queue_mod = importlib.import_module("core.queue")
+    return queue_mod._cover_frame_no(db_path, shot_id)
+
+
 # ---------- queries ----------
 
 def _shot_dir_name(shot):
@@ -298,10 +304,12 @@ def batch_action(project_dir, db_path, data):
                     "project_dir": project_dir,
                 })
             elif action == "rerender":
-                _queue("rerender_shot", {
+                # v0.8.4：重渲染 = 重拍封面帧（统一 frames 模型，等价旧 RenderShot）
+                _queue("render_frame", {
                     "scene_name": shot["scene_name"],
                     "shot_id": sid,
                     "project_dir": project_dir,
+                    "frame_no": _cover_frame_no(db_path, sid),
                 })
             elif action == "duplicate":
                 new_name = f"c{next_num:04d}"
@@ -485,10 +493,12 @@ def shot_action(project_dir, db_path, shot_id, data):
         return {"status": "ok", "message": "queued"}, 200
 
     elif action == "rerender":
-        _queue("rerender_shot", {
+        # v0.8.4：重渲染 = 重拍封面帧（统一 frames 模型，等价旧 RenderShot）
+        _queue("render_frame", {
             "scene_name": shot["scene_name"],
             "shot_id": shot_id,
             "project_dir": project_dir,
+            "frame_no": _cover_frame_no(db_path, shot_id),
         })
         return {"status": "ok", "message": "queued"}, 200
 

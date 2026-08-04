@@ -60,7 +60,7 @@ export function showContextMenu(x, y, shotId, frameId = null) {
         menu.innerHTML = `
             ${isMulti ? `<button data-action="toggle-expand">${expandLabel}</button>` : ''}
             <button data-action="open">Open Shot</button>
-            <button data-action="rerender">Re-render</button>
+            <button data-action="rerender">重拍封面</button>
             <button data-action="rename">Rename</button>
             <button data-action="duplicate">Duplicate</button>
             <button class="danger" data-action="delete">Delete</button>

@@ -126,65 +126,47 @@ def main():
     # ---- 1. Blender-side operators (via main-thread queue) ---------------
     print("\n[1] Blender panel buttons (operator -> effect)")
 
-    # 1a. create_shot operator
+    # 1a. create_shot operator（timer 包装：auto-render 需要主线程视口，MCP 线程会静默失败）
     before = state()
     blender('''import bpy
-# make sure we're on a normal scene
-sc = bpy.data.scenes.get("Scene") or bpy.data.scenes[0]
-try:
-    bpy.context.window.scene = sc
-except Exception:
-    pass
-bpy.ops.storyboard.create_shot(shot_name="AUDIT_CREATE")
-print("ok")
+def run():
+    try:
+        bpy.context.window.scene = bpy.data.scenes.get("Scene") or bpy.data.scenes[0]
+        bpy.ops.storyboard.create_shot(shot_name="AUDIT_CREATE")
+        print("created")
+    except Exception as e:
+        print("ERR", e)
+    return None
+bpy.app.timers.register(run, first_interval=0.2)
+print("queued")
 ''')
-    time.sleep(2)
+    time.sleep(5)
     after = state()
     ok = "AUDIT_CREATE" in names(after) and any("AUDIT_CREATE" in s for s in after["scenes"])
     record("blender", "Create Shot button", ok,
            f"DB+{len(names(after))-len(names(before))}, scene present: {any('AUDIT_CREATE' in s for s in after['scenes'])}")
 
-    # 1b. render_shot operator - cannot be fully driven from MCP thread
-    # (needs real window/viewport context). Instead: verify via a main-thread
-    # timer render on the shot we just created, then check the WEB side.
+    # 1b. create 自动拍屏（v0.8.4: 统一 frames 模型——创建即拍 f0，自动成为封面）。
+    # 渲染需真实视口（MCP 线程走 workbench fallback 也能出文件），验证 f0 产物 + frames 行
     shot = next((s for s in api("GET", "/api/shots")["shots"] if s["name"] == "AUDIT_CREATE"), None)
     if shot:
         sid = shot["id"]
-        # Drive render through the plugin's own main-thread queue (same code
-        # path the panel button's render call uses, minus the context switch).
-        blender(f'''import bpy
-def run():
-    scene = bpy.data.scenes.get("Shot_AUDIT_CREATE")
-    if not scene:
-        print("no scene")
-        return None
-    import os
-    from core.render import render_shot_files
-    project_dir = os.path.join(os.path.dirname(bpy.data.filepath),
-        os.path.splitext(os.path.basename(bpy.data.filepath))[0] + "_storyboard")
-    shot_dir = os.path.join(project_dir, "shots", "AUDIT_CREATE_{sid}")
-    render_shot_files(scene, shot_dir)
-    print("rendered")
-    return None
-bpy.app.timers.register(run, first_interval=0.2)
-print("queued")
-''', timeout=15)
-        time.sleep(8)
         out = blender(f'''import bpy, os
 project_dir = os.path.join(os.path.dirname(bpy.data.filepath),
     os.path.splitext(os.path.basename(bpy.data.filepath))[0] + "_storyboard")
 d = os.path.join(project_dir, "shots", "AUDIT_CREATE_{sid}")
 print(os.listdir(d) if os.path.exists(d) else "MISSING")
 ''')
-        has_still = "still.png" in out
-        has_thumb = "thumb.jpg" in out
-        record("blender", "Render Shot (render_shot_files)", has_still and has_thumb, out.strip()[:60])
-        if has_thumb:
+        frames = shot.get("frames") or []
+        frames_ok = len(frames) >= 1 and bool(frames[0].get("isCover"))
+        record("blender", "Auto-render f0 (create path)", "f00000_still.png" in out and "f00000_thumb.jpg" in out and frames_ok,
+               out.strip()[:60] + f" frames={len(frames)}")
+        if "f00000_thumb.jpg" in out:
             try:
-                resp = urllib.request.urlopen(f"{HTTP}/shots/AUDIT_CREATE_{sid}/thumb.jpg", timeout=5)
-                record("blender", "  -> thumb visible on web", resp.status == 200, f"{resp.status}")
+                resp = urllib.request.urlopen(f"{HTTP}/shots/AUDIT_CREATE_{sid}/f00000_thumb.jpg", timeout=5)
+                record("blender", "  -> f0 thumb served via HTTP", resp.status == 200, f"{resp.status}")
             except Exception as e:
-                record("blender", "  -> thumb visible on web", False, str(e)[:60])
+                record("blender", "  -> f0 thumb served via HTTP", False, str(e)[:60])
 
     # 1c. sync_scenes operator
     blender('bpy.ops.storyboard.sync_scenes()\nprint("ok")')
@@ -209,7 +191,7 @@ print(os.listdir(d) if os.path.exists(d) else "MISSING")
     cur = state()["current"]
     record("web", "Open (switch scene)", cur == "Shot_AUDIT_WEB", f"current={cur}")
 
-    # 2c. Rerender
+    # 2c. Rerender = 重拍封面帧（v0.8.4: 统一 frames 模型，等价旧 RenderShot）
     api("POST", f"/api/shot/{shot['id']}", {"action": "rerender"})
     time.sleep(8)
     sid = shot["id"]
@@ -219,7 +201,7 @@ project_dir = os.path.join(os.path.dirname(bpy.data.filepath),
 d = os.path.join(project_dir, "shots", "AUDIT_WEB_{sid}")
 print(os.listdir(d) if os.path.exists(d) else "MISSING")
 ''')
-    record("web", "Rerender", "still.png" in out and "thumb.jpg" in out, out.strip()[:60])
+    record("web", "Rerender (cover frame)", "f00000_still.png" in out and "f00000_thumb.jpg" in out, out.strip()[:60])
 
     # 2d. Duplicate
     api("POST", f"/api/shot/{shot['id']}", {"action": "duplicate", "new_name": "AUDIT_WEB_COPY"})
@@ -527,7 +509,7 @@ con = sqlite3.connect(get_db_path(get_project_dir()))
 print(con.execute("SELECT COUNT(*) FROM frames WHERE shot_id='{shot['id']}'").fetchone()[0])
 con.close()
 ''').strip()
-    record("web", "Frames cascade on purge", n_frames == "1" and n_after == "0",
+    record("web", "Frames cascade on purge", n_frames == "2" and n_after == "0",
            f"frames {n_frames}->{n_after}")
 
     # ---- 3. cleanup -------------------------------------------------------

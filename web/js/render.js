@@ -139,9 +139,9 @@ function buildCard(shot, eager) {
         const expanded = isMulti && state.expandedShotIds.has(shot.id);
         const toggleId = shot.id.replace(/[^a-zA-Z0-9]/g,'');
         const multiBadge = isMulti ? `<button class="multi-badge${expanded ? ' expanded' : ''}" onclick="window.__sb.toggleListMulti('${shot.id}');event.stopPropagation();">${frames.length}帧${expanded ? ' ◀' : ' ▶'}</button>` : '';
-        // v0.8.3: 多图折叠态缩略图 = 封面帧图（与宫格一致；thumb.jpg 是 shot 级旧图，
-        // 改封面后不更新会显示过时画面）
-        const coverFrame = isMulti ? (frames.find(f => f.isCover) || frames[0]) : null;
+        // v0.8.4: 所有镜头折叠态缩略图 = 封面帧图（统一 frames 模型，单图=1 帧镜头；
+        // 封面变更立即跟随；thumb.jpg 仅作 legacy 兜底）
+        const coverFrame = frames.find(f => f.isCover) || frames[0];
         const thumbHtml = coverFrame && coverFrame.imageUrl
             ? `<img class="shot-thumb" draggable="false" src="${coverFrame.imageUrl}" loading="${eager ? 'eager' : 'lazy'}" onerror="this.src='${SVG_NOIMG}'">`
             : thumbImgHtml(shot, eager);
@@ -185,9 +185,14 @@ function buildCard(shot, eager) {
                     </div>
                 </div>`;
         } else {
+            // v0.8.4: 单图 = 1 帧镜头，卡片图统一用封面帧图（与列表/展开态同源）
+            const coverFrame = frames.find(f => f.isCover) || frames[0];
+            const coverImgHtml = coverFrame && coverFrame.imageUrl
+                ? `<img class="shot-thumb" draggable="false" src="${coverFrame.imageUrl}" loading="${eager ? 'eager' : 'lazy'}" onerror="this.src='${SVG_NOIMG}'">`
+                : thumbImgHtml(shot, eager);
             wrap.innerHTML = `
                 <div class="shot-card ${sel}" draggable="true" data-id="${shot.id}">
-                    ${thumbImgHtml(shot, eager)}
+                    ${coverImgHtml}
                     <div class="shot-info">
                         <div class="shot-name" data-field="name">${shot.name}</div>
                         <div class="shot-meta cell-edit" data-field="duration">${shot.duration.toFixed(1)}s</div>
