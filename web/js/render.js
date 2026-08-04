@@ -139,6 +139,12 @@ function buildCard(shot, eager) {
         const expanded = isMulti && state.expandedShotIds.has(shot.id);
         const toggleId = shot.id.replace(/[^a-zA-Z0-9]/g,'');
         const multiBadge = isMulti ? `<button class="multi-badge${expanded ? ' expanded' : ''}" onclick="window.__sb.toggleListMulti('${shot.id}');event.stopPropagation();">${frames.length}帧${expanded ? ' ◀' : ' ▶'}</button>` : '';
+        // v0.8.3: 多图折叠态缩略图 = 封面帧图（与宫格一致；thumb.jpg 是 shot 级旧图，
+        // 改封面后不更新会显示过时画面）
+        const coverFrame = isMulti ? (frames.find(f => f.isCover) || frames[0]) : null;
+        const thumbHtml = coverFrame && coverFrame.imageUrl
+            ? `<img class="shot-thumb" draggable="false" src="${coverFrame.imageUrl}" loading="${eager ? 'eager' : 'lazy'}" onerror="this.src='${SVG_NOIMG}'">`
+            : thumbImgHtml(shot, eager);
         // 展开态：封面图保持行高，帧缩略图浮层叠加
         let framesOverlay = '';
         if (expanded) {
@@ -154,7 +160,7 @@ function buildCard(shot, eager) {
         wrap.innerHTML = `
             <div class="shot-card list-item ${sel}${isMulti ? ' multi' : ''}${expanded ? ' expanded' : ''}" draggable="true" data-id="${shot.id}">
                 <div class="thumb-wrap">
-                    ${thumbImgHtml(shot, eager)}
+                    ${thumbHtml}
                     ${framesOverlay}
                 </div>
                 <div class="shot-name" data-field="name">${shot.name}${expanded ? '' : multiBadge}</div>

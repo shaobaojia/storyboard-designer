@@ -183,19 +183,23 @@
         }
         .stack-badge:hover { background: rgba(74, 158, 255, 1); }
         .stack-badge.expanded-badge { top: 4px; left: 4px; z-index: 6; }
-        /* 展开态帧格：占一格，图面内缩 ~8%，深色背景自然连片成组 */
+        /* 展开态帧格：占一格，图面内缩固定 9px（四边一致），深色背景自然连片成组 */
         .shot-card.frame-cell {
             background: #111113;
             border: none;
             box-shadow: none;
-            padding: 4%;
+            /* 图到底衬四边间距固定 9px：帧图大小 = 底衬 - 2×9 自适应，
+               行尾格底衬窄 12px（margin-right:0 不出界）→ 最后一张帧图等比小 12px，
+               但间距/图间距(18px)全局均匀，视觉整齐（v0.8.3 用户定稿） */
+            padding: 9px;
             /* 吃掉宫格 gap(12px)：同行帧格的深色底衬真正贴在一起连片 */
             margin-right: -12px;
         }
         /* 同行相邻帧格之间去圆角，让它们视觉上连成一体 */
         .shot-card.frame-cell { border-radius: 0; }
         .shot-card.frame-cell.frame-first { border-radius: 10px 0 0 10px; }
-        /* 每行最后一格（JS 加 .frame-row-last）：还原 margin，别把下一个普通卡片吸过来 */
+        /* 每行最后一格（JS 加 .frame-row-last）：底衬不出界（margin-right: 0，不吸下一卡片）；
+           图保持 width:100% 自然落在底衬内（9px 间距不变，不补偿外伸） */
         .shot-card.frame-cell.frame-row-last { border-radius: 0 10px 10px 0; margin-right: 0; }
         /* 只有一个帧格时（理论上不会，兜底） */
         .shot-card.frame-cell.frame-first.frame-row-last { border-radius: 10px; }
@@ -440,6 +444,7 @@
             border: 2px solid transparent;
             flex-shrink: 0;
             transition: border-color 0.15s;
+            position: relative;  /* 封面角标 ::after 定位基准 */
         }
         .list-frames .frame-thumb img {
             width: 100%;
@@ -448,6 +453,21 @@
         }
         .list-frames .frame-thumb.is-cover { border-color: transparent; }
         .list-frames .frame-thumb:hover { border-color: #888; }
+        /* 封面帧角标（v0.8.3）：与宫格展开态 cover-chip 同风格 */
+        .list-frames .frame-thumb.is-cover::after {
+            content: '封面';
+            position: absolute;
+            top: 2px;
+            right: 2px;
+            background: rgba(74, 158, 255, 0.92);
+            color: #fff;
+            font-size: 10px;
+            line-height: 1;
+            padding: 3px 6px;
+            border-radius: 4px;
+            pointer-events: none;
+            z-index: 2;
+        }
         .list-frames .frame-missing {
             width: 100%;
             height: 100%;

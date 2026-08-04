@@ -211,6 +211,18 @@ export function focusFrame(shotId, frameId) {
 // ---- 悬停横向扫视（折叠态一叠牌）----
 // 鼠标 X 坐标在卡片宽度内映射到帧索引：左端=第1张，右端=第N张。
 // 即时切换（无渐变），靠预载保证跟手。
+// 扫视只在缩略图范围内触发（列表视图文字区不扫视，恢复封面）；移出卡片恢复封面（v0.8.3）
+function restoreCover(card) {
+    if (card.dataset.hoverOrigSrc === undefined) return;
+    const coverImg = card.querySelector('.frame-stack .frame-img.cover') || card.querySelector('.shot-thumb');
+    if (coverImg) {
+        coverImg.src = card.dataset.hoverOrigSrc;
+        coverImg.dataset.frameId = card.dataset.hoverOrigFrameId || '';
+    }
+    delete card.dataset.hoverOrigSrc;
+    delete card.dataset.hoverOrigFrameId;
+}
+
 export function initStackHover() {
     document.addEventListener('mousemove', (e) => {
         const card = e.target.closest('.shot-card.multi:not(.expanded), .list-item.multi:not(.expanded)');
@@ -224,6 +236,12 @@ export function initStackHover() {
             : null;
         const targetEl = thumb || card;
         const rect = targetEl.getBoundingClientRect();
+        // 鼠标不在缩略图/卡片范围内：不扫视，恢复封面（列表文字区 hover 不再触发扫视）
+        if (e.clientX < rect.left || e.clientX > rect.right ||
+            e.clientY < rect.top || e.clientY > rect.bottom) {
+            restoreCover(card);
+            return;
+        }
         const ratio = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
         const idx = Math.min(shot.frames.length - 1, Math.floor(ratio * shot.frames.length));
         const frame = shot.frames[idx];
@@ -231,8 +249,23 @@ export function initStackHover() {
 
         const coverImg = card.querySelector('.frame-stack .frame-img.cover') || card.querySelector('.shot-thumb');
         if (coverImg && coverImg.dataset.frameId !== frame.id) {
+            // 首次扫视：记住原始 src/frameId，鼠标移出时恢复封面（v0.8.3 修复悬停后不回到封面）
+            if (card.dataset.hoverOrigSrc === undefined) {
+                card.dataset.hoverOrigSrc = coverImg.src;
+                // 列表视图 .shot-thumb 无 data-frame-id（undefined），存 '' 避免恢复出 "undefined" 字符串
+                card.dataset.hoverOrigFrameId = coverImg.dataset.frameId || '';
+            }
             coverImg.src = frame.imageUrl;
             coverImg.dataset.frameId = frame.id;
         }
+    });
+
+    // 鼠标移出折叠卡：恢复封面帧（v0.8.3）
+    document.addEventListener('mouseout', (e) => {
+        const card = e.target.closest('.shot-card.multi:not(.expanded), .list-item.multi:not(.expanded)');
+        if (!card) return;
+        // 还在卡片内移动（子元素之间），不恢复
+        if (card.contains(e.relatedTarget)) return;
+        restoreCover(card);
     });
 }

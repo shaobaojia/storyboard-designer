@@ -2,6 +2,26 @@
 
 > 给下一个 Agent（或下一个自己）的交接备忘录。**收工推送前必须更新「刚做完 / 正在做 / 下一步 / 坑」四个字段。**
 
+## 刚做完（第八轮 v0.8.3：帧格间距固定 + 列表封面角标 + 悬停扫视恢复 + 列表封面帧图，Kimi 执行，audit 38/38）
+
+**需求 1：多帧展开最后一张图"矮一截"（用户实测）。**
+- 根因（两阶段）：①frame-row-last 的 margin-right:0 让行尾格窄 12px（不吃 gap），图 width:100%+aspect-ratio 等比缩水（宽-12 高-7，顶部对齐视觉像"矮一截"）②补偿方案（图右伸 12px）用户否了——图怼出底衬不优雅
+- 用户定稿：**图到底衬四边间距固定死**（取第一张图左/上沿间距），图大小随底衬动态适配。实施：frame-cell padding 4% → 固定 9px；删掉 frame-row-last 的图外伸补偿（overflow 复原）；frame-row-last 保持 margin-right:0 底衬不出界
+- 结果：三帧图到各自底衬四边 9/9/9px、图间距 18px 均匀、行尾底衬 220 不出界；最后一张图 202×114（比前两张小 12px）是固定间距下的几何必然，视觉整齐非找补
+
+**需求 2：列表展开态多图浮层加封面角标。**
+- `.list-frames .frame-thumb` 加 position:relative；`.frame-thumb.is-cover::after` 画"封面"chip（与宫格 cover-chip 同风格：10px/蓝底/padding 3px 6px），纯 CSS 未动 JS
+
+**需求 3：悬停扫视后封面回不去（用户实测）。**
+- 两处根因：①移出卡片无恢复逻辑（扫视改了 coverImg.src 就停在那）②列表文字区 hover 也触发扫视——X 在缩略图右侧被 clamp 到 1，显示末帧，用户以为"没碰图却变了"
+- 修复（frames.js）：抽 `restoreCover(card)`（首次扫视把原始 src/frameId 存 card.dataset，mouseout 且 relatedTarget 不在卡内时还原）；mousemove 加范围检查——鼠标不在缩略图（宫格=卡片）范围内直接 restoreCover+return；列表 .shot-thumb 无 data-frame-id，存 '' 防恢复出 "undefined" 字符串
+- 验证：CDP 真实鼠标，列表 4 场景（右端/封面/扫过封面/横扫）+ 宫格（左端/中间/移出）全 PASS
+
+**需求 4：列表折叠态多图缩略图显示旧封面（用户实测：宫格对列表不对）。**
+- 根因：列表缩略图一直用 thumb.jpg（shot 级旧图），用户右键改封面（f0→f00053）后 thumb.jpg 不更新；宫格显示封面帧图所以对
+- 修复（render.js）：列表 buildCard 多图分支缩略图直接渲染封面帧 imageUrl（`frames.find(f=>f.isCover)`，与宫格同源），封面变更立即跟随；单图仍用 thumb.jpg
+- 验证：c0090/c0010/c0380 列表缩略图 = 各自封面帧图，与宫格一致
+
 ## 刚做完（第七轮：面板删除崩溃修复 + 删除确认策略调整 + Delete 删帧，Kimi 执行，audit 38/38）
 
 **需求 1：Blender 面板删除镜头必崩（用户实测确认）。**
@@ -280,14 +300,16 @@ WebBridge 21/21 PASS：宫格卡片/展开折叠/帧格焦点/列表行/浮层�
 
 ## 正在做
 
-- 第七轮（面板删除崩溃修复 + 删除确认策略 + Delete 删帧）已完成，audit 38/38，本 commit 推送
+- 第八轮（v0.8.3：帧格间距固定 + 列表封面角标 + 悬停扫视恢复 + 列表封面帧图）已完成，audit 38/38，本地已 commit，**待用户发话再推 GitHub**
 - 第六轮（右键菜单三修 + CSS 衬底 + 列表缩放）已推 GitHub
-- 5 个幽灵场景已改名 `__ghost_*` 保留（未删，用户可确认后清理）
+- ⚠️ **render_all 大工程必崩未修**（见坑列表）：用户点面板 Render All 前先提醒，或先修（稳健性待办第 2 项思路）
+- 测试现场：c0410 测试中被删了帧 70/96（只剩 0/111），如需恢复用面板 snap_frame 重拍即可；测试残留镜头已清（c0010111/c001011 已 purge）
 
 ## 下一步
 
-- 用户前台验收第七轮：面板删除不再崩 / 软删无确认 / 垃圾桶 purge 有确认 / Delete 删帧
-- 幽灵场景 `__ghost_c0040/c0160/c0310/c0470/c0840` 待用户确认是否彻底删除（含 .blend 存盘防复活）
+- 用户前台验收第八轮：宫格展开帧图间距均匀/底衬不出界 / 列表封面角标 / 悬停扫过恢复封面 / 列表缩略图跟随封面变更
+- **修 render_all 崩溃**（86 镜头工程必崩，用户实际会用）
+- 幽灵场景累计 12 个 `__ghost_*`（第五轮 5 个 + 第七轮 7 个：c0050/c0100/c0230/c0340/c0480/c0560/c0970）待用户确认是否彻底删除（含 .blend 存盘防复活）；**反复出现说明 sync 待办第 7 项（孤儿场景自动收敛）值得优先做**
 - 第 9 项惯性功能按需重新启动
 - 后续可开工的优化项：稳健性待办列表（见下方）
 
@@ -399,6 +421,7 @@ WebBridge 21/21 PASS：宫格卡片/展开折叠/帧格焦点/列表行/浮层�
 - **ES module 函数不在 window 上**：`toggleView`、`__zoomApply` 等是模块导出，WebBridge evaluate 调不到。每个需要测试入口的函数都必须显式挂到 `window.__sb` 或 `window.__zoomApply`。忘记挂载 → 调不动 → 误以为功能坏了。
 - **CSS 孤儿声明块会吞掉后续规则**：选择器行被删/改坏后残留 `属性: 值; }` 无头尾巴（v0.8.2 衬底失效根因），CSS 解析器错误恢复时把紧跟其后的整条规则（如 `.shot-card.frame-cell` 的 background/margin）丢掉，浏览器 computed 静默回退。curl 看服务器文件完好、浏览器 cssRules 却缺规则 = 前面有语法破坏。排查法：对比 `document.styleSheets[0].cssRules.length` 与本地 `grep -c "{"` 规则块数，差的就是被吞的；改完 CSS 顺手跑一次该对比。
 - **面板 delete_shot 直接 batch_remove 当前激活场景必崩**（v0.8.2 修复）：queue 的 `cmd_delete_shot` 有"先切走当前场景再删"的保护（Safe: switches away first if active），但面板 operator 是独立实现、直接 `bpy.data.batch_remove(ids=(scene,))`——删除正在激活的场景时 window 仍引用被删 datablock → Blender 4.5 必崩（"Blender has stopped working"弹窗）。修复：面板路径复用 `cmd_delete_shot`。**教训：所有删场景路径必须走 queue 的 cmd_delete_shot，别自己 batch_remove**。
+- **render_all 大工程必崩（未修，待办）**：86 镜头工程跑 `render_all`（同步遍历逐个 `render_shot`），内存飙到 3.9GB 后 Blender 崩溃弹窗。疑似：重渲染 + queue auto_sync timer 并发、或长时间主线程占用 + Windows 内存压力。面板审计时复现，**尚未修复**——用户后续用 render_all 前先提醒，或按稳健性待办第 2 项（每 tick 1 个重命令）改造。
 - **`region_3d.camera` 在 Blender 4.5 不存在**：设 `view_perspective='CAMERA'` 后相机自动从 `scene.camera` 取，不要手动设 camera 属性。
 - **审计脚本测不到浏览器层 JS 问题**：如右键菜单事件冒泡这类纯前端 bug，API 审计全过但用户手动点无效。网页 JS 改动必须硬刷新后人工点一遍。
 - **addons 根目录残留旧模块文件会 shadow 标准库**：插件 `sys.path.insert(0, addon_dir)` 后，根目录散落的 `queue.py` 会顶掉 stdlib `queue`（core/queue.py 的 `import queue` 拿到错的模块）。部署目录只留 `__init__.py`/`core/`/`web/`，靠 sys.modules 里 stdlib 已缓存才没炸过，别赌运气。
@@ -409,6 +432,10 @@ WebBridge 21/21 PASS：宫格卡片/展开折叠/帧格焦点/列表行/浮层�
 - **webbridge evaluate 能读 `window.__sb` 但 dispatchEvent 不触发监听器**：v0.8.0 实测 evaluate 跑在页面主世界（读得到 main.js 挂的 window.__sb、调编排函数全正常），但 `new MouseEvent('dblclick')`/`new Event()` 分发后连当次 evaluate 自挂的同节点监听器都不 fire（机制未查明，疑似扩展更新后的行为变化）。交互测试改用：`__sb` 直接驱动 + webbridge 原生 `click`/`mouse_click` 动作，别再用 evaluate 合成事件。
 - **`bpy.ops.x()` 从 MCP/脚本调用走 EXEC 不走 invoke**：operator 的 invoke 负责解析参数（场景→shot→帧号）时，裸 `bpy.ops.x()` 会带着空属性直接进 execute——sqlite `connect(空路径shots.db)` 还会顺手在 CWD/项目根造出 0 字节野库且文件句柄锁到进程退出（"Device or resource busy"删不掉，重启 Blender 才能删）。解法：execute 里做属性空值兜底重解析（v0.8.0 snap_frame 的 `_resolve` 模式）；显式 `'INVOKE_DEFAULT'` 在 MCP 里会因 `Missing 'window' in context` 被拒（invoke_confirm 需要真窗口），面板按钮点击不受影响。
 - **MCP 直调含 bpy.data 写的链路不稳定**：`bpy.ops.storyboard.snap_frame()` 直调 `cmd_render_frame` 时随机炸 `Writing to ID classes in this context is not allowed`（线程上下文限制，同一代码时好时坏）。凡是写场景的测试，一律走 `queue_command(...)` 主线程 timer 队列，UI 按钮（天然主线程）无此问题。
+- **WebBridge navigate 到相同 URL 不重载页面**（v0.8.3 实测）：复用标签页 `navigate` 到 http://127.0.0.1:8089 时可能是 no-op——页面保持旧 JS/旧 DOM 状态，之后所有测试"跑在旧代码上"，改代码后验证假通过/假失败。强制刷新必须 `cdp Network.clearBrowserCache` + `cdp Page.reload {ignoreCache:true}`，再用 DOM 标记（如 body.dataset 探针）确认重载了。
+- **多图封面测试前必须先确认封面基准**（v0.8.3 实测翻车）：用户可随时右键改封面（f0→f00053），扫视/封面类测试的"初始图应该是什么"判断前，先读 cover img 的 `data-frame-id` 确认当前封面是哪帧——拿旧基准判断会得出"没恢复/显示错"的假 FAIL（曾因此误判宫格恢复逻辑坏了）。
+- **WebBridge daemon 长跑会丢事件**（v0.8.3 实测）：运行 11 小时后 CDP `Input.dispatchMouseEvent` 移动事件开始丢失（扫视不触发）、evaluate 偶发空响应、screenshot 超时——表现为"测试结果随机"。先查 `/status`，`kimi-webbridge.exe restart` 恢复（Edge 不杀，扩展自动重连；session 需 find_tab/navigate 重建）。
+- **验证主世界鼠标事件用 DOM 副作用判据**：evaluate 里 addEventListener 计数收不到 CDP 事件（跨世界），计数器为 0 不代表事件没发生；判断扫视/恢复是否执行，读主世界 DOM 状态（img.src、dataset.frameId/hoverOrigSrc 变化）为准。
 
 ## 细节指针
 
