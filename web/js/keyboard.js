@@ -77,14 +77,18 @@ export function initKeyboard() {
             e.preventDefault();
             const id = [...state.selectedIds][0];
             openShot(id);
-        } else if (e.key === ' ' && state.selectedIds.size === 1 && !state.trashMode) {
-            // 空格 = 展开/折叠多图镜头（v0.7.0，与双击同效；v0.8.0 弹簧动效）
+        } else if (e.key === ' ' && state.selectedIds.size >= 1 && !state.trashMode) {
+            // 空格 = 展开/折叠多图镜头（单选 v0.7.0，与双击同效；v0.8.0 弹簧动效；
+            // v0.9.0 多选批量：全部已展开→全部折叠，否则→全部展开；单图镜头跳过）
             e.preventDefault();  // 阻止页面滚动
-            const id = [...state.selectedIds][0];
-            const shot = state.shots.find(s => s.id === id);
-            if (shot && (shot.frames || []).length > 1) {
-                if (isExpanded(id)) collapseAnimated(id);
-                else expandAnimated(id);
+            const ids = [...state.selectedIds];
+            const multiShots = ids.map(id => state.shots.find(s => s.id === id))
+                                  .filter(s => s && (s.frames || []).length > 1);
+            if (multiShots.length === 0) return;
+            const allExpanded = multiShots.every(s => isExpanded(s.id));
+            for (const s of multiShots) {
+                if (allExpanded) collapseAnimated(s.id);
+                else expandAnimated(s.id);
             }
         } else if (e.key.startsWith('Arrow')) {
             arrowMove(e);

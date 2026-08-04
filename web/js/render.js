@@ -111,9 +111,9 @@ function buildExpandedCards(shot, eager) {
         const imgCls = [f.isCover ? 'is-cover' : '', f.id === focusId ? 'frame-focused' : '']
             .filter(Boolean).join(' ');
         wrap.innerHTML = `
-            <div class="${cls.join(' ')}" draggable="false" data-id="${shot.id}" data-frame-id="${f.id}">
+            <div class="${cls.join(' ')}" draggable="true" data-id="${shot.id}" data-frame-id="${f.id}">
                 ${frameImgHtml(f, shot, eager, imgCls)}
-                ${f.isCover ? `<div class="cover-chip">封面</div><button class="stack-badge expanded-badge" onclick="window.__sb.toggleListMulti('${shot.id}');event.stopPropagation();" title="折叠">${frames.length}</button>` : ''}
+                ${f.isCover ? `<div class="cover-chip">封面</div>` : ''}${first ? `<button class="stack-badge expanded-badge" onclick="window.__sb.toggleListMulti('${shot.id}');event.stopPropagation();" title="折叠">${frames.length}</button>` : ''}
                 <div class="shot-info">
                     ${first ? `<div class="shot-name" data-field="name">${shot.name}</div>` : `<div class="frame-no">f${f.frame_no}</div>`}
                     ${first ? `<div class="shot-meta cell-edit" data-field="duration">${shot.duration.toFixed(1)}s</div>` : ''}

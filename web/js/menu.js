@@ -47,8 +47,13 @@ export function showContextMenu(x, y, shotId, frameId = null) {
             <button data-action="open">Open Shot</button>
         `;
     } else if (state.selectedIds.size > 1) {
+        // 多选菜单：展开/折叠两个独立项（v0.9.1，用户要求批量展开/折叠并存）
+        const multiSel = [...state.selectedIds]
+            .map(id => state.shots.find(s => s.id === id))
+            .filter(s => s && (s.frames || []).length > 1);
         menu.innerHTML = `
             <div class="menu-title">已选 ${state.selectedIds.size} 个镜头</div>
+            ${multiSel.length > 0 ? `<button data-action="batch-expand">全部展开</button><button data-action="batch-collapse">全部折叠</button>` : ''}
             <button data-action="batch-duplicate">批量复制</button>
             <button data-action="batch-rerender">批量重渲染</button>
             <button data-action="batch-rename">批量重命名</button>
@@ -148,6 +153,26 @@ async function menuAction(action) {
         case 'batch-duplicate':
             await postBatch('duplicate', batchIds);
             toast(`已排队复制 ${batchIds.length} 个镜头`);
+            break;
+        case 'batch-expand':
+            // v0.9.0 多选批量展开：只展开未展开的多图镜头（v0.9.1 与 batch-collapse 独立并存）
+            {
+                const multiSel = batchIds.map(id => state.shots.find(s => s.id === id))
+                                         .filter(s => s && (s.frames || []).length > 1);
+                for (const s of multiSel) {
+                    if (!isExpanded(s.id)) expandAnimated(s.id);
+                }
+            }
+            break;
+        case 'batch-collapse':
+            // v0.9.1 多选批量折叠：只折叠已展开的多图镜头
+            {
+                const multiSel = batchIds.map(id => state.shots.find(s => s.id === id))
+                                         .filter(s => s && (s.frames || []).length > 1);
+                for (const s of multiSel) {
+                    if (isExpanded(s.id)) collapseAnimated(s.id);
+                }
+            }
             break;
         case 'batch-rerender':
             await postBatch('rerender', batchIds);

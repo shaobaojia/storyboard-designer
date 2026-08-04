@@ -48,8 +48,10 @@ async function reorderShots(srcId, dstId) {
 export function initCardDnd() {
     grid.addEventListener('dragstart', (e) => {
         const card = e.target.closest('.shot-card');
-        // 帧格不可拖（v0.8.1）：多图内部顺序按帧号排，拖帧格曾把整镜头排到末尾
-        if (!card || card.classList.contains('frame-cell') || state.editingId || state.trashMode) {
+        // v0.9.1：展开态帧格也可拖（frame-cell 的 data-id 即 shotId，reorderShots 落点
+        // 有 movingIds.includes(dstId) 保护不会自排）；v0.8.1 曾禁止是因拖帧格把整镜头
+        // 排到末尾，该 bug 已由落点保护修复
+        if (!card || state.editingId || state.trashMode) {
             e.preventDefault();
             return;
         }

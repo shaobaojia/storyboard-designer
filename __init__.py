@@ -165,6 +165,11 @@ class STORYBOARD_OT_create_shot(bpy.types.Operator):
         shot_id = create_shot(db_path, self.shot_name, scene_name,
                               camera=new_scene.camera.name, duration=self.duration)
 
+        # 按填写的时间设置场景帧范围（v0.9.0，与网页端 cmd_create_shot_scene 同规则）
+        fps = new_scene.render.fps
+        new_scene.frame_start = 1
+        new_scene.frame_end = max(1, int(self.duration * fps))
+
         # Create shot directory with readable name: {shot_name}_{shot_id}/
         dir_path = _shot_dir(project_dir, self.shot_name, shot_id)
         os.makedirs(dir_path, exist_ok=True)
@@ -186,12 +191,20 @@ class STORYBOARD_OT_create_shot(bpy.types.Operator):
         return {'FINISHED'}
 
     def invoke(self, context, event):
+        # v0.9.0：默认名按网页端规则自动编号（max c 编号 + 10），用户可改
+        try:
+            from core.db import next_c_name, get_db_path
+            project_dir = _get_project_dir()
+            if project_dir:
+                self.shot_name = next_c_name(get_db_path(project_dir))
+        except Exception as e:
+            print(f"[Storyboard] next_c_name prefill failed: {e}")
         return context.window_manager.invoke_props_dialog(self)
 
 
 class STORYBOARD_OT_snap_frame(bpy.types.Operator):
     """拍当前帧：时间轴停在哪个帧就拍哪个帧，图按帧号自动排序（v0.8.0）。
-    同帧号已有图 → 弹确认后覆盖；满 5 张且是新帧号 → 软提示，不入队。"""
+    同帧号已有图 → 直接覆盖；满 5 张且是新帧号 → 软提示，不入队。"""
     bl_idname = "storyboard.snap_frame"
     bl_label = "拍当前帧"
     bl_options = {'REGISTER'}
@@ -231,8 +244,6 @@ class STORYBOARD_OT_snap_frame(bpy.types.Operator):
     def invoke(self, context, event):
         if not self._resolve(context):
             return {'CANCELLED'}
-        if self.overwrite:
-            return context.window_manager.invoke_confirm(self, event)
         return self.execute(context)
 
     def execute(self, context):
@@ -267,6 +278,40 @@ class STORYBOARD_OT_jump_frame(bpy.types.Operator):
 
     def execute(self, context):
         context.scene.frame_set(self.frame_no)
+        return {'FINISHED'}
+
+
+class STORYBOARD_OT_step_frame(bpy.types.Operator):
+    """时间轴跳到上/下一个已拍帧（v0.9.0）"""
+    bl_idname = "storyboard.step_frame"
+    bl_label = "上/下一个已拍帧"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    direction: bpy.props.IntProperty(default=1)  # -1 上一个, +1 下一个
+
+    def execute(self, context):
+        from core.db import get_db_path, get_all_shots, get_frames
+        project_dir = _get_project_dir()
+        if not project_dir:
+            self.report({'ERROR'}, "Save blend file first")
+            return {'CANCELLED'}
+        db_path = get_db_path(project_dir)
+        shot = next((s for s in get_all_shots(db_path) if s["scene_name"] == context.scene.name), None)
+        if not shot:
+            self.report({'ERROR'}, f"Scene {context.scene.name} not in storyboard DB")
+            return {'CANCELLED'}
+        frames = get_frames(db_path, shot["id"])
+        if not frames:
+            self.report({'INFO'}, "还没有已拍帧")
+            return {'CANCELLED'}
+        nos = sorted(f["frame_no"] for f in frames)
+        cur = context.scene.frame_current
+        if self.direction > 0:
+            nxt = next((n for n in nos if n > cur), nos[0])      # 下一个，到头回绕
+        else:
+            nxt = next((n for n in reversed(nos) if n < cur), nos[-1])  # 上一个，到头回绕
+        context.scene.frame_set(nxt)
+        self.report({'INFO'}, f"F{nxt}")
         return {'FINISHED'}
 
 
@@ -402,6 +447,11 @@ class STORYBOARD_PT_panel(bpy.types.Panel):
                         icon = 'ERROR' if missing else ('IMAGE_DATA' if f["is_cover"] else 'NONE')
                         row.operator("storyboard.jump_frame",
                                      text=f"F{f['frame_no']}", icon=icon).frame_no = f["frame_no"]
+                    # 上/下一个已拍帧导航：单独一行、按钮放大（v0.9.1 用户要求）
+                    nav = col.row(align=True)
+                    nav.scale_y = 1.4
+                    nav.operator("storyboard.step_frame", text="◀ 上一个", icon='BACK').direction = -1
+                    nav.operator("storyboard.step_frame", text="下一个 ▶", icon='FORWARD').direction = 1
 
 
 # --- Registration ---
@@ -415,6 +465,7 @@ classes = (
     STORYBOARD_OT_create_shot,
     STORYBOARD_OT_snap_frame,
     STORYBOARD_OT_jump_frame,
+    STORYBOARD_OT_step_frame,
     STORYBOARD_OT_delete_shot,
     STORYBOARD_PT_panel,
 )

@@ -2,6 +2,27 @@
 
 > 给下一个 Agent（或下一个自己）的交接备忘录。**收工推送前必须更新「刚做完 / 正在做 / 下一步 / 坑」四个字段。**
 
+## 刚做完（第十轮 v0.9.1：批量展开/折叠 + 展开态拖拽 + 面板帧导航 + 创建规则对齐，Kimi 执行，audit 38/38）
+
+**需求 1：拍当前帧去掉覆盖确认（用户拍板）**——`STORYBOARD_OT_snap_frame.invoke` 删掉 `invoke_confirm` 分支，同帧号直接覆盖；docstring 同步。`overwrite` 属性保留（满 5 张软提示 + 完成文案用）。MCP timer 验证：帧 56 v=3→4 帧数不变直接覆盖 ✓
+
+**需求 2：多选批量展开/折叠**——①空格键（keyboard.js）从单选扩到多选：选中多图镜头全部已展开→全部折叠，否则→全部展开，单图跳过 ②右键多选菜单（menu.js）从二选一 toggle 改为「全部展开」「全部折叠」**两个独立按钮并存**（batch-expand 只展开未展开的、batch-collapse 只折叠已展开的，幂等）——单图镜头展开无意义，选中全是单图时不渲染这两项。
+
+**需求 3（重大 bug 修复）：批量展开时第二个镜头静默无动画**——实测批量展开 c0090+c0120：c0090 弹簧正常，c0120 起点 transform 设置了（inline `translate(1160px,-190px) scale(1)`）但 computed 全程 none，动画从未播放。
+- **根因**：`expandAnimated` 的 FLIP 编排是"设起点 transform → `void grid.offsetWidth` reflow → 清 transform + 设 transition"——单独展开时起点 transform 在同一任务内先被浏览器渲染（transition 起点=起点姿态）所以正常；**批量时第二个镜头的 renderGrid() 重建 DOM 后，新 frame-cell 已以自然位置渲染过**（c0090 动画播放推动浏览器持续渲染帧），随后同帧"设起点→reflow→清空"对比的上一渲染帧是自然位置（none）→ 从 none 到 none 无过渡 → 静默无动画
+- **修复**：清 transform + 设 transition 包进 `requestAnimationFrame`——起点 transform 先渲染一帧，下一帧再清空，transition 起点=起点姿态。验证：时间序列采样 c0120 从 0 帧移动 → 11 帧移动（1160→1056→612→205→20→回弹→0 完整弹簧曲线）
+- **教训**：FLIP 起点必须被浏览器真实渲染过一帧再清空，同任务内 reflow 不算渲染——批量/连续调用时尤其致命（后面的 renderGrid 会抢在起点前渲染新元素）
+
+**需求 4：面板已拍帧左右导航按钮**——新增 `STORYBOARD_OT_step_frame`（direction ±1）：按已拍帧号排序跳上/下一个，到头回绕（56→+1→0、0→-1→56）。v0.9.1 用户反馈按钮太小：帧号行保持原样，**下方新增独立一行** `◀ 上一个 | 下一个 ▶`（scale_y=1.4 放大）。
+
+**需求 5：展开态折叠角标移到第一个图片帧左上角**——原来 `expanded-badge` 挂在 **isCover 帧**上（用户改封面后角标跟着封面跑，不在第一帧）且定位 4px 悬在图外（图在底衬内 9px padding）。改：render.js 挂载条件 `f.isCover` → `first`（第一个帧），CSS `top/left: 4px → 9px`（= 图片左上角，偏移 0/0 完全重合）。cover-chip「封面」保持 isCover 语义不动。像素验证：角标中心 rgb(72,150,239) = rgba(74,158,255,.92) 叠底 ✓
+
+**需求 6：创建镜头对齐网页端规则**——①命名：invoke 预填 `next_c_name`（max c 编号+10，与网页端一致，用户可改）②时间：execute 按 duration 设 `frame_start=1, frame_end=max(1,int(duration*fps))`（与 cmd_create_shot_scene 同规则）。验证：3.0s × 24fps → frame_end=72 ✓
+
+**需求 7：展开态帧格可拖拽排序**——dnd.js 原禁止 frame-cell 拖拽（v0.8.1 曾因"拖帧格把整镜头排到末尾"加的禁令，该 bug 已被 reorderShots 的 `movingIds.includes(dstId)` 落点保护修复）。改：frame-cell `draggable="false"→"true"` + dnd.js 移除 frame-cell 禁令。CDP 真实拖拽验证：c0120 帧格 → c0010 卡片，顺序成功改变 ✓
+
+**验证**：audit 38/38；WebBridge 菜单两按钮 ✓ 批量展开/折叠动画全镜头 ✓ 展开态拖拽 ✓；MCP step_frame 跳转 ✓
+
 ## 刚做完（第九轮 v0.8.4：拍当前帧全面接管 RenderShot——用户拍板三项，Kimi 执行，audit 38/38）
 
 **用户决策（2026-08 拍板）**：①接受统一模型——单图=1 帧镜头，不分单帧/多帧镜头（"结构上更清爽，逻辑上自恰"）②MAX_FRAMES_PER_SHOT=5 不变 ③Render All 果断删（90+ 镜头下是笑话）。
@@ -321,7 +342,7 @@ WebBridge 21/21 PASS：宫格卡片/展开折叠/帧格焦点/列表行/浮层�
 
 ## 下一步
 
-- 用户前台验收第九轮：面板只剩「拍当前帧 + 帧号列表」（Render Shot/All 已消失）/ 单图镜头与多图行为统一（右键「重拍封面」、帧格、扫视）/ 复制多图镜头保留全部帧 / 批量重渲染 = 逐镜头重拍封面帧
+- 用户前台验收第十轮：面板「拍当前帧」无确认直接覆盖 / 已拍帧下方放大导航行 ◀ ▶ / 创建镜头弹窗默认名自动编号 + 帧范围按 duration / 多选右键「全部展开·全部折叠」/ 展开态拖帧格排序 / 展开态折叠角标在第一个帧左上角
 - 幽灵场景累计 12 个 `__ghost_*`（第五轮 5 个 + 第七轮 7 个：c0050/c0100/c0230/c0340/c0480/c0560/c0970）待用户确认是否彻底删除（含 .blend 存盘防复活）；**反复出现说明 sync 待办第 7 项（孤儿场景自动收敛）值得优先做**
 - 第 9 项惯性功能按需重新启动
 - 后续可开工的优化项：稳健性待办列表（见下方）
@@ -454,6 +475,7 @@ WebBridge 21/21 PASS：宫格卡片/展开折叠/帧格焦点/列表行/浮层�
 - **多图封面测试前必须先确认封面基准**（v0.8.3 实测翻车）：用户可随时右键改封面（f0→f00053），扫视/封面类测试的"初始图应该是什么"判断前，先读 cover img 的 `data-frame-id` 确认当前封面是哪帧——拿旧基准判断会得出"没恢复/显示错"的假 FAIL（曾因此误判宫格恢复逻辑坏了）。
 - **WebBridge daemon 长跑会丢事件**（v0.8.3 实测）：运行 11 小时后 CDP `Input.dispatchMouseEvent` 移动事件开始丢失（扫视不触发）、evaluate 偶发空响应、screenshot 超时——表现为"测试结果随机"。先查 `/status`，`kimi-webbridge.exe restart` 恢复（Edge 不杀，扩展自动重连；session 需 find_tab/navigate 重建）。
 - **验证主世界鼠标事件用 DOM 副作用判据**：evaluate 里 addEventListener 计数收不到 CDP 事件（跨世界），计数器为 0 不代表事件没发生；判断扫视/恢复是否执行，读主世界 DOM 状态（img.src、dataset.frameId/hoverOrigSrc 变化）为准。
+- **FLIP 起点必须被浏览器真实渲染一帧再清空**（v0.9.1 批量展开静默无动画的根因）：`expandAnimated` 的"设起点 transform → `void grid.offsetWidth` reflow → 清 transform + 设 transition"在单独展开时正常，但**批量/连续调用时第二个镜头静默无动画**——后面的 renderGrid() 重建 DOM 后新元素已以自然位置渲染过（前一个镜头的动画播放推动浏览器持续渲染），随后同任务内"设起点→reflow→清空"对比的上一渲染帧是自然位置 → 从 none 到 none 无过渡。修复：清 transform + 设 transition 包进 `requestAnimationFrame`（起点渲染一帧后再清空）。**排查特征：inline transform 设置了但 computed 全程 none；同步采样起点 matrix 有值、后续帧全是 none**。教训：reflow（offsetWidth 强制）不算渲染，CSS transition 起点 = 上一渲染帧而非上次样式计算。
 
 ## 细节指针
 

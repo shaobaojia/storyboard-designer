@@ -105,21 +105,27 @@ export function expandAnimated(shotId) {
         cell.style.zIndex = '30';
     });
     void grid.offsetWidth;  // 强制 reflow，让起始姿态先生效
-    cells.forEach((cell, i) => {
-        const d = i * 40;
-        cell.style.transition = `transform 0.5s ${SPRING} ${d}ms, opacity 0.32s ease ${d}ms`;
-        cell.style.transform = '';
-        cell.style.opacity = '';
-    });
-    setTimeout(() => {
-        if (_animToken.get(shotId) !== token) return;  // 期间又触发了收起，别清
-        cells.forEach((cell) => {
-            cell.style.transition = '';
-            cell.style.transformOrigin = '';
-            cell.style.zIndex = '';
+    // 分帧播放（v0.9.1 批量展开修复）：起点 transform 必须被浏览器渲染一帧后再清空，
+    // 否则 transition 的起点是"上一渲染帧"（批量时 renderGrid 重建后新 cells 已以自然位置
+    // 渲染过）→ 从 none 到 none 无过渡 → 该镜头静默无动画（批量第二个镜头必现）
+    requestAnimationFrame(() => {
+        if (_animToken.get(shotId) !== token) return;
+        cells.forEach((cell, i) => {
+            const d = i * 40;
+            cell.style.transition = `transform 0.5s ${SPRING} ${d}ms, opacity 0.32s ease ${d}ms`;
+            cell.style.transform = '';
+            cell.style.opacity = '';
         });
-        state.animatingShots.delete(shotId);
-    }, 500 + (cells.length - 1) * 40 + 80);
+        setTimeout(() => {
+            if (_animToken.get(shotId) !== token) return;  // 期间又触发了收起，别清
+            cells.forEach((cell) => {
+                cell.style.transition = '';
+                cell.style.transformOrigin = '';
+                cell.style.zIndex = '';
+            });
+            state.animatingShots.delete(shotId);
+        }, 500 + (cells.length - 1) * 40 + 80);
+    });
 }
 
 // 收起：帧格脱离文档流 → renderGrid 立即触发其他卡片 FLIP → 帧格同步飞回封面位置
