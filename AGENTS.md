@@ -80,7 +80,62 @@ CREATE INDEX IF NOT EXISTS idx_frames_shot ON frames(shot_id);
 
 Blender 4.5 分镜设计插件——面板操作 + 内嵌 HTTP 服务 + SQLite 数据层 + 宫格 H5 页面，实现镜头管理、拍屏出图、宫格浏览/拖拽排序、网页遥控 Blender。
 
-## 刚做完（v0.8.1 多图交互五连修，Kimi 执行，audit 38/38）
+## 刚做完（第四轮，9 项需求修复，Kimi 执行，审计 21/21）
+
+### 第四轮修复
+
+1. **拍屏覆盖不更新** — 确认心跳+rev 链正确，API 路径自动刷新（v=8→v=9），Blender 面板同走 `cmd_render_frame`→`update_frame`→`_bump_rev`，未动代码
+2. **折叠态右键菜单一致** — `menu.js` 里 `isMulti && expanded` 替代 `isMulti`，折叠态不再显示「展开」按钮，与单图菜单完全一致
+3. **宫格折叠小圆标可点击** — `stack-badge` 从 `<div>` 改 `<button>`，`onclick="window.__sb.toggleListMulti(...)"`；展开态封面帧格上加 `.expanded-badge`，展开后不消失可折叠
+4. **列表线性缩放** — `zoom.js` 分离宫格/列表两条路径：宫格保持列数段落式，列表用独立 `listThumbW` 变量 + 无极滑块（step=1，范围 40px→页面宽的 55%）；`toggleView` 调用 `window.__zoomApply` 刷新滑块；`toggleView` 挂到 `window.__sb`
+5. **空项目提示** — 已有实现（`empty-state` div + `removeSkeleton()`），无需改动
+6. **新建镜头设 Blender 时长** — `actions.py` 传 `duration` 到 queue；`cmd_create_shot_scene` 设 `scene.frame_start=1` + `scene.frame_end=max(1, int(duration*fps))`
+7. **跳构图相机跳视口** — `cmd_jump_to_frame` 和 `cmd_open_shot` 的 `temp_override` 循环只生效一个视口，改用 `space.region_3d.view_perspective='CAMERA'` 直接设所有 3D 视口
+8. **自动同步** — `__init__.py` 新增 `_auto_sync()` timer（首次 5s，之后每 30s 调用 `sync_scenes_with_db()`），防意外退出丢数据；`_on_file_loaded` 注册
+9. **中键滑动惯性** — 用户确认暂不动，当前效果对
+
+### CSS 架构重构
+
+- `index.html` 831 行 → 84 行：`<style>` 747 行 CSS 完整提取到 `web/css/style.css`
+- HTML 替换为 `<link rel="stylesheet" href="css/style.css">`
+- `server.py` 已注册 `.css` MIME type + 静态递归路径（200 OK）
+- 拆分后全功能回归 15/15 PASS
+
+### 验收
+
+WebBridge 21/21 PASS：宫格卡片/展开折叠/帧格焦点/列表行/浮层面板/徽标按钮/线性缩放/悬停扫视/切换回归
+
+### GitHub 推送
+
+- HTTPS 直连被墙，系统代理 `127.0.0.1:7897` 为 SOCKS5
+- `git config http.proxy socks5://127.0.0.1:7897` + token 内嵌 URL 推成功
+- commit `22b385f`，`61070a0..22b385f main -> main`
+
+### 第三轮（之前完成未记，列表视图多图展开 + 悬停扫视 + 弹簧动画）
+
+**列表浮层面板**：
+- 多图展开态帧缩略图横排在行内 `.list-frames`（`position:absolute; display:inline-flex`）
+- 浮层高度匹配缩略图（`bottom:4px`），宽度自由延伸
+- 面板严丝合缝覆盖缩略图区域（`left:4px; top:4px`，用 `.thumb-wrap` 容器 + 直接定位）
+- 帧缩略图 `width:auto; height:100%; aspect-ratio:16/9`——展开态覆盖通用 `width:56px` 规则
+
+**徽标按钮**：`3帧 ▶` 改成 `<button class="multi-badge">`，可点击展开/折叠；展开态变 `3帧 ◀` 位于浮层 flex 容器右侧；`window.__sb.toggleListMulti(shotId)` 驱动
+
+**悬停扫视**（列表视图）：`initStackHover` 用 `.shot-thumb` 的 `getBoundingClientRect()` 替代卡片 rect，扫视只在缩略图范围内生效
+
+**弹簧动画**（列表视图）：
+- `expandAnimated` 列表分支：`scaleX(0)→scaleX(1)` + opacity fade，450ms spring curve，带 `_animToken` 防护
+- `collapseAnimated` 列表分支：`scaleX(1)→scaleX(0.8)` + fade，320ms `setTimeout` 后 `toggleExpand+renderGrid`（不用 `transitionend`——不可靠）
+- 只横向弹，Y 轴不动
+
+**其他第三轮修复**：
+- `overflow: hidden` 裁切浮层 → `.list-item.expanded { overflow: visible }`
+- `pointer-events: none` 阻止按钮点击 → `.multi-badge { pointer-events: auto }`
+- 折叠后浮层复活 → `expandAnimated` 加 `_animToken` 令牌防护
+- 点其他卡片清帧焦点 → click handler 加 else 分支清 `.frame-focused`
+- 列表行高缩放一致 → 封面图始终保留行内，浮层 `position:absolute` 不占布局
+
+
 
 - **FLIP 双根因根治（用户报"拖任何镜头多图都滑一下"+"拖拽回顶"）**：①`captureRects/animateFrom` 改按 `id:frameId` 复合键（展开态 N 帧格共享 dataset.id 互相覆盖 rect，任何排序都让帧格从错误位置起飞）②测量从 `getBoundingClientRect` 改 `offsetLeft/offsetTop`——纯布局值不受 transform 影响，上一轮未播完的 invert/进行中的 transition 不再污染下一轮捕获（污染会连环放大，后台标签页 rAF 冻结时尤为明显）
 - **焦点框跟手（用户报"选中框不动"）**：那个"选中框"其实是封面 `is-cover` 蓝描边。改为：封面降级为右上角「封面」角标（`.cover-chip`），蓝框变焦点框 `frame-focused` 点击哪张跟到哪张（`state.focusedFrameId` + `frames.js focusFrame`，默认落封面）；帧格选中态用连片底衬底色 `#182431` 表达（`.selected` 的 border/box-shadow 被帧格 `border:none+box-shadow:none` 吞掉是历史遗留）
@@ -162,19 +217,39 @@ Blender 4.5 分镜设计插件——面板操作 + 内嵌 HTTP 服务 + SQLite �
 
 ## 正在做
 
-- **v0.8.1（Kimi）已本地 commit 未推**：多图交互五连修（FLIP 双根因/焦点框/帧格禁拖/queue falsy），磁盘已部署+queue 已运行时热修补，等用户前台复核拖拽手感
-- v0.8.0（Kimi）：连片底衬+弹簧动效+面板帧号列表，已验收结构部分，动效手感待前台揉
-- v0.7.1（Kimi 接手首修）已验证：delete_shot 级联删 frames / sync 清孤儿帧 / audit 垃圾桶基线相对断言+frames 级联用例，audit 38/38
-- v0.7.0 多图镜头已部署家PC，真机验收全 PASS（Hermes 交接），已由 Kimi 复核基线
-- ⚠️ 审计清理误伤通报：audit cleanup 把垃圾桶里 3 个无归属 c 系镜头（c0470/c0840/c0310，非 `taken` 快照内）当测试残留 purge 了——它们本来就在垃圾桶里，如需恢复思路见坑"API 删场景只删运行时"（不可恢复则接受）
-- ⚠️ v0.8.0 测试副作用通报：实测 snap_frame 时把 446baf2c（c0410 多图镜头）的 F48 覆盖重拍了一次（同场景同帧号，构图内容应一致，图片文件是新生成的）
+- 第四轮（9 项）全部完成，审计 21/21，已推 GitHub（`22b385f`）
+- 第 9 项（中键滑动惯性）用户确认暂不动，当前效果对
+- 列表视图浮层面板 + 弹簧动画 + 悬停扫视已完整交付
+- CSS 已拆出 HTML（`web/css/style.css`）
 
 ## 下一步
 
-- 用户前台验收：①v0.8.0 弹簧动效手感 ②面板拍当前帧+覆盖确认弹窗+帧号按钮 ③v0.8.1 拖拽排序（重点复核"回顶"是否消失）
-- 验收通过后推 GitHub（用户不主动提就不推）
-- 下次自然重启 Blender 时 v0.8.1 从磁盘完整加载（当前 core.queue 是热修补态）
-- 公司 PC 同步部署 v0.7.0+
+- 用户前台验收第四轮全部改动（Edge 刷新验证）
+- 第 9 项惯性功能按需重新启动
+- 后续可开工的优化项：稳健性待办列表（见下方）
+
+## 开发铁律
+
+所有需求（增/删/改，单条/列表）按以下循环执行：
+
+```
+测试确认 → 修改 → 验证测试 → 有问题继续改 → 全通过才交付
+```
+
+列表需求：逐项独立循环，全部做完后回归审计每一项。
+
+## WebBridge 测试速查
+
+| 场景 | 方法 |
+|------|------|
+| 页面加载/状态 | `find_tab` + `navigate`（不带 `newTab`，复用标签页） |
+| DOM 验证 | `evaluate` 读 `window.__sb`、查 class/元素、测尺寸 |
+| 普通点击 | `el.click()`（CDP 坐标常偏，展开帧格会遮挡） |
+| 右键菜单 | CDP `mousePressed+Released`（合成事件被 `preventDefault` 拦截） |
+| 模块函数 | 挂到 `window.__sb` 上才能调（ES module 不暴露到 window） |
+| Edge | 不杀！开着一直复用 |
+
+
 
 ## 第六轮（v0.6.2）清单
 
@@ -252,11 +327,13 @@ Blender 4.5 分镜设计插件——面板操作 + 内嵌 HTTP 服务 + SQLite �
 - **覆盖层对齐小心 margin 塌陷**：`#grid` 的 margin-top 会穿透无边框的 `#gridWrap` 塌陷，absolute 覆盖层（`top:16px`）因此比真实内容低 16px 漏图。父容器 `display: flow-root` 建 BFC 即解，别用 overflow:hidden（会裁掉橡皮筋过冲）。
 
 - **热重载僵尸线程**：`del sys.modules` 重载插件后旧 HTTP server 的 `serve_forever` 线程杀不掉，新旧 handler 随机抢请求 → 表现为"代码改了但请求没走新路径"。判断：`threading.enumerate()` 查 serve_forever 数量 >1 就是脏了。解法：重启 Blender。
+- **`bpy.ops.view3d.view_camera()` 在 `temp_override` 循环里只生效一个 area**：多视口场景下每次只会有第一个视口切到相机视角。改用 `area.spaces.active.region_3d.view_perspective = 'CAMERA'` 直接设所有视口（v0.7.0 多图跳帧 + v0.3.0 打开镜头都用过此坑）。
 - **`bpy.ops.render.opengl` 只读真实视口状态**：temp_override 里改 context 对它无效——它读的是你屏幕上实际看到的视口。要切相机视角必须直接改 `space.region_3d.view_perspective`。
+- **Git 推 GitHub 用 SOCKS5 代理**：本机网络直连 GitHub 超时（被墙），Edge 通过系统代理 `127.0.0.1:7897`（SOCKS5）可通。MSYS2 git 不支持 SOCKS5 认证交互，必须 `git remote set-url "https://TOKEN@github.com/..."` 内嵌 token 跳过 credential helper，然后 `git config http.proxy socks5://127.0.0.1:7897`。推完记得还原 remote URL（去掉 token）。
 - **MCP 线程无 window context**：`bpy.context.window/screen` 为 None，render/opengl 全挂。需要主线程 timer 队列执行（架构⑥的核心模式）。
 - **BaseHTTPRequestHandler 的 if/elif 链断裂**：独立 `if` 替代 `elif` 会导致 200 + 404 双响应拼包，JSON 解析报 Extra data。
 - **`scene.copy()` 是链接复制**：大纲显示红色，新场景和原场景共享物体数据。用 `bpy.ops.scene.new(type='FULL_COPY')` 才能完全独立。
-- **HTML 右键菜单点不动**：document 的 click 监听器 hideContextMenu 先清空 contextShotId，menuAction 才执行——`if(!contextShotId)return` 静默退出，无报错。
+- **ES module 函数不在 window 上**：`toggleView`、`__zoomApply` 等是模块导出，WebBridge evaluate 调不到。每个需要测试入口的函数都必须显式挂到 `window.__sb` 或 `window.__zoomApply`。忘记挂载 → 调不动 → 误以为功能坏了。
 - **`region_3d.camera` 在 Blender 4.5 不存在**：设 `view_perspective='CAMERA'` 后相机自动从 `scene.camera` 取，不要手动设 camera 属性。
 - **审计脚本测不到浏览器层 JS 问题**：如右键菜单事件冒泡这类纯前端 bug，API 审计全过但用户手动点无效。网页 JS 改动必须硬刷新后人工点一遍。
 - **addons 根目录残留旧模块文件会 shadow 标准库**：插件 `sys.path.insert(0, addon_dir)` 后，根目录散落的 `queue.py` 会顶掉 stdlib `queue`（core/queue.py 的 `import queue` 拿到错的模块）。部署目录只留 `__init__.py`/`core/`/`web/`，靠 sys.modules 里 stdlib 已缓存才没炸过，别赌运气。
