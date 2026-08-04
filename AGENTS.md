@@ -2,7 +2,24 @@
 
 > 给下一个 Agent（或下一个自己）的交接备忘录。**收工推送前必须更新「刚做完 / 正在做 / 下一步 / 坑」四个字段。**
 
-## 多图镜头（v0.7.0 进行中）— 接口契约（前后端唯一权威，先锁后做）
+## 刚做完（第五轮：多图帧级实时刷新，Kimi 执行，audit 38/38）
+
+**需求：多图镜头在 Blender 重拍某一帧，网页端要实时更新（尤其非封面帧）。**
+
+- **根因**：`cmd_render_frame` 里只有 `if is_cover` 才 `thumb_fresh=True` bump shot 级 `thumb_ver`（queue.py）；非封面帧重拍只走 `update_frame`（bump DB rev 但不动 thumb_ver）→ 前端心跳拉到新数据但 imageUrl 的 `?v=` 不变 → render.js 差分键 `f.id:f.imageUrl:f.isCover` 不变 → DOM 不重建 → img src 不变 → 浏览器缓存旧图。第四轮第 1 项只验证了封面帧（v=8→v=9），多图非封面帧链路是断的。
+- **修复（帧级版本戳）**：
+  - `core/db.py`：frames 表加 `ver INTEGER DEFAULT 0` 列（DB_SCHEMA + init_db 老库迁移 `ALTER TABLE frames ADD COLUMN ver`）；`update_frame` 带 `image_path` 时 `ver = COALESCE(ver, 0) + 1`（重拍才 bump，改 frame_no/is_cover 不 bump）
+  - `core/actions.py`：`_frame_to_api` 的 imageUrl 缓存戳从 shot 级 `thumb_ver` 改为帧级 `frame.ver`
+- **双轨语义**：封面帧重拍 = 帧 ver+1（展开态帧图刷新）+ shot.thumb_ver+1（折叠缩略图刷新）各自独立；非封面帧重拍只 bump 帧 ver——精确刷新重拍那一帧，其它帧零重载
+- 验证：DB 层单测（新库建表/老库迁移/重拍+1/非重拍不变）全过；MCP 重拍非封面帧 URL `?v=0→1`、封面帧双轨 `frame 0→1 + thumb_ver 11→12`；WebBridge 实测不刷新页面、心跳 2s 内页面 img src 自动 `v=1→2→3`；audit **38/38 PASS**
+
+### 顺带处理（环境问题，非代码改动）
+
+- **rename_seq 审计失败**（`Scene Shot_c0040 already exists`）：Blender 里有 5 个幽灵场景 `Shot_c0040/c0160/c0310/c0470/c0840`（DB 无记录、磁盘无目录，sync 只报告不处理——AGENTS.md 待办第 7 项）撞掉批量改名名字分配。处理：改名 `__ghost_<name>` 保留数据释放 c 名，audit 恢复 38/38。**这些幽灵场景是历史遗留（重启 Blender 复活），下次再遇 rename 撞名先查这个**
+- **MCP 测试路径转义坑**：MCP execute_code 里写 `N:\\Projects\\...` 中文路径，反斜杠/unicode 转义极易错（`\\u8bf7` 变字面量或 `N:\\` 双反斜杠）→ sqlite "unable to open database file" 假象。**测试一律用 `bpy.data.filepath` 推导 project_dir**（`os.path.join(dirname, basename_noext + "_storyboard")`），零转义
+- **MCP 偶发卡死**：连续 execute_code 大命令（init_db/reload 组合）会卡 handler（空响应），分步小命令可恢复；查 queue 状态用 `q._command_queue.qsize()` 别用 `len(bpy.app.timers)`（timers 是模块不是列表，len 报错）
+
+
 
 **设计文档**：`多图镜头-前端交互设计说明.md`（用户 2026-08-01 提供）。上限 5 张/镜头。
 
@@ -217,14 +234,13 @@ WebBridge 21/21 PASS：宫格卡片/展开折叠/帧格焦点/列表行/浮层�
 
 ## 正在做
 
-- 第四轮（9 项）全部完成，审计 21/21，已推 GitHub（`22b385f`）
-- 第 9 项（中键滑动惯性）用户确认暂不动，当前效果对
-- 列表视图浮层面板 + 弹簧动画 + 悬停扫视已完整交付
-- CSS 已拆出 HTML（`web/css/style.css`）
+- 第五轮（多图帧级实时刷新）已完成，audit 38/38，已推 GitHub
+- 5 个幽灵场景已改名 `__ghost_*` 保留（未删，用户可确认后清理）
 
 ## 下一步
 
-- 用户前台验收第四轮全部改动（Edge 刷新验证）
+- 用户前台验收第五轮：Blender 面板重拍多图非封面帧 → Edge 网页自动更新
+- 幽灵场景 `__ghost_c0040/c0160/c0310/c0470/c0840` 待用户确认是否彻底删除（含 .blend 存盘防复活）
 - 第 9 项惯性功能按需重新启动
 - 后续可开工的优化项：稳健性待办列表（见下方）
 

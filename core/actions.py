@@ -38,11 +38,16 @@ def _shot_dir_name(shot):
 
 def _frame_to_api(frame, shot, project_dir):
     """Shape one frames row for the web: imageUrl with cache-busting version,
-    null when the image is missing (red-cell fallback on the front end)."""
+    null when the image is missing (red-cell fallback on the front end).
+
+    Cache stamp is the FRAME-level `ver` (bumped on every re-render of this
+    frame) — shot.thumb_ver only tracks the cover/thumbnail, so non-cover
+    re-renders would keep the same URL and the browser would serve the stale
+    image."""
     img = frame.get("image_path")
     if img and os.path.exists(img):
         rel = os.path.basename(img)
-        url = f"/shots/{_shot_dir_name(shot)}/{rel}?v={shot.get('thumb_ver') or 0}"
+        url = f"/shots/{_shot_dir_name(shot)}/{rel}?v={frame.get('ver') or 0}"
     else:
         url = None
     return {

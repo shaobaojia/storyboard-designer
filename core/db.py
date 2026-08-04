@@ -38,6 +38,7 @@ CREATE TABLE IF NOT EXISTS frames (
     frame_no    INTEGER NOT NULL,
     image_path  TEXT,
     is_cover    INTEGER DEFAULT 0,
+    ver         INTEGER DEFAULT 0,
     updated_at  TEXT
 );
 
@@ -89,6 +90,14 @@ def init_db(db_path):
                 (str(uuid.uuid4())[:8], shot_id, still_path or None, now))
         if orphan_shots:
             print(f"[Storyboard] Migrated DB: backfilled cover frame for {len(orphan_shots)} shots")
+    except sqlite3.OperationalError:
+        pass
+    # Frame-level version stamp (per-frame cache-busting for re-renders)
+    try:
+        fcols = [r[1] for r in conn.execute("PRAGMA table_info(frames)").fetchall()]
+        if "ver" not in fcols:
+            conn.execute("ALTER TABLE frames ADD COLUMN ver INTEGER DEFAULT 0")
+            print("[Storyboard] Migrated DB: added frames.ver column")
     except sqlite3.OperationalError:
         pass
     conn.commit()
@@ -292,14 +301,21 @@ def add_frame(db_path, shot_id, frame_no, image_path=None, is_cover=False, frame
 
 
 def update_frame(db_path, frame_id, **kwargs):
-    """Update frame fields. Allowed: frame_no, image_path, is_cover."""
+    """Update frame fields. Allowed: frame_no, image_path, is_cover.
+
+    A fresh image_path means a re-render landed — the frame-level `ver`
+    auto-increments so the web refreshes exactly that one frame's image
+    (multi-frame shots: non-cover re-renders must bust the per-frame URL)."""
     allowed = {"frame_no", "image_path", "is_cover"}
     updates = {k: v for k, v in kwargs.items() if k in allowed}
     if not updates:
         return False
     updates["updated_at"] = datetime.now().isoformat()
     set_clause = ", ".join(f"{k} = ?" for k in updates)
-    values = list(updates.values()) + [frame_id]
+    values = list(updates.values())
+    if "image_path" in updates:
+        set_clause += ", ver = COALESCE(ver, 0) + 1"
+    values.append(frame_id)
     conn = sqlite3.connect(db_path)
     conn.execute(f"UPDATE frames SET {set_clause} WHERE id = ?", values)
     _bump_rev(conn)
