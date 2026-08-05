@@ -101,8 +101,8 @@ project_dir = os.path.join(os.path.dirname(bpy.data.filepath),
 d = os.path.join(project_dir, "shots", "CTX_TEST_{tid}")
 print(os.listdir(d) if os.path.exists(d) else "MISSING")
 ''')
-    # v0.8.4+：重拍封面帧，输出 f00000_still.png / f00000_thumb.jpg（无 still.png/thumb.jpg）
-    ok = "f00000_still.png" in out and "f00000_thumb.jpg" in out
+    # v0.9.4+：JPG 化后重拍封面帧输出 f00000_still.jpg / f00000_thumb.jpg（不再拍 PNG）
+    ok = "f00000_still.jpg" in out and "f00000_thumb.jpg" in out
     record("重拍封面 -> 封面帧落盘(f00000_*)", ok, out.strip()[:60])
     try:
         # 网页可见性：从 API 读封面帧 imageUrl（带帧级 ver 缓存戳），HTTP 检查

@@ -1,22 +1,15 @@
 # AGENTS.md
 
 > 给下一个 Agent（或下一个自己）的交接备忘录。**收工推送前必须更新「刚做完 / 正在做 / 下一步 / 坑」四个字段。**
-## 刚做完（v0.9.4 攒批中：多展开底衬修复 / 快捷键面板 / 预览框全套 / 列表重叠修复，Kimi 执行，WebBridge 全回归，audit 推前跑）
+## 刚做完（v0.9.5 攒批中：展开态帧图等大+间距统一 / 拖拽插入指示线 / Pointer Events 拖拽，Kimi 执行，WebBridge 全回归；v0.9.4 已推送 GitHub）
 
-1. **多图多展开底衬断层修复**（render.js）：行分段 class 按旧位置算 → 同镜头帧格 12px 断层。两处：buildExpandedCards 的 rowStart 加前面已展开镜头占位补偿（(帧数-1) 求和）；renderGrid 差分复用分支同步重算 frame-first/frame-row-last（其它镜头展开/折叠时已展开镜头底衬跟随换行）
-2. **快捷键面板**（shortcuts.js 新模块）：右下角「快捷键」按钮 → 浮层列 9 项快捷键（SHORTCUTS 常量在 keyboard.js=唯一事实源）；收起：再点/点外部/Esc
-3. **预览框**（preview.js 新模块）：左下角「预览」开关（默认关），显示选中镜头大图（still URL 前端推导 `_thumb.jpg→_still.png`/legacy `thumb.jpg→still.png`）+ 详情（标题/帧号/时长/内容/台词，空字段灰占位）
-   - 贴边左右切；**丝滑=只动 CSS 变量**（--preview-w/--list-scale + __zoomApply）零 DOM 重建；关预览保存/恢复 --card-min 防列数漂移；宫格列数尽量保持（MIN_W=120 下限）、列表 --list-scale 等比缩（固定列+缩略图宽都乘 scale）
-   - **拖拽调宽**（贴 grid 侧手柄，clamp 180~视口-360、rAF 节流、localStorage 持久化），拖拽中实时重算 → 卡片连续缩放填满无空白；grid 两侧间距对称 16px（margin=var(--preview-w)+16px）
-   - 预览对象=最后点击（state.lastClickId）；展开态帧格聚焦显示该帧；多选显示最后点击的
-4. **列表缩略图重叠修复**（style.css）：.thumb-wrap/.shot-thumb 宽度乘 --list-scale（固定 80px 溢出列宽盖镜头名）
-5. **拍屏 JPG 化**（core/render.py + queue.py + audit.py）：全尺寸存档 still.png→**still.jpg**（JPEG quality 85，不再拍任何 PNG，体积 1.3~3.8MB→200~600KB）；顺手做掉**稳健性待办 1（拍屏副作用还原）**——format/filepath/quality/engine/film_transparent 改完全部恢复；duplicate 帧文件推导 jpg 优先、老 png 兜底；audit 断言同步改 jpg。⚠️ 后端需重启 Blender 生效
-6. **预览提速三件套**（preview.js）：先小图后清晰（切换瞬间缩略图即时显示，大图就绪同帧替换，图固定填满预览区=只有模糊/清晰区别无尺寸跳变）；相邻 ±10 格封面 still 预载（new Image 预热缓存，防抖 120ms，jpg 404 时 png 也预载）；stillUrl 推导 jpg + onerror 兜底 png（存量数据兼容）
-7. **展开焦点第一帧**（frames.js）：多图展开后 focusFrame 落第一帧（frame_no 最小）并同步预览——预览窗口顺序看图从本镜头第一帧衔接；折叠仍清焦点
-8. **展开帧格高度统一**（style.css）：.frame-img 高度 = calc(var(--card-min)×9/16)（统一，frame-first 伸出格靠 object-fit cover 裁溢出）；.shot-info min-height 46px（无名字帧补齐）——跨行展开所有帧格同高
-9. **折叠按钮移位**（render.js + style.css）：◀ 折叠按钮从第一帧 shot-info 左上角（盖镜头名）挪到最后一张图的右边缘（right:9px）、相对图垂直居中（top: calc(50% - 23px)，与列宽无关恒成立）；与列表 multi-badge（"N帧 ▶/◀"）同为折叠入口，走同一套 toggleListMulti/collapse 逻辑
+1. **展开态帧图等大 + 间距/外沿统一**（render.js/zoom.js/style.css）：每行独立图宽 `W = (行底衬宽 − 9×(行帧数+1)) / 行帧数`，外沿 = 图间距 = 9px 严格统一（**用户拍板 D**：外沿 9 优先，跨行行间图宽允许不同）；图高 = W×9/16 等比例。实现：`--frame-w` CSS 变量 + 每图 inline margin-left 精确排布（不重建 DOM、底衬连片/负 margin/FLIP/拖拽/右键全兼容），行尾格底衬窄 12px 导致图不等大的根因消除（不再 width:100%）；缩放/预览调宽联动重算（zoom.js apply 注入 applyExpandedLayout）
+2. **拖拽插入位置指示线**（dnd.js/style.css）：虚线框 → **宫格竖线**（插左/右）/ **列表横线**（插上/下），鼠标半区判定 + fixed 定位指示线（落两卡间隙中央）；reorderShots 显式 `pos=before/after` 插入（替代原"替换 dst 位置"语义）；**视图切换后指示线尺寸残留（1102×163 大蓝块）已修**——两分支互清 width/height inline 残留
+3. **拖拽改 Pointer Events 自定义实现**（dnd.js）：根治浏览器 DnD 光标问题（虚线小方块 = dropEffect move 原生光标、卡片间隙闪 no-drop = dragover 节流）——pointerdown/move/up + elementFromPoint 命中 + 源卡 transform 跟随（拖拽反馈）+ 6px 阈值防误触 + 拖后 600ms click 抑制；**外部文件拖入仍走原生 DnD**（initFileDrop 不动）；CSS 光标全程 default（删 .shot-card grab / .dragging grabbing）；pointercancel(0,0) 容错（用最后 pointermove 坐标判定落点）
+4. **audit_context_menu 断言 JPG 化**（audit_context_menu.py）：`f00000_still.png → f00000_still.jpg`（v0.9.4 拍屏 JPG 化后过时断言），12/12 PASS
 
 **历史轮次**（详情曾在本文件，已压缩；关键决策见「交互/设计约定」与「坑」）：
+- v0.9.4：预览框（贴边左右切/拖拽调宽/详情区/先小图后清晰提速三件套）/ 快捷键面板 / 多展开底衬断层修复 / 列表缩略图重叠修复 / 拍屏 JPG 化（still.jpg + 副作用还原）/ 展开焦点落第一帧 / 帧格高度统一 / 折叠按钮移位
 - v0.9.3：搜索栏定位（名称/内容/台词）/ Tab 切视图 / 列表 Ctrl+滚轮 12 级 / 展开折叠滚动跳顶三层修复（删 innerHTML 全清 + overflow-anchor:none + savedScrollY 恢复）/ empty-state 残留 / 搜索定位帧焦点残留 / audit 41+12 / AGENTS.md 精简 49%
 - v0.9.2 十一轮：多选右键菜单统一 / 方向键帧格级移动 / 列表子帧单焦点 / 批量动画修复（按 id 精确选 target）/ 切视图定位+中心扩散 FLIP
 - v0.9.1 十轮：拍当前帧去确认直盖 / 多选批量展开折叠 / 展开态拖拽 / 面板帧导航 step_frame / 创建对齐网页端规则
@@ -34,16 +27,16 @@
 
 ## 正在做
 
-- v0.9.4 已推送 GitHub；**Blender 重启后验证拍屏 JPG**（重拍一帧确认 f00000_still.jpg 输出 + audit 2 项拍屏断言）+ 预览大图提速实测（jpg 数据下切换延迟）
+- v0.9.5 已推送 GitHub；**audit.py 两个 FAIL 待审**：`Batch restore from trash`（trash=1 稳定） / `Batch rename_seq`（偶发）——手动复现 batch delete/restore 全链路正常（done=2），疑 Blender 队列积压致测试镜头创建延迟 → ids 少；交接笔记 `~/AppData/Local/hermes/tmp/审计交接笔记.md`（含 TEMP-DEBUG 补丁）；**audit.py 与 audit_context_menu.py 禁并行跑**（共享 DB 互清测试镜头），Ctrl+C 中断会留 AUDIT_* 残留需先清
 - 幽灵场景累计 12 个 `__ghost_*`（第五轮 5 个 + 第七轮 7 个：c0050/c0100/c0230/c0340/c0480/c0560/c0970 等）待用户确认是否彻底删除（含 .blend 存盘防复活）；**反复出现说明 sync 自动对账（稳健性待办 7）值得优先做**
-- 测试现场：镜头数据已还原（c0410 content 恢复原值）
+- 测试现场：镜头数据已还原（80 个无残留，顺序恢复原始）
 
 ## 下一步
 
-- 用户前台验收 v0.9.4（预览框手感/快捷键面板/多展开底衬）；确认后跑 audit 41+12 → 推送 GitHub（更新本文件四字段）
+- **审 audit.py 两个 FAIL**（见「正在做」：打 TEMP-DEBUG 打印创建响应/ids 数量 → 确认是否创建延迟 → 修 sleep/轮询 → 41/41 → 删调试清残留）
 - 幽灵场景确认删除 → sync 自动对账（稳健性待办 7）优先级可提前
 - **稳健性待办（v0.6.3 对抗审计产出，用户已阅，优先级低暂缓）**，按性价比排序：
-  1. **拍屏副作用还原**：`render_shot_files` 改完 `scene.render.filepath/file_format/engine` 不还原，污染用户正式渲染设置（最阴险，建议最先修）
+  1. ~~**拍屏副作用还原**：`render_shot_files` 改完 `scene.render.filepath/file_format/engine` 不还原，污染用户正式渲染设置~~ ✅ v0.9.4 已修（改完全部恢复）
   2. **主线程预算**：`process_queue` 一次排空全队列，批量重渲染 = UI 冻结整场渲染；改每 tick 1 个重命令
   3. **创建原子化**：makedirs 挪到 DB 写入前（SMB 抖动即孤儿记录，P9 实锤）
   4. **写事务合并**：批量操作共用一条 SQLite 连接+事务，顺手修 seq 分配竞态（P4 实锤 16 并发 12 重复）
@@ -178,6 +171,9 @@ CREATE INDEX IF NOT EXISTS idx_frames_shot ON frames(shot_id);
 - **大重构（删 operator / 改注册表 / 加迁移）必须重启 Blender 验证**（v0.8.4 教训）：operator 注册表删除、init_db 迁移都在启动时机执行，`importlib.reload` 热重载覆盖不了（热修补只适用纯逻辑模块）。改完这类代码 = 部署 + taskkill blender + 重启（读 instances.json 拿当前 blend 路径恢复现场）+ audit + WebBridge 回归。重启是 Agent 的活，别让用户自己重启。
 - **`region_3d.camera` 在 Blender 4.5 不存在**：设 `view_perspective='CAMERA'` 后相机自动从 `scene.camera` 取，不要手动设 camera 属性。
 - **审计脚本测不到浏览器层 JS 问题**：如右键菜单事件冒泡这类纯前端 bug，API 审计全过但用户手动点无效。网页 JS 改动必须硬刷新后人工点一遍。
+- **WebBridge CDP 对高频 mouseMoved 只送达第一次**（v0.9.5 发现）：普通状态下 15 次 `Input.dispatchMouseEvent mouseMoved` 页面只收到 1 次 mousemove（慢速 0.2s/步也一样）；**HTML5 DnD 测试时 dragover 正常是浏览器 DnD 状态机内部跟踪掩盖了此缺陷**（不依赖 mousemove 派发）。CDP 验证拖拽类交互要用**合成 PointerEvent**（evaluate dispatchEvent，监听器不校验 isTrusted 即可驱动逻辑）或接受"事件流不完整"只验单次事件。
+- **CDP mouseReleased 触发 pointercancel 且坐标 (0,0)**（v0.9.5）：CDP 合成序列的 release 不派发 pointerup/mouseup，而是 pointercancel(x=0,y=0)——凡监听 pointerup 做落点判定的代码必须容错（用最后一次 pointermove 坐标，`e.type==='pointercancel' && lastMove`），否则 elementFromPoint(0,0)=BODY 落点全丢。
+- **audit.py 与 audit_context_menu.py 共享 DB 不能并行跑**（v0.9.5 教训）：并行时互相清掉对方刚创建的测试镜头（AUDIT_POS 丢失 → ValueError）。audit 被 Ctrl+C 中断会留 AUDIT_*/c0970 等残留，重跑前先清（delete+purge），否则后续断言被残留干扰。
 - **addons 根目录残留旧模块文件会 shadow 标准库**：插件 `sys.path.insert(0, addon_dir)` 后，根目录散落的 `queue.py` 会顶掉 stdlib `queue`（core/queue.py 的 `import queue` 拿到错的模块）。部署目录只留 `__init__.py`/`core/`/`web/`，靠 sys.modules 里 stdlib 已缓存才没炸过，别赌运气。
 - **改名必须四层一起走**：DB name、场景名、相机名、磁盘目录 + DB 里 still_path/thumb_path（带旧目录名的绝对路径）——漏任何一层都是脏数据。
 - **FLIP 测量不能用 getBoundingClientRect**：它含 transform——上一轮未播完的 invert（后台标签页 rAF 冻结时必然残留）或进行中的 transition 都会被当成"旧位置"捕获，算出 bogus 位移再叠新 transform，连环污染、越翻越离谱（用户看到"拖任何镜头多图都滑一下"/"卡片飞回顶部"）。测量布局一律用 `offsetLeft/offsetTop`（纯布局值，transform 免疫），v0.8.1 已根治。

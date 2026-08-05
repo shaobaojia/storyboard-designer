@@ -117,10 +117,12 @@ function buildExpandedCards(shot, eager) {
         if (isRowHead) cls.push('frame-first');
         if (isRowTail) cls.push('frame-row-last');
         if (state.selectedIds.has(shot.id)) cls.push('selected');
-        // 焦点帧蓝框跟手点击（v0.8.1）：优先持久化的 focusedFrameId，默认落封面
-        const cover = frames.find(fr => fr.isCover) || frames[0];
+        // 焦点帧蓝框跟手点击（v0.8.1）：focusedFrameId 属于本镜头才标框；
+        // 不属于本镜头（焦点在别的镜头/已清空）→ 无框——同一时间全局只有一个选中框
+        // （v0.9.2 定稿；v0.9.4 展开默认焦点=第一帧 focusFirstFrame，此处不再 fallback 封面帧，
+        //  否则多展开镜头切视图时每个镜头都渲染出幽灵蓝框）
         const focusId = (state.focusedFrameId && frames.some(fr => fr.id === state.focusedFrameId))
-            ? state.focusedFrameId : (cover && cover.id);
+            ? state.focusedFrameId : null;
         const imgCls = [f.isCover ? 'is-cover' : '', f.id === focusId ? 'frame-focused' : '']
             .filter(Boolean).join(' ');
         wrap.innerHTML = `
@@ -138,6 +140,97 @@ function buildExpandedCards(shot, eager) {
         cards.push(el);
     });
     return cards;
+}
+
+// ===== v0.9.5 展开态帧图布局（用户拍板）=====
+// 每行独立计算：图宽 W = (行底衬宽 - 9×(行帧数+1)) / 行帧数，
+// 行底衬宽 = 行帧数×列宽 + (行帧数-1)×gap（连片视觉宽，含被负 margin 吃掉的 gap）。
+// 外沿 = 图间距 = 9px 严格统一（用户拍板 D：外沿 9 优先，跨行时行间图宽允许不同——
+// 2+1 跨行的 2 格行图宽 > 1 格行图宽，但每行内图等大、间距/外沿全 9）。
+// 图高 = W×9/16 等比例。实现：不重建 DOM、不动格子结构（底衬连片/负 margin/FLIP/
+// 拖拽/右键全兼容），每格设 --frame-w 变量 + 每张图 inline margin-left 精确排布。
+const FRAME_EDGE = 9;    // 固定间隔：图间距 = 外沿（用户定值）
+const GRID_GAP = 12;     // 宫格 gap（与 zoom.js 的 GAP 一致）
+
+function computeExpandedLayout() {
+    const shots = state.shots;
+    const expanded = shots.filter(s => (s.frames || []).length > 1 && state.expandedShotIds.has(s.id));
+    if (expanded.length === 0) return null;
+    const colW = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--card-min'));
+    if (!colW || colW <= 0) return null;
+    const cols = (() => {
+        try {
+            return getComputedStyle(grid).gridTemplateColumns.split(' ').filter(Boolean).length || 1;
+        } catch { return 1; }
+    })();
+    // 每镜头的行分段（与 buildExpandedCards 同逻辑：startIdx + 前面展开镜头占位补偿）
+    const infos = expanded.map(shot => {
+        const frames = shot.frames || [];
+        const startIdx = shots.findIndex(s => s.id === shot.id);
+        let extra = 0;
+        for (let i = 0; i < startIdx; i++) {
+            const s = shots[i];
+            if ((s.frames || []).length > 1 && state.expandedShotIds.has(s.id)) extra += s.frames.length - 1;
+        }
+        const rowStart = startIdx === -1 ? 0 : (startIdx + extra) % cols;
+        const rowOf = [], rowCounts = [];
+        let curRow = 0, colInRow = rowStart;
+        frames.forEach((f, i) => {
+            if (i > 0 && colInRow >= cols) { curRow++; colInRow = 0; }
+            rowOf[i] = curRow;
+            rowCounts[curRow] = (rowCounts[curRow] || 0) + 1;
+            colInRow++;
+        });
+        return { shot, frames, rowOf, rowCounts };
+    });
+    // 每行独立图宽 + 外沿（行内图等大，跨行行间允许不同——用户拍板 D）
+    const rowWs = [];
+    infos.forEach(info => info.rowCounts.forEach((k, r) => {
+        const B = k * colW + (k - 1) * GRID_GAP;
+        const W = (B - FRAME_EDGE * (k + 1)) / k;
+        if (!isFinite(W) || W <= 0) return;
+        rowWs.push({ shotId: info.shot.id, row: r, k, B, W });
+    }));
+    if (rowWs.length === 0) return null;
+    return { colW, infos, rowWs };
+}
+
+// 应用展开态布局（渲染后 / 缩放、预览调宽后都调，幂等）：
+// 设 --frame-w + 每图 margin-left + 行分段类同步（缩放列数变后差分复用的旧类跟随）
+export function applyExpandedLayout() {
+    const lay = computeExpandedLayout();
+    if (!lay) return;
+    const { colW, infos, rowWs } = lay;
+    // 行 → {W, E} 映射；外沿 E = 余量对称均分（公式下 ≈ 9，浮点取整误差 ±0.5px）
+    const rowMap = {};
+    rowWs.forEach(x => {
+        rowMap[x.shotId + ':' + x.row] = {
+            W: x.W,
+            E: (x.B - x.k * x.W - (x.k - 1) * FRAME_EDGE) / 2
+        };
+    });
+    infos.forEach(({ shot, frames, rowOf }) => {
+        const cells = grid.querySelectorAll(`.shot-card.frame-cell[data-id="${shot.id}"]`);
+        frames.forEach((f, i) => {
+            const cell = cells[i];
+            if (!cell) return;
+            const r = rowOf[i];
+            const { W, E } = rowMap[shot.id + ':' + r] || { W: colW - 2 * FRAME_EDGE, E: FRAME_EDGE };
+            let j = 0;
+            for (let t = 0; t < i; t++) if (rowOf[t] === r) j++;
+            // 图左缘（相对行底衬左）= 外沿 + j×(图宽+间距)；格左缘 = j×(列宽+gap)；
+            // margin-left = 差值（首图 = 外沿；后续图可能为负 = 相对格子左移，底衬连片内可见）
+            const marginLeft = E + j * (W + FRAME_EDGE) - j * (colW + GRID_GAP);
+            cell.style.setProperty('--frame-w', W + 'px');
+            const img = cell.querySelector('.frame-img');
+            if (img) img.style.marginLeft = marginLeft + 'px';
+            // 行分段类同步（缩放/预览改列数后，复用 cell 的旧类要跟随新布局）
+            const isRowHead = i === 0 || rowOf[i] !== rowOf[i - 1];
+            const isRowTail = i === frames.length - 1 || rowOf[i] !== rowOf[i + 1];
+            cell.classList.toggle('frame-first', isRowHead);
+            cell.classList.toggle('frame-row-last', isRowTail);
+        });
+    });
 }
 
 function buildCard(shot, eager) {
@@ -162,10 +255,10 @@ function buildCard(shot, eager) {
         let framesOverlay = '';
         if (expanded) {
             // v0.9.2：列表展开态子帧单焦点（与宫格 frame-focused 同语义）：
-            // focusedFrameId 优先，默认落封面；同一时间只有一个选中框
-            const coverFrame2 = frames.find(fr => fr.isCover) || frames[0];
+            // focusedFrameId 属于本镜头才标框，否则无框——同一时间全局只有一个选中框
+            // （v0.9.4 展开默认焦点=第一帧 focusFirstFrame，不 fallback 封面帧，防多展开镜头幽灵蓝框）
             const focusId = (state.focusedFrameId && frames.some(fr => fr.id === state.focusedFrameId))
-                ? state.focusedFrameId : (coverFrame2 && coverFrame2.id);
+                ? state.focusedFrameId : null;
             const frameThumbs = frames.map(f => {
                 const imgUrl = f.imageUrl || '';
                 const cls = [f.isCover ? 'is-cover' : '', f.id === focusId ? 'frame-focused' : '']
@@ -347,6 +440,9 @@ export function renderGrid() {
     // 差分语义已由 existing.remove + fragment.append 完整覆盖（旧节点要么被复用移入
     // fragment，要么被 remove，grid 此时已无残留），无需全量清空。
     grid.appendChild(fragment);
+    // v0.9.5：展开态帧图等大布局（--frame-w + margin-left）——必须在 FLIP 测量前应用，
+    // 否则动画从旧图宽的位置起飞；差分复用路径也靠这里重算（列宽/列数变化后）
+    applyExpandedLayout();
 
     // 首屏门控：首屏缩略图就位后波浪式揭幕 (#1)
     if (!state.firstLoadDone) {

@@ -11,7 +11,9 @@ export function isFileDrag(e) {
     return types.includes('Files') && !types.includes('text/x-shot-id');
 }
 
-async function reorderShots(srcId, dstId) {
+// v0.9.5：pos = 'before' | 'after' 显式插入位置（配合插入指示线——宫格竖线/列表横线
+// 指示"插到该卡前/后"）；原语义是"替换 dst 位置"，现由拖拽半区判定显式决定
+async function reorderShots(srcId, dstId, pos = 'before') {
     const shots = state.shots;
     const srcIdx = shots.findIndex(s => s.id === srcId);
     const dstIdx = shots.findIndex(s => s.id === dstId);
@@ -28,7 +30,7 @@ async function reorderShots(srcId, dstId) {
     const moving = shots.filter(s => movingIds.includes(s.id));
     const rest = shots.filter(s => !movingIds.includes(s.id));
     const insertIdx = rest.findIndex(s => s.id === dstId);
-    const at = insertIdx === -1 ? rest.length : (dstIdx > srcIdx ? insertIdx + 1 : insertIdx);
+    const at = insertIdx === -1 ? rest.length : (pos === 'after' ? insertIdx + 1 : insertIdx);
     rest.splice(at, 0, ...moving);
     state.shots = rest;
 
@@ -45,58 +47,122 @@ async function reorderShots(srcId, dstId) {
 }
 
 // ---- 卡片拖拽（grid 委托）----
+// v0.9.5：虚线框 → 插入位置指示线（宫格=竖线插左/右，列表=横线插上/下），
+// 按鼠标在目标卡上的半区判定插入方向，drop 时按方向显式插入
+const dropIndicator = document.createElement('div');
+dropIndicator.className = 'drop-indicator';
+document.body.appendChild(dropIndicator);
+
+function hideDropIndicator() {
+    dropIndicator.style.display = 'none';
+}
+
+function updateDropIndicator(card, e, cx, cy) {
+    const rect = card.getBoundingClientRect();
+    const isList = state.viewMode === 'list';
+    // cx/cy 为坐标覆盖（pointercancel 无有效坐标时用最后 move 位置）
+    const x = cx !== undefined ? cx : e.clientX;
+    const y = cy !== undefined ? cy : e.clientY;
+    if (isList) {
+        // 列表：横线，插上（before）/ 插下（after）
+        const before = y < rect.top + rect.height / 2;
+        dropIndicator.className = 'drop-indicator horizontal';
+        dropIndicator.style.width = (rect.width - 8) + 'px';
+        dropIndicator.style.height = '';   // 清竖线残留（视图切换后 inline 尺寸残留会撑成大蓝块）
+        dropIndicator.style.left = (rect.left + 4) + 'px';
+        dropIndicator.style.top = (before ? rect.top - 4 : rect.bottom + 1) + 'px';
+        card.dataset.dropPos = before ? 'before' : 'after';
+    } else {
+        // 宫格：竖线，插左（before）/ 插右（after）；gap 12px → 线落在两卡间隙中央
+        const before = x < rect.left + rect.width / 2;
+        dropIndicator.className = 'drop-indicator vertical';
+        dropIndicator.style.width = '';    // 清横线残留
+        dropIndicator.style.height = (rect.height - 8) + 'px';
+        dropIndicator.style.top = (rect.top + 4) + 'px';
+        dropIndicator.style.left = (before ? rect.left - 7 : rect.right + 5) + 'px';
+        card.dataset.dropPos = before ? 'before' : 'after';
+    }
+    dropIndicator.style.display = 'block';
+}
+
 export function initCardDnd() {
-    grid.addEventListener('dragstart', (e) => {
+    // v0.9.5：HTML5 DnD → Pointer Events 自定义拖拽。原因：浏览器 DnD 光标无法自定义
+    // （dropEffect='move' 带虚线小方块；dragover 节流丢失时间隙闪 no-drop），用户要求
+    // 拖拽全程默认光标。自定义实现：指针全程 CSS default、无 ghost 方块、无 no-drop
+    // 闪烁；源卡 transform 跟随（拖拽反馈），落点 elementFromPoint 命中检测 + 半区判定。
+    // 外部文件拖入仍走原生 DnD（initFileDrop 不受影响）。
+    let drag = null;          // {srcEl, startX, startY, active}
+    let lastMove = null;      // 最后一次 pointermove 坐标（pointercancel 无坐标，用它判定落点）
+    let suppressClickUntil = 0;  // 拖拽结束后拦截随之派发的 click
+
+    document.addEventListener('pointerdown', (e) => {
+        if (e.button !== 0) return;
         const card = e.target.closest('.shot-card');
-        // v0.9.1：展开态帧格也可拖（frame-cell 的 data-id 即 shotId，reorderShots 落点
-        // 有 movingIds.includes(dstId) 保护不会自排）；v0.8.1 曾禁止是因拖帧格把整镜头
-        // 排到末尾，该 bug 已由落点保护修复
-        if (!card || state.editingId || state.trashMode) {
-            e.preventDefault();
-            return;
+        if (!card || state.editingId || state.trashMode) return;
+        // 交互控件按下不启动拖拽，保留原交互（按钮/角标/折叠钮/输入框/缺帧占位）
+        if (e.target.closest('button, input, .collapse-btn, .cover-chip, .expanded-badge, .frame-missing')) return;
+        drag = { srcEl: card, startX: e.clientX, startY: e.clientY, active: false };
+    }, true);
+
+    document.addEventListener('pointermove', (e) => {
+        if (!drag) return;
+        const dx = e.clientX - drag.startX;
+        const dy = e.clientY - drag.startY;
+        if (!drag.active) {
+            if (Math.hypot(dx, dy) < 6) return;  // 阈值内 = 点击/选择/聚焦，不启动拖拽
+            drag.active = true;
+            drag.srcEl.classList.add('dragging');
+            state.dragSrcEl = drag.srcEl;  // data.js 键盘保护：拖拽中忽略快捷键
+            document.body.style.userSelect = 'none';  // 拖拽中防文本/图片选中
         }
-        state.dragSrcEl = card;
-        e.dataTransfer.setData('text/x-shot-id', card.dataset.id);  // 标记内部拖拽，区别于外部文件
-        e.dataTransfer.effectAllowed = 'move';
-        card.classList.add('dragging');
-    });
+        e.preventDefault();  // 拖拽中阻止浏览器默认（不会启动原生 DnD）
+        lastMove = { x: e.clientX, y: e.clientY };
+        drag.srcEl.style.transform = `translate(${dx}px, ${dy}px)`;  // 源卡跟随（反馈）
+        // 命中检测：鼠标下的卡片（源卡 transform 移开后原位置露出下层元素）
+        const el = document.elementFromPoint(e.clientX, e.clientY);
+        const card = el && el.closest ? el.closest('.shot-card') : null;
+        if (card && card !== drag.srcEl) updateDropIndicator(card, e);
+        else hideDropIndicator();
+    }, true);
 
-    grid.addEventListener('dragover', (e) => {
-        if (isFileDrag(e)) return;  // 文件拖拽交给 drop 逻辑
-        e.preventDefault();
-        e.stopPropagation();
-        e.dataTransfer.dropEffect = 'move';
-        const card = e.target.closest('.shot-card');
-        if (card && card !== state.dragSrcEl) {
-            card.classList.add('drag-over');
-        }
-        return false;
-    });
-
-    grid.addEventListener('dragleave', (e) => {
-        const card = e.target.closest('.shot-card');
-        if (card) card.classList.remove('drag-over');
-    });
-
-    grid.addEventListener('drop', (e) => {
-        if (isFileDrag(e)) return;  // 文件落点由 document 的 drop 统一处理
-        e.preventDefault();
-        e.stopPropagation();
-        const card = e.target.closest('.shot-card');
-        if (card && state.dragSrcEl && card !== state.dragSrcEl) {
-            card.classList.remove('drag-over');
-            reorderShots(state.dragSrcEl.dataset.id, card.dataset.id);
-        }
-        return false;
-    });
-
-    grid.addEventListener('dragend', (e) => {
-        if (state.dragSrcEl) state.dragSrcEl.classList.remove('dragging');
-        document.querySelectorAll('.shot-card').forEach(c => {
-            c.classList.remove('dragging', 'drag-over');
-        });
+    const finishDrag = (e) => {
+        if (!drag) return;
+        const st = drag;
+        drag = null;
         state.dragSrcEl = null;
-    });
+        document.body.style.userSelect = '';
+        st.srcEl.style.transform = '';
+        st.srcEl.classList.remove('dragging');
+        if (!st.active) return;  // 未超阈值 = 点击，原生 click 照常（选择/展开/聚焦）
+        suppressClickUntil = Date.now() + 600;  // 拦截拖拽后浏览器补派的 click
+        // 释放位置重新命中 + 刷新 dropPos（快速移动时可能过期）；
+        // pointercancel 无有效坐标（CDP/系统取消 = (0,0)），用最后一次 pointermove 的位置
+        const fx = (e.type === 'pointercancel' && lastMove) ? lastMove.x : e.clientX;
+        const fy = (e.type === 'pointercancel' && lastMove) ? lastMove.y : e.clientY;
+        const el = document.elementFromPoint(fx, fy);
+        const card = el && el.closest ? el.closest('.shot-card') : null;
+        if (card && card !== st.srcEl) {
+            updateDropIndicator(card, e, fx, fy);
+            const pos = card.dataset.dropPos === 'after' ? 'after' : 'before';
+            delete card.dataset.dropPos;
+            hideDropIndicator();
+            reorderShots(st.srcEl.dataset.id, card.dataset.id, pos);
+        } else {
+            hideDropIndicator();
+        }
+    };
+
+    document.addEventListener('pointerup', finishDrag, true);
+    document.addEventListener('pointercancel', finishDrag, true);
+
+    // 拖拽后抑制浏览器补派的 click（选择/展开等点击逻辑不被拖拽误触发）
+    document.addEventListener('click', (e) => {
+        if (Date.now() < suppressClickUntil) {
+            e.preventDefault();
+            e.stopPropagation();
+            suppressClickUntil = 0;
+        }
+    }, true);
 }
 
 // ---- 外部图片拖入：上 80% 卡片区=设背景（单图），下 20% 新建区=建镜头 (#5) ----

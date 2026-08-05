@@ -143,7 +143,9 @@
             background: #252525;
             border-radius: 8px;
             overflow: hidden;
-            cursor: grab;
+            /* v0.9.5：全程默认光标——去掉 grab（悬停/按下闪现抓手样式；
+               DnD 会话期间浏览器光标由 dropEffect 决定 = 默认箭头） */
+            cursor: default;
             transition: transform 0.28s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.15s;
             position: relative;
             border: 2px solid transparent;
@@ -157,11 +159,23 @@
         }
         .shot-card.dragging {
             opacity: 0.5;
-            cursor: grabbing;
+            /* v0.9.5：Pointer Events 自定义拖拽——transform 实时跟随必须禁用过渡
+               （否则卡片拖不动），z-index 提升盖在其他卡片上方；光标全程默认 */
+            transition: none;
+            z-index: 100;
         }
-        .shot-card.drag-over {
-            border: 2px dashed #4a9eff;
+        /* v0.9.5：拖拽插入位置指示线（宫格竖线/列表横线，JS 定位）——替代虚线框 */
+        .drop-indicator {
+            position: fixed;
+            background: #4a9eff;
+            border-radius: 2px;
+            box-shadow: 0 0 6px rgba(74, 158, 255, 0.6);
+            z-index: 1000;
+            pointer-events: none;
+            display: none;
         }
+        .drop-indicator.vertical { width: 3px; }
+        .drop-indicator.horizontal { height: 3px; }
         /* 拖图悬停卡片的动效 (#5) */
         .shot-card.file-hover {
             transform: scale(1.04);
@@ -222,17 +236,18 @@
         }
         .stack-badge:hover { background: rgba(74, 158, 255, 1); }
         .stack-badge.expanded-badge { top: 9px; left: 9px; z-index: 6; }
-        /* 展开态帧格：占一格，图面内缩固定 9px（四边一致），深色背景自然连片成组 */
+        /* 展开态帧格：占一格，深色背景自然连片成组 */
         .shot-card.frame-cell {
             background: #111113;
             border: none;
             box-shadow: none;
-            /* 图到底衬四边间距固定 9px：帧图大小 = 底衬 - 2×9 自适应，
-               行尾格底衬窄 12px（margin-right:0 不出界）→ 最后一张帧图等比小 12px，
-               但间距/图间距(18px)全局均匀，视觉整齐（v0.8.3 用户定稿） */
-            padding: 9px;
+            /* v0.9.5：左右 padding 归零——帧图水平位置由 JS 精确排布（margin-left），
+               图间距 = 外沿 = 9px 统一；垂直外沿保持 9px（图顶/图底到底衬） */
+            padding: 9px 0;
             /* 吃掉宫格 gap(12px)：同行帧格的深色底衬真正贴在一起连片 */
             margin-right: -12px;
+            /* 图 margin-left 可能为负（均匀排布下相对格子左移），不能被裁 */
+            overflow: visible;
         }
         /* 同行相邻帧格之间去圆角，让它们视觉上连成一体 */
         .shot-card.frame-cell { border-radius: 0; }
@@ -243,12 +258,15 @@
         /* 只有一个帧格时（理论上不会，兜底） */
         .shot-card.frame-cell.frame-first.frame-row-last { border-radius: 10px; }
         .shot-card.frame-cell .frame-img {
-            width: 100%;
+            /* v0.9.5：图宽 = JS 计算的 --frame-w（底衬宽 - 9×(帧数+1) 再均分），
+               图高 = 图宽×9/16 等比例——所有帧图严格等大，间距/外沿 9px 均匀；
+               不再 width:100% 跟随格子（行尾格窄 12px 导致图不等大的根因） */
+            width: var(--frame-w, 100%);
             /* v0.9.4：高度统一 = 列宽×9/16——frame-first 伸出 12px 宽度会让 aspect-ratio
                16/9 的图更高（210 vs 203），跨行展开时行高不一致（底衬锯齿）；
                统一高度后伸出格靠 object-fit: cover 裁掉溢出，所有帧格同高 */
             aspect-ratio: auto;
-            height: calc(var(--card-min) * 9 / 16);
+            height: calc(var(--frame-w, var(--card-min)) * 9 / 16);
             object-fit: cover;
             background: #333;
             border-radius: 6px;
