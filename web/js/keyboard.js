@@ -1,11 +1,11 @@
-// 键盘快捷键：Ctrl+A 全选 / Delete 删除 / Enter 打开 / 空格 展开折叠 / Ctrl+Z 撤销 / 方向键跳格 / Esc 出垃圾桶
+// 键盘快捷键：Ctrl+A 全选 / Delete 删除 / Enter 打开 / 空格 展开折叠 / Tab 切换视图 / Ctrl+Z 撤销 / 方向键跳格 / Esc 出垃圾桶
 import { state } from './state.js';
 import { selectAll, deleteSelection, updateSelectionUI } from './selection.js';
 import { openShot, undoLast, fetchShots, postShotAction } from './data.js';
 import { exitTrashMode } from './trash.js';
 import { toast } from './ui.js';
 import { isExpanded, expandAnimated, collapseAnimated, focusFrame } from './frames.js';
-import { renderGrid } from './render.js';
+import { renderGrid, toggleView } from './render.js';
 
 function gridColumns() {
     if (state.viewMode === 'list') return 1;
@@ -76,6 +76,10 @@ export function initKeyboard() {
     document.addEventListener('keydown', async (e) => {
         if (state.editingId) return;
         if (document.getElementById('createModal').style.display === 'flex') return;
+        // v0.9.3：焦点在输入框（搜索栏等）时跳过全部全局快捷键——浏览器默认行为保留
+        // （搜索框里按 Delete/空格/方向键/Tab 不该删镜头/展开卡片/跳格/切视图）
+        const tag = (e.target && e.target.tagName) || '';
+        if (tag === 'INPUT' || tag === 'TEXTAREA') return;
 
         if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') {
             e.preventDefault();
@@ -86,6 +90,10 @@ export function initKeyboard() {
         } else if (e.key === 'Escape' && state.trashMode) {
             e.preventDefault();
             exitTrashMode();
+        } else if (e.key === 'Tab' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+            // v0.9.3：Tab 切换视图（与 #viewToggle 按钮同效；垃圾桶模式也生效——按钮在垃圾桶页同样可用）
+            e.preventDefault();  // 阻止浏览器焦点循环默认行为
+            toggleView();
         } else if (e.key === 'Delete' && state.selectedIds.size > 0) {
             e.preventDefault();
             // v0.8.2：帧级焦点优先——Delete 删焦点帧而非镜头（蓝框所在的帧）

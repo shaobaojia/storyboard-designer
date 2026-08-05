@@ -4,7 +4,7 @@
 验证 Blender 面板按钮和网页端按钮的每一个功能都真实生效，
 输出通过/失败矩阵。每次改代码后跑一遍，代替人工逐项发现。
 
-用法（在 NAS 上跑）:
+用法（本机直连跑，SB_MCP/SB_MCP_PORT/SB_HTTP_PORT 环境变量可覆盖）:
     python3 scripts/audit.py
 
 需要:
@@ -84,17 +84,6 @@ print(json.dumps({
     except Exception:
         pass
     return {"db": [], "scenes": [], "current": "?", "error": out[:200]}
-
-
-def queue_and_wait(command, params, wait=3):
-    """Queue a command on the main thread and wait for it to execute."""
-    code = f'''import bpy
-from core.queue import queue_command
-queue_command({json.dumps(command)}, {json.dumps(params)})
-print("queued")
-'''
-    blender(code)
-    time.sleep(wait)
 
 
 def names(st):
@@ -184,6 +173,16 @@ print(os.listdir(d) if os.path.exists(d) else "MISSING")
     record("web", "Create Shot", ok,
            f"scene created: {'Shot_AUDIT_WEB' in after['scenes']}")
 
+    # 2a2. create 时长对齐（v0.9.1 规则：frame_start=1, frame_end=max(1, int(duration*fps))）
+    out = blender('''import bpy
+s = bpy.data.scenes.get("Shot_AUDIT_WEB")
+print(s.frame_start, s.frame_end, s.render.fps) if s else print("MISSING")
+''').strip()
+    parts = out.split()
+    ok = (len(parts) == 3 and parts[0] == "1"
+          and int(parts[1]) == max(1, int(2.0 * float(parts[2]))))
+    record("web", "Create 时长对齐 (frame_end=duration*fps)", ok, f"start/end/fps={out}")
+
     # 2b. Open (switch scene)
     shot = next(s for s in api("GET", "/api/shots")["shots"] if s["name"] == "AUDIT_WEB")
     api("POST", f"/api/shot/{shot['id']}", {"action": "open"})
@@ -201,7 +200,7 @@ project_dir = os.path.join(os.path.dirname(bpy.data.filepath),
 d = os.path.join(project_dir, "shots", "AUDIT_WEB_{sid}")
 print(os.listdir(d) if os.path.exists(d) else "MISSING")
 ''')
-    record("web", "Rerender (cover frame)", "f00000_still.png" in out and "f00000_thumb.jpg" in out, out.strip()[:60])
+    record("web", "重拍封面 (cover frame)", "f00000_still.png" in out and "f00000_thumb.jpg" in out, out.strip()[:60])
 
     # 2d. Duplicate
     api("POST", f"/api/shot/{shot['id']}", {"action": "duplicate", "new_name": "AUDIT_WEB_COPY"})
@@ -210,6 +209,36 @@ print(os.listdir(d) if os.path.exists(d) else "MISSING")
     ok = "AUDIT_WEB_COPY" in names(after) and "Shot_AUDIT_WEB_COPY" in after["scenes"]
     record("web", "Duplicate", ok,
            f"scene named: {[s for s in after['scenes'] if 'AUDIT_WEB' in s]}")
+
+    # 2d2. duplicate 多图保帧（v0.8.4 修过的漏网 bug：复制多图丢帧——固化防复发）
+    api("POST", "/api/shots", {"name": "AUDIT_DUP", "duration": 2.0})
+    time.sleep(3)
+    shot = next(s for s in api("GET", "/api/shots")["shots"] if s["name"] == "AUDIT_DUP")
+    api("POST", f"/api/shot/{shot['id']}", {"action": "render_frame", "frame_no": 1})
+    time.sleep(6)
+    api("POST", f"/api/shot/{shot['id']}", {"action": "render_frame", "frame_no": 2})
+    time.sleep(6)
+    src = next(s for s in api("GET", "/api/shots")["shots"] if s["id"] == shot["id"])
+    src_frames = src.get("frames") or []
+    src_cover = next((f["frame_no"] for f in src_frames if f.get("isCover")), None)
+    api("POST", f"/api/shot/{shot['id']}", {"action": "duplicate", "new_name": "AUDIT_DUP_COPY"})
+    time.sleep(4)
+    copy = next((s for s in api("GET", "/api/shots")["shots"] if s["name"] == "AUDIT_DUP_COPY"), None)
+    copy_frames = (copy.get("frames") or []) if copy else []
+    copy_cover = next((f["frame_no"] for f in copy_frames if f.get("isCover")), None)
+    files_ok = False
+    if copy:
+        out = blender(f'''import bpy, os
+project_dir = os.path.join(os.path.dirname(bpy.data.filepath),
+    os.path.splitext(os.path.basename(bpy.data.filepath))[0] + "_storyboard")
+d = os.path.join(project_dir, "shots", "AUDIT_DUP_COPY_{copy['id']}")
+print(sorted(os.listdir(d)) if os.path.exists(d) else "MISSING")
+''')
+        files_ok = all(nm in out for nm in ("f00000_thumb.jpg", "f00001_thumb.jpg", "f00002_thumb.jpg"))
+    ok = (copy is not None and len(copy_frames) == len(src_frames) == 3
+          and copy_cover == src_cover and files_ok)
+    record("web", "Duplicate 多图保帧 (frames+文件+封面)", ok,
+           f"src={len(src_frames)}帧 cover={src_cover}, copy={len(copy_frames)}帧 cover={copy_cover}, files={files_ok}")
 
     # 2e. Reorder (then undo it so the user's custom order survives the audit)
     shots = api("GET", "/api/shots")["shots"]
@@ -323,6 +352,49 @@ print(s.camera.name if s and s.camera else "MISSING")
           and "AUDIT_REN2" in cam)
     record("web", "Rename (DB+scene+camera)", ok, f"camera={cam}")
 
+    # rename 四层联动补全（v0.3.0 修过的漏网 bug：改名断相机背景图 + 磁盘目录没改名）
+    png_b64 = ("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4"
+               "2mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==")
+    api("POST", "/api/shots", {"name": "AUDIT_BGREN", "duration": 2.0})
+    time.sleep(3)
+    shot = next(s for s in api("GET", "/api/shots")["shots"] if s["name"] == "AUDIT_BGREN")
+    api("POST", f"/api/shot/{shot['id']}",
+        {"action": "set_background", "filename": "audit_bg.png", "data_base64": png_b64})
+    time.sleep(4)
+    old_dir = f"AUDIT_BGREN_{shot['id']}"
+    api("POST", f"/api/shot/{shot['id']}", {"action": "rename", "new_name": "AUDIT_BGREN2"})
+    time.sleep(3)
+    st = state()
+    out = blender(f'''import bpy, os, json
+project_dir = os.path.join(os.path.dirname(bpy.data.filepath),
+    os.path.splitext(os.path.basename(bpy.data.filepath))[0] + "_storyboard")
+s = bpy.data.scenes.get("Shot_AUDIT_BGREN2")
+bg = s.camera.data.background_images[0].image if s and s.camera and s.camera.data.background_images else None
+d_new = os.path.join(project_dir, "shots", "AUDIT_BGREN2_{shot['id']}")
+d_old = os.path.join(project_dir, "shots", "{old_dir}")
+print(json.dumps({{
+    "dir_new": os.path.exists(d_new),
+    "dir_old": os.path.exists(d_old),
+    "bg_path": bg.filepath if bg else None,
+    "bg_exists": os.path.exists(bg.filepath) if bg else False,
+}}))
+''')
+    info = {}
+    for line in reversed(out.strip().splitlines()):
+        line = line.strip()
+        if line.startswith("{"):
+            try:
+                info = json.loads(line)
+                break
+            except Exception:
+                pass
+    ok = ("AUDIT_BGREN2" in names(st) and "Shot_AUDIT_BGREN2" in st["scenes"]
+          and info.get("dir_new") is True and info.get("dir_old") is False
+          and bool(info.get("bg_path")) and "AUDIT_BGREN2" in info["bg_path"]
+          and info.get("bg_exists") is True)
+    record("web", "Rename 四层 (DB+scene+camera+目录+bg重指)", ok,
+           f"dir_new={info.get('dir_new')}, dir_old={info.get('dir_old')}, bg={info.get('bg_path')}, bg_exists={info.get('bg_exists')}")
+
     # duplicate uniqueness: two copies without explicit names never collide
     for _ in range(2):
         api("POST", f"/api/shot/{shot['id']}", {"action": "duplicate"})
@@ -349,8 +421,6 @@ print(s.camera.name if s and s.camera else "MISSING")
     record("web", "Batch rename_seq", ok, f"{seq_names}")
 
     # set_background: camera background image at full opacity
-    png_b64 = ("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4"
-               "2mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==")
     shot = next(s for s in api("GET", "/api/shots")["shots"] if s["name"] == "AUDIT_REN2")
     api("POST", f"/api/shot/{shot['id']}",
         {"action": "set_background", "filename": "audit_bg.png", "data_base64": png_b64})

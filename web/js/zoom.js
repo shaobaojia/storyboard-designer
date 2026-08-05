@@ -20,6 +20,14 @@ export function initZoom() {
 
     const availWidth = () => grid.clientWidth || (window.innerWidth - 32);
     const widthFor = (n) => (availWidth() - (n - 1) * GAP) / n;
+    // 列表缩略图最大宽度：最大帧数镜头展开浮层刚顶到页面右缘（v0.8.2 公式）
+    const listMaxW = () => {
+        const shots = window.__sb.state.shots || [];
+        const maxFrames = shots.reduce((m, s) => Math.max(m, (s.frames || []).length), 1);
+        return Math.max(LIST_MIN_W,
+            Math.round((availWidth() - LIST_FLOAT_OFFSET - (maxFrames - 1) * 2
+                        - LIST_BADGE_W + LIST_FRAME_DELTA * maxFrames) / maxFrames));
+    };
     const nRange = () => {
         let nMin = 1;
         while (nMin < 20 && widthFor(nMin) > MAX_W) nMin++;
@@ -55,11 +63,7 @@ export function initZoom() {
         const a = anchor();  // 缩放前捕获选中项位置
         if (window.__sb && window.__sb.state.viewMode === 'list') {
             // 列表：线性像素，最大 = 最大帧数镜头展开浮层刚顶到页面右缘
-            const shots = window.__sb.state.shots || [];
-            const maxFrames = shots.reduce((m, s) => Math.max(m, (s.frames || []).length), 1);
-            const maxW = Math.max(LIST_MIN_W,
-                Math.round((availWidth() - LIST_FLOAT_OFFSET - (maxFrames - 1) * 2
-                            - LIST_BADGE_W + LIST_FRAME_DELTA * maxFrames) / maxFrames));
+            const maxW = listMaxW();
             listThumbW = Math.min(maxW, Math.max(LIST_MIN_W, listThumbW));
             document.documentElement.style.setProperty('--list-thumb-w', listThumbW + 'px');
             sizeValue.textContent = Math.round(listThumbW) + 'px';
@@ -116,7 +120,13 @@ export function initZoom() {
         if (!e.ctrlKey && !e.metaKey) return;
         e.preventDefault();
         if (window.__sb && window.__sb.state.viewMode === 'list') {
-            listThumbW += e.deltaY > 0 ? -10 : 10;
+            // v0.9.3：Ctrl+滚轮全程 12 级（用户拍板）——步距 = (maxW-minW)/12，40px→maxW 恰好 12 下；
+            // 按档位序号对齐（round 反推），消除累计取整漂移
+            const maxW = listMaxW();
+            const step = (maxW - LIST_MIN_W) / 12;
+            const idx = Math.round((listThumbW - LIST_MIN_W) / step);
+            const next = Math.min(12, Math.max(0, idx + (e.deltaY > 0 ? -1 : 1)));
+            listThumbW = Math.round(LIST_MIN_W + next * step);
             apply();
             return;
         }

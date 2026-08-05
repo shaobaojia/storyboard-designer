@@ -11,6 +11,7 @@ import { initMarquee } from './marquee.js';
 import { initZoom } from './zoom.js';
 import { initKeyboard } from './keyboard.js';
 import { initTrash } from './trash.js';
+import { initSearch } from './search.js';
 import { isExpanded, expandAnimated, collapseAnimated, jumpToFrame, initStackHover, focusFrame } from './frames.js';
 
 // ---- 头部按钮 ----
@@ -104,6 +105,7 @@ initMarquee();
 initZoom();
 initKeyboard();
 initTrash();
+initSearch();
 initStackHover();  // 多图镜头折叠态悬停扫视（v0.7.0）
 
 // e2e 调试句柄：webbridge evaluate 走页面主世界时可直接驱动编排函数

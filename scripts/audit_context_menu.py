@@ -91,8 +91,8 @@ def main():
     cur = state()["current"]
     record("Open Shot -> Blender 切换到该场景", cur == "Shot_CTX_TEST", f"current={cur}")
 
-    # ---- 2. Re-render (right-click -> Re-render) ----
-    print("\n[2] right-click Re-render")
+    # ---- 2. Re-render = 重拍封面帧（v0.8.4 后语义，菜单文案「重拍封面」）----
+    print("\n[2] right-click 重拍封面 (rerender)")
     api("POST", f"/api/shot/{tid}", {"action": "rerender"})
     time.sleep(8)
     out = blender(f'''import bpy, os
@@ -101,13 +101,17 @@ project_dir = os.path.join(os.path.dirname(bpy.data.filepath),
 d = os.path.join(project_dir, "shots", "CTX_TEST_{tid}")
 print(os.listdir(d) if os.path.exists(d) else "MISSING")
 ''')
-    ok = "still.png" in out and "thumb.jpg" in out
-    record("Re-render -> still+thumb 落盘", ok, out.strip()[:60])
+    # v0.8.4+：重拍封面帧，输出 f00000_still.png / f00000_thumb.jpg（无 still.png/thumb.jpg）
+    ok = "f00000_still.png" in out and "f00000_thumb.jpg" in out
+    record("重拍封面 -> 封面帧落盘(f00000_*)", ok, out.strip()[:60])
     try:
-        resp = urllib.request.urlopen(f"{HTTP}/shots/CTX_TEST_{tid}/thumb.jpg", timeout=5)
-        record("Re-render -> 缩略图网页可见", resp.status == 200, f"{resp.status}")
+        # 网页可见性：从 API 读封面帧 imageUrl（带帧级 ver 缓存戳），HTTP 检查
+        shot = next(s for s in api("GET", "/api/shots")["shots"] if s["id"] == tid)
+        url = shot["frames"][0]["imageUrl"]
+        resp = urllib.request.urlopen(f"{HTTP}{url}", timeout=5)
+        record("重拍封面 -> 封面帧网页可见", resp.status == 200, f"{resp.status} {url}")
     except Exception as e:
-        record("Re-render -> 缩略图网页可见", False, str(e)[:60])
+        record("重拍封面 -> 封面帧网页可见", False, str(e)[:60])
 
     # ---- 3. Duplicate (right-click -> Duplicate) ----
     print("\n[3] right-click Duplicate")
@@ -122,29 +126,43 @@ print(os.listdir(d) if os.path.exists(d) else "MISSING")
 
     # ---- 4. Delete (right-click -> Delete) ----
     print("\n[4] right-click Delete")
-    # delete the copy first
+    # delete the copy first（软删进垃圾桶；purge 清目录防占名 409）
     shots = api("GET", "/api/shots")["shots"]
     copy_shot = next((s for s in shots if s["name"] == "CTX_TEST_COPY"), None)
     if copy_shot:
         api("POST", f"/api/shot/{copy_shot['id']}", {"action": "delete"})
         time.sleep(3)
         st = state()
-        record("Delete(copy) -> DB 记录删除", "CTX_TEST_COPY" not in st["db"])
-        record("Delete(copy) -> Blender 场景删除", "Shot_CTX_TEST_COPY" not in st["scenes"])
-    # delete the original test shot
+        record("Delete(copy) -> DB 记录移除(垃圾桶)", "CTX_TEST_COPY" not in st["db"])
+        record("Delete(copy) -> Blender 场景移除", "Shot_CTX_TEST_COPY" not in st["scenes"])
+        api("POST", f"/api/shot/{copy_shot['id']}", {"action": "purge"})
+        time.sleep(2)
+    # delete the original test shot（软删语义 v0.8.2 用户拍板：目录保留供垃圾桶恢复）
     api("POST", f"/api/shot/{tid}", {"action": "delete"})
     time.sleep(3)
     st = state()
-    record("Delete(orig) -> DB 记录删除", "CTX_TEST" not in st["db"])
-    record("Delete(orig) -> Blender 场景删除", "Shot_CTX_TEST" not in st["scenes"])
-    # files cleaned?
+    record("Delete(orig) -> DB 记录移除(垃圾桶)", "CTX_TEST" not in st["db"])
+    record("Delete(orig) -> Blender 场景移除", "Shot_CTX_TEST" not in st["scenes"])
     out = blender(f'''import bpy, os
 project_dir = os.path.join(os.path.dirname(bpy.data.filepath),
     os.path.splitext(os.path.basename(bpy.data.filepath))[0] + "_storyboard")
 d = os.path.join(project_dir, "shots", "CTX_TEST_{tid}")
 print("EXISTS" if os.path.exists(d) else "GONE")
 ''')
-    record("Delete(orig) -> 磁盘目录清理", "GONE" in out, out.strip())
+    record("Delete(orig) -> 软删后目录保留(可恢复)", "EXISTS" in out, out.strip())
+    # purge：彻底删除才清磁盘目录
+    api("POST", f"/api/shot/{tid}", {"action": "purge"})
+    time.sleep(3)
+    out = blender(f'''import bpy, os
+project_dir = os.path.join(os.path.dirname(bpy.data.filepath),
+    os.path.splitext(os.path.basename(bpy.data.filepath))[0] + "_storyboard")
+d = os.path.join(project_dir, "shots", "CTX_TEST_{tid}")
+print("EXISTS" if os.path.exists(d) else "GONE")
+''')
+    record("Purge -> 磁盘目录清理", "GONE" in out, out.strip())
+    trash = api("GET", "/api/trash")
+    record("Purge -> 垃圾桶清空", len(trash.get("shots", [])) == 0,
+           f"trash={[s['name'] for s in trash.get('shots', [])]}")
 
     # final sync to be safe
     api("POST", "/api/sync", {})

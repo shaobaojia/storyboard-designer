@@ -235,6 +235,10 @@ function removeSkeleton() {
     setTimeout(() => layer.remove(), 420);
 }
 export function renderGrid() {
+    // v0.9.3：差分重建会经过"grid 短暂变空"的中间态（复用节点移入 fragment 再挂回），
+    // 浏览器在渲染帧把 scrollY clamp 掉 = 页面跳顶。任务内保存并在末尾恢复滚动位置，
+    // 恢复后渲染帧时内容已完整、scrollY 有效，浏览器不再调整。
+    const savedScrollY = window.scrollY;
     const oldRects = captureRects();
     const isList = state.viewMode === 'list';
     grid.className = isList ? 'grid list-mode' : 'grid';
@@ -311,7 +315,15 @@ export function renderGrid() {
         idx++;
     }
     existing.forEach(el => el.remove());  // 已删除/移出当前视图的镜头
-    grid.innerHTML = '';
+    // v0.9.3：empty-state（初始 "Loading shots..."）不参与 .shot-card 差分，
+    // 删 grid.innerHTML='' 后必须显式移除，否则残留 = 宫格左上角/列表第一行永远挂占位提示。
+    // （空态提示只在 shots=0 分支通过 innerHTML 重建，此处 shots>0，移除安全）
+    const staleEmpty = grid.querySelector('.empty-state');
+    if (staleEmpty) staleEmpty.remove();
+    // v0.9.3：不能 grid.innerHTML = '' —— 清空滚动内容会让浏览器同步把 scrollY clamp 到 0
+    // （同一任务内立即重建也不恢复），展开/折叠/任何 renderGrid 都会把页面弹回顶部。
+    // 差分语义已由 existing.remove + fragment.append 完整覆盖（旧节点要么被复用移入
+    // fragment，要么被 remove，grid 此时已无残留），无需全量清空。
     grid.appendChild(fragment);
 
     // 首屏门控：首屏缩略图就位后波浪式揭幕 (#1)
@@ -346,6 +358,10 @@ export function renderGrid() {
         animateFrom(oldRects, spreadCenter);
     }
     updateStats();
+    // v0.9.3：恢复滚动位置（见函数头注释）——浏览器在 grid 空中间态的渲染帧把 scrollY
+    // clamp 掉了（跳顶/跳到 674 类值），这里同步滚回原值；此时内容已完整，scrollY 有效，
+    // 浏览器渲染帧不会再调整。首屏（scrollY=0）与 FLIP 起点帧不受影响。
+    if (window.scrollY !== savedScrollY) window.scrollTo(0, savedScrollY);
 }
 
 function gateFirstReveal() {
