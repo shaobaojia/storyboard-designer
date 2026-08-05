@@ -1,5 +1,8 @@
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        :root { --card-min: 200px; --list-thumb-w: 80px; --header-h: 61px; }
+        :root { --card-min: 200px; --list-thumb-w: 80px; --header-h: 61px;
+            /* v0.9.4 预览框缩放比例：开关预览只动这两个比例 + grid margin，不重建 DOM（丝滑）
+               --preview-w = 预览框实际宽度（默认半屏）；grid margin 与它相等 → 无缝不重叠 */
+            --card-scale: 1; --list-scale: 1; --preview-w: calc(50vw - 16px); }
         /* v0.9.3：禁用浏览器滚动锚定——差分渲染移除视口内锚点节点（多图展开/折叠）时
            Chrome 会把 scrollY 重置为 0 = 页面跳回顶部；视觉稳定由 FLIP 自己管 */
         html { overflow-anchor: none; }
@@ -103,7 +106,7 @@
             left: 0;
             right: 0;
             display: grid;
-            grid-template-columns: repeat(auto-fill, var(--card-min));
+            grid-template-columns: repeat(auto-fill, calc(var(--card-min) * var(--card-scale)));
             justify-content: start;
             gap: 12px;
             z-index: 5;
@@ -123,7 +126,7 @@
         .grid {
             display: grid;
             /* #4: 固定列宽——卡片尺寸跟滑块完全连续，告别 1fr 台阶 (#1: 左对齐) */
-            grid-template-columns: repeat(auto-fill, var(--card-min));
+            grid-template-columns: repeat(auto-fill, calc(var(--card-min) * var(--card-scale)));
             justify-content: start;
             gap: 12px;
             margin-top: 16px;
@@ -131,6 +134,11 @@
         .grid.list-mode {
             display: block;
         }
+        /* v0.9.4 预览框贴边：只动 grid 的 margin（宽度 = 去掉预览框 + 16px 间距后的余量），
+           切换左右 = class 互换，零 DOM、零重排；grid 两侧间距一致（body padding 16px）——
+           贴预览框侧留 16px 呼吸，与页面边缘侧对称，不贴死 */
+        #grid.preview-on.preview-right { width: auto; margin-left: 0; margin-right: calc(var(--preview-w) + 16px); }
+        #grid.preview-on.preview-left { width: auto; margin-left: calc(var(--preview-w) + 16px); margin-right: 0; }
         .shot-card {
             background: #252525;
             border-radius: 8px;
@@ -236,7 +244,11 @@
         .shot-card.frame-cell.frame-first.frame-row-last { border-radius: 10px; }
         .shot-card.frame-cell .frame-img {
             width: 100%;
-            aspect-ratio: 16/9;
+            /* v0.9.4：高度统一 = 列宽×9/16——frame-first 伸出 12px 宽度会让 aspect-ratio
+               16/9 的图更高（210 vs 203），跨行展开时行高不一致（底衬锯齿）；
+               统一高度后伸出格靠 object-fit: cover 裁掉溢出，所有帧格同高 */
+            aspect-ratio: auto;
+            height: calc(var(--card-min) * 9 / 16);
             object-fit: cover;
             background: #333;
             border-radius: 6px;
@@ -272,8 +284,11 @@
         }
         .collapse-btn {
             position: absolute;
-            top: 6px;
-            left: 6px;
+            /* v0.9.4：贴最后一张图的右边缘（卡片 padding 9px → right:9px 对齐图右缘），
+               垂直相对图居中：图中心 = 卡片中心 - 23px（= padding 9 - info 区半高 32，与列宽无关恒成立） */
+            right: 9px;
+            top: calc(50% - 23px);
+            transform: translateY(-50%);
             background: rgba(255,255,255,0.08);
             color: #888;
             border: none;
@@ -293,6 +308,10 @@
             position: relative;
             z-index: 1;
             padding: 6px 8px;
+            /* v0.9.4：统一最小高度——第一帧有镜头名行(≈46px)，其他帧只有帧号(≈27px)，
+               不补齐会导致同镜头/同行帧格高度不一致（底衬锯齿） */
+            min-height: 46px;
+            box-sizing: border-box;
         }
         .shot-card.frame-cell .frame-no {
             font-size: 12px;
@@ -353,7 +372,7 @@
             top: var(--header-h);
             z-index: 600;
             background: #1a1a1a;
-            grid-template-columns: var(--list-thumb-w) 150px 60px 7fr 3fr 110px;
+            grid-template-columns: calc(var(--list-thumb-w) * var(--list-scale)) calc(150px * var(--list-scale)) calc(60px * var(--list-scale)) 7fr 3fr calc(110px * var(--list-scale));
             column-gap: 14px;
             align-items: center;
             padding: 6px 14px;
@@ -364,7 +383,7 @@
         .list-header.on { display: grid; }
         .shot-card.list-item {
             display: grid;
-            grid-template-columns: var(--list-thumb-w) 150px 60px 7fr 3fr 110px;
+            grid-template-columns: calc(var(--list-thumb-w) * var(--list-scale)) calc(150px * var(--list-scale)) calc(60px * var(--list-scale)) 7fr 3fr calc(110px * var(--list-scale));
             column-gap: 14px;
             align-items: center;
             margin-bottom: 6px;
@@ -377,7 +396,9 @@
             overflow: visible;
         }
         .thumb-wrap {
-            width: var(--list-thumb-w);
+            /* v0.9.4：宽度跟随 --list-scale（预览开启时列表等比缩小），
+               否则缩略图保持原始 80px 溢出列宽盖住镜头名 */
+            width: calc(var(--list-thumb-w) * var(--list-scale));
             aspect-ratio: 16/9;
         }
         .thumb-wrap .shot-thumb {
@@ -410,7 +431,7 @@
             aspect-ratio: 16/9;
         }
         .shot-card.list-item .shot-thumb {
-            width: var(--list-thumb-w);
+            width: calc(var(--list-thumb-w) * var(--list-scale));
             border-radius: 4px;
             object-fit: cover;
         }
@@ -607,6 +628,176 @@
             z-index: 900;
         }
         #statsBadge b { color: #e0e0e0; font-weight: 600; }
+
+        /* 右下角「快捷键」按钮 + 面板 (v0.9.4)：按钮在统计徽章上方，面板在按钮上方弹出 */
+        .shortcuts-btn {
+            position: fixed;
+            right: 16px;
+            bottom: 60px;
+            background: #252525;
+            border: 1px solid #3a3a3a;
+            color: #e0e0e0;
+            border-radius: 6px;
+            padding: 6px 12px;
+            font-size: 12px;
+            cursor: pointer;
+            z-index: 900;
+        }
+        .shortcuts-btn:hover { background: #333; }
+        .shortcuts-btn.active { background: #4a9eff; color: #fff; }
+        .shortcuts-panel {
+            position: fixed;
+            right: 16px;
+            bottom: 100px;
+            width: 290px;
+            max-height: 60vh;
+            overflow-y: auto;
+            background: #252525;
+            border: 1px solid #3a3a3a;
+            border-radius: 8px;
+            padding: 10px 12px;
+            z-index: 950;
+            box-shadow: 0 4px 16px rgba(0,0,0,.5);
+        }
+        .shortcuts-panel .sc-title { font-size: 13px; font-weight: 700; color: #e0e0e0; margin-bottom: 8px; }
+        .sc-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 4px 0;
+            font-size: 12px;
+            color: #ccc;
+        }
+        .sc-row kbd {
+            min-width: 76px;
+            text-align: center;
+            background: #333;
+            border: 1px solid #4a4a4a;
+            border-bottom-width: 2px;
+            border-radius: 4px;
+            padding: 2px 6px;
+            font-family: Consolas, "Courier New", monospace;
+            font-size: 11px;
+            color: #fff;
+            flex-shrink: 0;
+        }
+
+        /* v0.9.4 预览框：占 body 内容区一半（宽 --preview-w，默认 50vw-16），贴右/贴左切换只动 class；
+           上沿与标题栏底部平齐（top: var(--header-h)），不遮挡标题栏（header z-index 700 < 预览框 850） */
+        .preview-panel {
+            position: fixed;
+            top: var(--header-h);
+            bottom: 0;
+            width: var(--preview-w);
+            display: flex;
+            flex-direction: column;
+            background: #1e1e20;
+            z-index: 850;
+        }
+        .preview-panel.side-right { right: 16px; border-left: 1px solid #333; }
+        .preview-panel.side-left { left: 16px; border-right: 1px solid #333; }
+        /* 拖拽调宽手柄：贴在预览框与 grid 交界侧，伸到边框外 3px 便于抓取 */
+        .preview-resize {
+            position: absolute;
+            top: 0;
+            bottom: 0;
+            width: 8px;
+            margin-left: -4px;
+            cursor: col-resize;
+            z-index: 3;
+        }
+        .preview-panel.side-right .preview-resize { left: 0; }
+        .preview-panel.side-left .preview-resize { right: 0; }
+        .preview-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+            padding: 10px 14px;
+            border-bottom: 1px solid #333;
+        }
+        .preview-head-main {
+            min-width: 0;
+            flex: 1;
+        }
+        .preview-name {
+            font-size: 14px;
+            font-weight: 700;
+            color: #e0e0e0;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .preview-sub {
+            font-size: 11px;
+            color: #888;
+            margin-top: 2px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .preview-flip {
+            background: #333;
+            border: none;
+            color: #e0e0e0;
+            border-radius: 4px;
+            padding: 4px 10px;
+            font-size: 12px;
+            cursor: pointer;
+            flex-shrink: 0;
+        }
+        .preview-flip:hover { background: #444; }
+        .preview-body {
+            flex: 1;
+            min-height: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+            padding: 14px;
+        }
+        .preview-body img {
+            /* v0.9.4：固定填满预览区域（100%×100% + contain）——小图(320px)先放大到与
+               大图完全相同的尺寸显示，切换只有模糊→清晰的区别，没有尺寸跳变 */
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+            border-radius: 4px;
+            box-shadow: 0 2px 12px rgba(0,0,0,.5);
+        }
+        .preview-empty {
+            color: #666;
+            font-size: 13px;
+        }
+        .preview-foot {
+            padding: 8px 14px;
+            border-top: 1px solid #333;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+        .pf-row {
+            display: flex;
+            align-items: baseline;
+            gap: 8px;
+            font-size: 12px;
+            line-height: 1.5;
+        }
+        .pf-label {
+            color: #888;
+            flex-shrink: 0;
+            width: 30px;
+        }
+        .pf-val {
+            color: #ccc;
+            min-width: 0;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .pf-val.empty {
+            color: #666;
+        }
 
         /* 创建镜头对话框 + 垃圾桶弹窗 */
         .modal-overlay {

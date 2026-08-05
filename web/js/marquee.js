@@ -10,8 +10,10 @@ export function initMarquee() {
         if (e.button !== 0) return;
         if (e.target.closest('.shot-card') || e.target.closest('.context-menu') ||
             e.target.closest('.modal-overlay') || e.target.closest('.size-slider') ||
-            e.target.closest('#statsBadge') ||
-            e.target.closest('.confirm-bar') || e.target.closest('.header')) return;
+            e.target.closest('#statsBadge') || e.target.closest('.confirm-bar') ||
+            e.target.closest('.header') ||
+            // v0.9.4：预览框/快捷键面板是展示型浮层，内部点击不该触发框选清空选中
+            e.target.closest('.preview-panel') || e.target.closest('.shortcuts-panel')) return;
         state.marqueeActive = true;
         marqueeStart = {x: e.clientX, y: e.clientY, ctrl: e.ctrlKey || e.metaKey};
         marqueeBox.style.display = 'block';

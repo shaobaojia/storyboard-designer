@@ -80,8 +80,20 @@ function buildExpandedCards(shot, eager) {
     // 展开的起始位置 = 该 shot 在 shots 数组里的索引 → 决定第一行能放几帧
     // （流式布局下，展开的第一个格位 = 折叠态卡片所在位置）
     // 逐帧分配行号：第一行剩余位置 = cols - (startIdx % cols)，之后每行 cols 个
+    // v0.9.4 多展开并存：DOM 流式布局中该镜头实际起始列还要加上它前面所有
+    // 已展开镜头多占的格位（每个展开镜头占 frames.length 格而非 1 格），
+    // 否则后面镜头的行分段（frame-first/frame-row-last）按错误列算 → 底衬断层
     const startIdx = state.shots.findIndex(s => s.id === shot.id);
-    let rowStart = startIdx === -1 ? 0 : startIdx % cols;
+    let extra = 0;
+    if (startIdx > 0) {
+        for (let i = 0; i < startIdx; i++) {
+            const s = state.shots[i];
+            if ((s.frames || []).length > 1 && state.expandedShotIds.has(s.id)) {
+                extra += s.frames.length - 1;
+            }
+        }
+    }
+    let rowStart = startIdx === -1 ? 0 : (startIdx + extra) % cols;
 
     // 计算每帧的行号 + 该行内的帧数（用于底衬宽度）
     const rowOf = [];      // 每帧的行号
@@ -100,6 +112,7 @@ function buildExpandedCards(shot, eager) {
         const isRowHead = i === 0 || rowOf[i] !== rowOf[i - 1];
         const isRowTail = i === frames.length - 1 || rowOf[i] !== rowOf[i + 1];
         const first = i === 0;
+        const last = i === frames.length - 1;  // v0.9.4：折叠按钮挂最后一张（左边缘）
         const cls = ['shot-card', 'frame-cell'];
         if (isRowHead) cls.push('frame-first');
         if (isRowTail) cls.push('frame-row-last');
@@ -114,10 +127,10 @@ function buildExpandedCards(shot, eager) {
             <div class="${cls.join(' ')}" draggable="true" data-id="${shot.id}" data-frame-id="${f.id}">
                 ${frameImgHtml(f, shot, eager, imgCls)}
                 ${f.isCover ? `<div class="cover-chip">封面</div>` : ''}${first ? `<button class="stack-badge expanded-badge" onclick="window.__sb.toggleListMulti('${shot.id}');event.stopPropagation();" title="折叠">${frames.length}</button>` : ''}
+                ${last ? '<button class="collapse-btn" title="折叠" data-action="collapse">◀</button>' : ''}
                 <div class="shot-info">
                     ${first ? `<div class="shot-name" data-field="name">${shot.name}</div>` : `<div class="frame-no">f${f.frame_no}</div>`}
                     ${first ? `<div class="shot-meta cell-edit" data-field="duration">${shot.duration.toFixed(1)}s</div>` : ''}
-                    ${first ? '<button class="collapse-btn" title="折叠" data-action="collapse">▲</button>' : ''}
                 </div>
             </div>`;
         const el = wrap.firstElementChild;
@@ -241,7 +254,9 @@ export function renderGrid() {
     const savedScrollY = window.scrollY;
     const oldRects = captureRects();
     const isList = state.viewMode === 'list';
-    grid.className = isList ? 'grid list-mode' : 'grid';
+    // v0.9.4：增量维护 class——整体重设 className 会冲掉其它模块挂的 class
+    // （预览框的 preview-on/preview-right/preview-left，展开多图 renderGrid 后预览布局丢）
+    grid.classList.toggle('list-mode', isList);
     document.getElementById('listHeader').classList.toggle('on', isList && state.shots.length > 0);
 
     if (state.shots.length === 0) {
@@ -281,6 +296,13 @@ export function renderGrid() {
             if (oldEl && oldEl.dataset.key === key && !oldEl.querySelector('input')) {
                 existing.delete(reuseKey);
                 oldEl.classList.toggle('selected', state.selectedIds.has(shot.id));
+                // v0.9.4 展开态底衬跟随重排：其它镜头展开/折叠会改变本镜头的
+                // 实际行分段（换行），行首/行尾 class 必须按新分段重算，
+                // 否则底衬按旧分段画 → 同镜头帧格间 12px 断层
+                if (el.classList.contains('frame-first')) oldEl.classList.add('frame-first');
+                else oldEl.classList.remove('frame-first');
+                if (el.classList.contains('frame-row-last')) oldEl.classList.add('frame-row-last');
+                else oldEl.classList.remove('frame-row-last');
                 fragment.appendChild(oldEl);
                 continue;
             }

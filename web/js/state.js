@@ -17,6 +17,9 @@ export const state = {
     expandedShotIds: new Set(),  // 多图镜头展开态（视图态，不写库，刷新全折叠 v0.7.0）
     animatingShots: new Set(),   // 弹簧编排接管中的 shotId：renderGrid 跳过它们的 FLIP/入场（v0.8.0）
     focusedFrameId: null,        // 展开态焦点帧：蓝框跟手点击，默认落封面（v0.8.1）
+    previewOn: false,            // 预览框开关（v0.9.4，视图态不写库）
+    previewSide: 'right',        // 预览框贴边方向：'right' | 'left'
+    lastClickId: null,           // 最后点击/移动到的镜头 id（预览框显示对象，多选时取它）
 };
 
 export const grid = document.getElementById('grid');

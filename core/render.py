@@ -27,13 +27,27 @@ def render_shot_files(scene, shot_dir, thumb_width=320, frame_no=None):
     if frame_no is not None:
         scene.frame_set(frame_no)
 
-    # Viewport OpenGL render (拍屏, "视图渲染图像") — matches what user sees
+    # v0.9.4：全尺寸存档改 JPEG（不再拍任何 PNG）——体积 1.3~3.8MB → 200~600KB，
+    # 预览切换/传输快一个量级。文件名 still.jpg / fNNNNN_still.jpg
     if frame_no is None:
-        still_path = os.path.join(shot_dir, "still.png")
+        still_path = os.path.join(shot_dir, "still.jpg")
     else:
-        still_path = os.path.join(shot_dir, f"f{frame_no:05d}_still.png")
-    scene.render.image_settings.file_format = 'PNG'
+        still_path = os.path.join(shot_dir, f"f{frame_no:05d}_still.jpg")
+
+    # 拍屏副作用还原（稳健性待办 1）：format/filepath/quality/engine/film_transparent
+    # 改完必须恢复，否则污染用户的正式渲染设置
+    old_settings = {
+        "file_format": scene.render.image_settings.file_format,
+        "filepath": scene.render.filepath,
+        "quality": scene.render.image_settings.quality,
+        "film_transparent": scene.render.film_transparent,
+        "engine": scene.render.engine,
+    }
+    scene.render.image_settings.file_format = 'JPEG'
+    scene.render.image_settings.quality = 85
     scene.render.filepath = still_path
+    # JPEG 无 alpha：关掉透明胶片，透明区合成到背景，防黑底
+    scene.render.film_transparent = False
 
     # opengl render needs a 3D viewport area. Force camera view so it renders
     # the scene's camera angle, not whatever the viewport happens to show.
@@ -94,5 +108,12 @@ def render_shot_files(scene, shot_dir, thumb_width=320, frame_no=None):
     img.file_format = 'JPEG'
     img.save()
     bpy.data.images.remove(img)
+
+    # 还原拍屏副作用（v0.9.4，稳健性待办 1）
+    scene.render.image_settings.file_format = old_settings["file_format"]
+    scene.render.filepath = old_settings["filepath"]
+    scene.render.image_settings.quality = old_settings["quality"]
+    scene.render.film_transparent = old_settings["film_transparent"]
+    scene.render.engine = old_settings["engine"]
 
     return {"still_path": still_path, "thumb_path": thumb_path}

@@ -12,6 +12,8 @@ import { initZoom } from './zoom.js';
 import { initKeyboard } from './keyboard.js';
 import { initTrash } from './trash.js';
 import { initSearch } from './search.js';
+import { initShortcutsHelp } from './shortcuts.js';
+import { initPreview, updatePreview, setPreview, setPreviewW, togglePreviewSide } from './preview.js';
 import { isExpanded, expandAnimated, collapseAnimated, jumpToFrame, initStackHover, focusFrame } from './frames.js';
 
 // ---- 头部按钮 ----
@@ -49,6 +51,7 @@ grid.addEventListener('click', (e) => {
         grid.querySelectorAll('.frame-img.frame-focused, .frame-thumb.frame-focused')
             .forEach(el => el.classList.remove('frame-focused'));
     }
+    updatePreview();  // v0.9.4：点击卡片/帧格后预览框跟随（大图 = 焦点帧或封面）
 });
 
 grid.addEventListener('dblclick', (e) => {
@@ -106,10 +109,13 @@ initZoom();
 initKeyboard();
 initTrash();
 initSearch();
+initShortcutsHelp();
+initPreview();
 initStackHover();  // 多图镜头折叠态悬停扫视（v0.7.0）
 
 // e2e 调试句柄：webbridge evaluate 走页面主世界时可直接驱动编排函数
 window.__sb = { state, renderGrid, expandAnimated, collapseAnimated, isExpanded, toggleView,
+    updatePreview, setPreview, setPreviewW, togglePreviewSide,
     toggleListMulti(shotId) {
         if (isExpanded(shotId)) collapseAnimated(shotId);
         else expandAnimated(shotId);

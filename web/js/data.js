@@ -13,6 +13,8 @@ export async function fetchShots(force) {
             renderGrid();
             // 数据到位后重算缩放上限（列表 maxW 依赖最大帧数，v0.8.2）
             if (window.__zoomApply) window.__zoomApply();
+            // v0.9.4：数据刷新（删除/撤销/垃圾桶切换/重拍）后预览框跟随
+            if (window.__sb && window.__sb.updatePreview) window.__sb.updatePreview();
         }
     } catch (e) {
         console.error('Failed to fetch shots:', e);

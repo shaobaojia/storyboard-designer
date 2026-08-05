@@ -148,7 +148,7 @@ print(os.listdir(d) if os.path.exists(d) else "MISSING")
 ''')
         frames = shot.get("frames") or []
         frames_ok = len(frames) >= 1 and bool(frames[0].get("isCover"))
-        record("blender", "Auto-render f0 (create path)", "f00000_still.png" in out and "f00000_thumb.jpg" in out and frames_ok,
+        record("blender", "Auto-render f0 (create path)", "f00000_still.jpg" in out and "f00000_thumb.jpg" in out and frames_ok,
                out.strip()[:60] + f" frames={len(frames)}")
         if "f00000_thumb.jpg" in out:
             try:
@@ -200,7 +200,7 @@ project_dir = os.path.join(os.path.dirname(bpy.data.filepath),
 d = os.path.join(project_dir, "shots", "AUDIT_WEB_{sid}")
 print(os.listdir(d) if os.path.exists(d) else "MISSING")
 ''')
-    record("web", "重拍封面 (cover frame)", "f00000_still.png" in out and "f00000_thumb.jpg" in out, out.strip()[:60])
+    record("web", "重拍封面 (cover frame)", "f00000_still.jpg" in out and "f00000_thumb.jpg" in out, out.strip()[:60])
 
     # 2d. Duplicate
     api("POST", f"/api/shot/{shot['id']}", {"action": "duplicate", "new_name": "AUDIT_WEB_COPY"})

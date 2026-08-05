@@ -3,8 +3,11 @@ import { state } from './state.js';
 import { askConfirm } from './ui.js';
 import { updateStats } from './render.js';
 import { fetchShots, postShotAction, postBatch } from './data.js';
+import { updatePreview } from './preview.js';
 
 export function cardClick(e, shotId) {
+    // v0.9.4：预览框显示"最后点击的"镜头（多选时也是它）
+    state.lastClickId = shotId;
     if (e.shiftKey && state.anchorId && state.anchorId !== shotId) {
         // Shift 范围选：锚点 → 点击点按当前排序拉区间 (#7)
         const ids = state.shots.map(s => s.id);
@@ -37,6 +40,7 @@ export function updateSelectionUI() {
 export function clearSelection() {
     state.selectedIds.clear();
     updateSelectionUI();
+    updatePreview();  // v0.9.4：清空选中后预览框同步清空
 }
 
 export function selectAll() {

@@ -6,6 +6,20 @@ import { exitTrashMode } from './trash.js';
 import { toast } from './ui.js';
 import { isExpanded, expandAnimated, collapseAnimated, focusFrame } from './frames.js';
 import { renderGrid, toggleView } from './render.js';
+import { updatePreview } from './preview.js';
+
+// 快捷键清单（唯一事实源：改快捷键必须同步这里——右下角「快捷键」面板用它渲染）
+export const SHORTCUTS = [
+    { keys: 'Ctrl+A', desc: '全选镜头' },
+    { keys: 'Ctrl+Z', desc: '撤销上一步' },
+    { keys: 'Delete', desc: '删除选中镜头（帧蓝框聚焦时删除该帧）' },
+    { keys: 'Enter', desc: '打开镜头（选中单个时）' },
+    { keys: 'Space', desc: '展开/折叠多图镜头（多选时批量）' },
+    { keys: 'Tab', desc: '切换宫格/列表视图' },
+    { keys: '↑↓←→', desc: '移动选择（展开态逐帧格移动）' },
+    { keys: 'Shift+方向键', desc: '扩展多选范围' },
+    { keys: 'Esc', desc: '退出垃圾桶模式' },
+];
 
 function gridColumns() {
     if (state.viewMode === 'list') return 1;
@@ -58,13 +72,16 @@ function arrowMove(e) {
         state.selectedIds = new Set(ids.slice(lo, hi + 1));
         state.focusedFrameId = null;
         focusFrame(null, null);  // 清除蓝框
+        state.lastClickId = target.shotId;  // v0.9.4：预览框跟随移动端点
     } else {
         state.selectedIds = new Set([target.shotId]);
         state.anchorId = target.shotId;
         state.focusedFrameId = target.frameId || null;
         focusFrame(target.shotId, target.frameId || null);  // 同步蓝框（展开态帧格级）
+        state.lastClickId = target.shotId;  // v0.9.4：预览框跟随移动目标
     }
     updateSelectionUI();
+    updatePreview();  // v0.9.4：方向键移动后预览框同步
     const card = target.frameId
         ? document.querySelector(`.shot-card.frame-cell[data-id="${target.shotId}"][data-frame-id="${target.frameId}"]`)
         : document.querySelector(`.shot-card[data-id="${target.shotId}"]:not(.frame-cell)`);

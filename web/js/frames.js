@@ -8,6 +8,7 @@
 import { state, grid } from './state.js';
 import { postShotAction } from './data.js';
 import { renderGrid } from './render.js';
+import { updatePreview } from './preview.js';
 
 // expandedShotIds 挂在 state 上（state.js 初始化 Set），此处只做读写
 
@@ -54,6 +55,17 @@ function _clearCellStyle(cell) {
     cell.style.zIndex = '';
 }
 
+// 展开/折叠焦点（v0.9.4）：展开后焦点落第一帧（frame_no 最小）——预览窗口按顺序看图时
+// 从本镜头第一帧衔接到下一个镜头；预览同步刷新到该帧
+function focusFirstFrame(shotId) {
+    const shot = state.shots.find(s => s.id === shotId);
+    const fr = (shot && shot.frames) || [];
+    if (fr.length > 0) {
+        focusFrame(shotId, fr[0].id);
+        updatePreview();
+    }
+}
+
 // 展开：先抓折叠卡 rect 作 origin，toggle+render 后让每个帧格从 origin
 // 缩弹回自己的格位（逐格错峰 40ms）
 export function expandAnimated(shotId) {
@@ -61,6 +73,7 @@ export function expandAnimated(shotId) {
         const token = _nextToken(shotId);
         toggleExpand(shotId);
         renderGrid();
+        focusFirstFrame(shotId);
         // Spring-in: 浮层面板从 0 弹入
         // v0.9.2：按 shotId 精确选本镜头的 panel——批量展开时 querySelector('.list-frames')
         // 只取第一个，导致第二个镜头动画作用到第一个的 panel（静默无动画）
@@ -90,6 +103,7 @@ export function expandAnimated(shotId) {
     state.animatingShots.add(shotId);
     toggleExpand(shotId);
     renderGrid();
+    focusFirstFrame(shotId);
     const cells = _frameCells(shotId);
     if (!origin || cells.length === 0) {
         // 无 origin（如收起动画中途反悔再展开）：清掉残留内联样式，瞬时呈现

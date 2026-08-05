@@ -264,15 +264,16 @@ def cmd_duplicate_shot(params):
                       image_path=dst_file, is_cover=bool(f["is_cover"]))
             if f.get("is_cover"):
                 cover_thumb = dst_file
-                # 封面帧的全尺寸存档：fNNNNN_thumb.jpg -> fNNNNN_still.png；thumb.jpg -> still.png
-                still_name = None
+                # 封面帧的全尺寸存档：新格式 fNNNNN_still.jpg / still.jpg，老数据 _still.png / still.png 兜底（v0.9.4）
+                still_candidates = []
                 if src_file:
                     b = os.path.basename(src_file)
-                    if b in ("thumb.jpg", "still.png"):
-                        still_name = "still.png"
+                    if b in ("thumb.jpg", "still.jpg", "still.png"):
+                        still_candidates = ["still.jpg", "still.png"]
                     elif b.endswith("_thumb.jpg"):
-                        still_name = b[:-len("_thumb.jpg")] + "_still.png"
-                if still_name:
+                        stem = b[:-len("_thumb.jpg")]
+                        still_candidates = [stem + "_still.jpg", stem + "_still.png"]
+                for still_name in still_candidates:
                     src_still = os.path.join(os.path.dirname(src_file), still_name)
                     dst_still = os.path.join(shot_dir, still_name)
                     if os.path.exists(src_still):
@@ -282,6 +283,7 @@ def cmd_duplicate_shot(params):
                             cover_still = dst_still
                         except Exception as e:
                             print(f"[Storyboard] Duplicate still copy failed: {e}")
+                        break
         if cover_thumb:
             update_shot(db_path, shot_id,
                         still_path=cover_still or "",

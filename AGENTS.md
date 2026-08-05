@@ -1,18 +1,23 @@
 # AGENTS.md
 
 > 给下一个 Agent（或下一个自己）的交接备忘录。**收工推送前必须更新「刚做完 / 正在做 / 下一步 / 坑」四个字段。**
+## 刚做完（v0.9.4 攒批中：多展开底衬修复 / 快捷键面板 / 预览框全套 / 列表重叠修复，Kimi 执行，WebBridge 全回归，audit 推前跑）
 
-## 刚做完（v0.9.3 攒批中：搜索栏 / Tab 切视图 / 列表 12 级缩放 / 滚动三层修复 / 搜索帧焦点修复 / audit 41+12 项，Kimi 执行，audit 41/41 + 右键 12/12 + WebBridge 全回归）
-
-1. **搜索栏**（search.js 新模块）：header 内嵌输入框，匹配镜头名/内容/台词（名称优先），200ms 防抖下拉最多 12 条（带类型徽标+摘要），点击/Enter 定位（滚动居中+单选蓝框+清空收起），Esc/点外部收起，宫格/列表通用；keyboard.js 加输入框聚焦门控（防 Delete/空格/Tab 误触发）
-2. **Tab 键切换视图**（keyboard.js）：与 #viewToggle 同效，垃圾桶模式也生效；编辑态/弹窗/输入框聚焦时不触发
-3. **列表 Ctrl+滚轮全程 12 级**（zoom.js）：步距=(maxW-40)/12 按档位序号对齐（40px→maxW 恰好 12 下），抽 listMaxW() 共用公式
-4. **展开/折叠滚动跳顶三层修复**（render.js + style.css）：删 `grid.innerHTML=''`（同步 clamp scrollY）+ `overflow-anchor:none`（scroll anchoring 重置）+ renderGrid `savedScrollY` 任务内恢复（fragment 空中间态渲染帧 clamp）——三场景（顶/中/底）scrollY 全稳定
-5. **empty-state 残留修复**（render.js）：删 innerHTML 后显式移除 `.empty-state`（宫格左上角/列表第一行不再挂 "Loading shots..."）
-6. **搜索定位帧蓝框残留修复**（search.js）：locate 用 `focusFrame(shotId, null)` 清状态+DOM class
-7. **audit 扩展**：audit.py 38→41（create 时长对齐 / duplicate 多图保帧 / rename 四层含目录+bg 重指），清死代码+过时文案；audit_context_menu.py 8/10→12/12（适配 v0.8.4 重拍封面语义+软删保留目录+purge 清目录+防占名 409）
+1. **多图多展开底衬断层修复**（render.js）：行分段 class 按旧位置算 → 同镜头帧格 12px 断层。两处：buildExpandedCards 的 rowStart 加前面已展开镜头占位补偿（(帧数-1) 求和）；renderGrid 差分复用分支同步重算 frame-first/frame-row-last（其它镜头展开/折叠时已展开镜头底衬跟随换行）
+2. **快捷键面板**（shortcuts.js 新模块）：右下角「快捷键」按钮 → 浮层列 9 项快捷键（SHORTCUTS 常量在 keyboard.js=唯一事实源）；收起：再点/点外部/Esc
+3. **预览框**（preview.js 新模块）：左下角「预览」开关（默认关），显示选中镜头大图（still URL 前端推导 `_thumb.jpg→_still.png`/legacy `thumb.jpg→still.png`）+ 详情（标题/帧号/时长/内容/台词，空字段灰占位）
+   - 贴边左右切；**丝滑=只动 CSS 变量**（--preview-w/--list-scale + __zoomApply）零 DOM 重建；关预览保存/恢复 --card-min 防列数漂移；宫格列数尽量保持（MIN_W=120 下限）、列表 --list-scale 等比缩（固定列+缩略图宽都乘 scale）
+   - **拖拽调宽**（贴 grid 侧手柄，clamp 180~视口-360、rAF 节流、localStorage 持久化），拖拽中实时重算 → 卡片连续缩放填满无空白；grid 两侧间距对称 16px（margin=var(--preview-w)+16px）
+   - 预览对象=最后点击（state.lastClickId）；展开态帧格聚焦显示该帧；多选显示最后点击的
+4. **列表缩略图重叠修复**（style.css）：.thumb-wrap/.shot-thumb 宽度乘 --list-scale（固定 80px 溢出列宽盖镜头名）
+5. **拍屏 JPG 化**（core/render.py + queue.py + audit.py）：全尺寸存档 still.png→**still.jpg**（JPEG quality 85，不再拍任何 PNG，体积 1.3~3.8MB→200~600KB）；顺手做掉**稳健性待办 1（拍屏副作用还原）**——format/filepath/quality/engine/film_transparent 改完全部恢复；duplicate 帧文件推导 jpg 优先、老 png 兜底；audit 断言同步改 jpg。⚠️ 后端需重启 Blender 生效
+6. **预览提速三件套**（preview.js）：先小图后清晰（切换瞬间缩略图即时显示，大图就绪同帧替换，图固定填满预览区=只有模糊/清晰区别无尺寸跳变）；相邻 ±10 格封面 still 预载（new Image 预热缓存，防抖 120ms，jpg 404 时 png 也预载）；stillUrl 推导 jpg + onerror 兜底 png（存量数据兼容）
+7. **展开焦点第一帧**（frames.js）：多图展开后 focusFrame 落第一帧（frame_no 最小）并同步预览——预览窗口顺序看图从本镜头第一帧衔接；折叠仍清焦点
+8. **展开帧格高度统一**（style.css）：.frame-img 高度 = calc(var(--card-min)×9/16)（统一，frame-first 伸出格靠 object-fit cover 裁溢出）；.shot-info min-height 46px（无名字帧补齐）——跨行展开所有帧格同高
+9. **折叠按钮移位**（render.js + style.css）：◀ 折叠按钮从第一帧 shot-info 左上角（盖镜头名）挪到最后一张图的右边缘（right:9px）、相对图垂直居中（top: calc(50% - 23px)，与列宽无关恒成立）；与列表 multi-badge（"N帧 ▶/◀"）同为折叠入口，走同一套 toggleListMulti/collapse 逻辑
 
 **历史轮次**（详情曾在本文件，已压缩；关键决策见「交互/设计约定」与「坑」）：
+- v0.9.3：搜索栏定位（名称/内容/台词）/ Tab 切视图 / 列表 Ctrl+滚轮 12 级 / 展开折叠滚动跳顶三层修复（删 innerHTML 全清 + overflow-anchor:none + savedScrollY 恢复）/ empty-state 残留 / 搜索定位帧焦点残留 / audit 41+12 / AGENTS.md 精简 49%
 - v0.9.2 十一轮：多选右键菜单统一 / 方向键帧格级移动 / 列表子帧单焦点 / 批量动画修复（按 id 精确选 target）/ 切视图定位+中心扩散 FLIP
 - v0.9.1 十轮：拍当前帧去确认直盖 / 多选批量展开折叠 / 展开态拖拽 / 面板帧导航 step_frame / 创建对齐网页端规则
 - v0.8.4 九轮（用户拍板）：删 RenderShot/RenderAll（大工程必崩随删解决）/ 统一 frames 模型（单图=1帧）/ duplicate 保帧 / API rerender=重拍封面帧 / 菜单「重拍封面」
@@ -29,13 +34,13 @@
 
 ## 正在做
 
-- v0.9.3 已推 GitHub（搜索栏 / Tab 切视图 / 列表 12 级缩放 / 滚动三层修复 / 帧焦点修复 / audit 41+12）
+- v0.9.4 已推送 GitHub；**Blender 重启后验证拍屏 JPG**（重拍一帧确认 f00000_still.jpg 输出 + audit 2 项拍屏断言）+ 预览大图提速实测（jpg 数据下切换延迟）
 - 幽灵场景累计 12 个 `__ghost_*`（第五轮 5 个 + 第七轮 7 个：c0050/c0100/c0230/c0340/c0480/c0560/c0970 等）待用户确认是否彻底删除（含 .blend 存盘防复活）；**反复出现说明 sync 自动对账（稳健性待办 7）值得优先做**
-- 测试现场：测试镜头均已清理（AUDIT/CTX 残留已 purge）；c0410 曾测试删帧 70/96，如需恢复面板 snap_frame 重拍即可
+- 测试现场：镜头数据已还原（c0410 content 恢复原值）
 
 ## 下一步
 
-- 用户前台验收 v0.9.3（搜索栏 / Tab 切视图 / 12 级缩放 / 滚动稳定）；确认后推送 GitHub（更新本文件四字段）
+- 用户前台验收 v0.9.4（预览框手感/快捷键面板/多展开底衬）；确认后跑 audit 41+12 → 推送 GitHub（更新本文件四字段）
 - 幽灵场景确认删除 → sync 自动对账（稳健性待办 7）优先级可提前
 - **稳健性待办（v0.6.3 对抗审计产出，用户已阅，优先级低暂缓）**，按性价比排序：
   1. **拍屏副作用还原**：`render_shot_files` 改完 `scene.render.filepath/file_format/engine` 不还原，污染用户正式渲染设置（最阴险，建议最先修）
@@ -86,6 +91,11 @@ Blender 4.5 分镜设计插件——面板操作 + 内嵌 HTTP 服务 + SQLite �
 - 预载：3 屏 eager 策略，多图镜头全部帧算进预载量
 - 交互测试：CDP 真实点击 / `__sb` 直接驱动，不用 evaluate 合成事件（不触发监听器）
 
+### 预览框（v0.9.4）
+- 开关/调宽/切边 = 只动 CSS 变量（--preview-w / --list-scale / --card-min via __zoomApply）+ grid margin class，**零 DOM 重建**（丝滑原理）；已展开镜头存在时 renderGrid 差分一次重算底衬分段
+- 宫格开预览：列数尽量保持（MIN_W=120 下限）卡片等比缩小；关预览精确还原 --card-min（savedMin）；列表：--list-scale 等比缩（固定列 + 缩略图宽度都乘 scale）
+- grid margin = var(--preview-w) + 16px → 两侧间距对称；--preview-w 持久化 localStorage('sb-preview-w')
+
 ### 数据层（frames 表，就放 shots.db）
 ```sql
 CREATE TABLE IF NOT EXISTS frames (
@@ -101,7 +111,7 @@ CREATE INDEX IF NOT EXISTS idx_frames_shot ON frames(shot_id);
 ```
 - 单图镜头 = frames 长度 1；多图按 frame_no 升序；前端以 `frames.length` 为准
 - `shots.thumb_path/thumb_ver` 保留 = 封面帧冗余缓存（折叠态/时间线只读它）；**双轨版本戳**：封面帧重拍 = 帧 ver+1 + thumb_ver+1，非封面帧只 bump 帧 ver
-- 新镜头 f0 输出 `f00000_still.png/f00000_thumb.jpg`（不是 still.png/thumb.jpg）；老镜头迁移后 f0 指 thumb.jpg（legacy 兜底）
+- 新镜头 f0 输出 `f00000_still.jpg/f00000_thumb.jpg`（v0.9.4 起全尺寸改 JPG，不再拍 PNG；老镜头迁移后 f0 指 thumb.jpg（legacy 兜底），存量 still.png 前端 onerror 兜底）
 - API rerender action 语义 = 重拍封面帧（`_cover_frame_no` → cmd_render_frame）；前端菜单「重拍封面」/「重拍此帧」/「批量重渲染」
 
 ### 软删 / 撤销栈设计（core/undo.py）
@@ -197,11 +207,23 @@ CREATE INDEX IF NOT EXISTS idx_frames_shot ON frames(shot_id);
 - **测试脚本收尾不彻底会污染现场**（v0.9.3 教训）：展开态/选中/帧焦点没还原就结束，下一个测试开场就"找不到卡片/状态不对"。WebBridge 测试脚本开头一律重置 `expandedShotIds/selectedIds/focusedFrameId` + renderGrid。
 - **MCP execute_code 里写中文路径极易转义错**（第五轮实测）：`N:\\Projects\\...` 反斜杠/unicode 双转义（`\u8bf7` 变字面量或 `N:\\` 双反斜杠）→ sqlite "unable to open database file" 假象。测试一律用 `bpy.data.filepath` 推导 project_dir（`os.path.join(dirname, basename_noext + "_storyboard")`），零转义。
 - **MCP 偶发卡死**（第五轮实测）：连续 execute_code 大命令（init_db/reload 组合）会卡 handler（空响应），分步小命令可恢复；查 queue 状态用 `q._command_queue.qsize()` 别用 `len(bpy.app.timers)`（timers 是模块不是列表，len 报错）。
+- **多图多展开并存 = 底衬断层**（v0.9.4 修）：buildExpandedCards 的 rowStart 用数组索引 % cols，不含前面已展开镜头多占的格位（每个展开镜头占 frames.length 格）→ 行分段算错 → 同镜头帧格间 12px 断层（圆角/负 margin 错位）；renderGrid 差分复用只 toggle 'selected' 不重算 frame-first/frame-row-last → 已展开镜头被其它镜头展开挤换行后底衬不跟随。修复：rowStart 加 extra（前面已展开多图镜头 (帧数-1) 求和）+ 复用分支同步行首/行尾 class。验证：gaps 恒 0（1px 亚像素取整噪声除外）。
+- **renderGrid 整体重设 grid.className 会冲掉其它模块 class**（v0.9.4）：`grid.className = isList ? 'grid list-mode' : 'grid'` 把预览框的 preview-on/preview-right/preview-left 全抹掉（展开多图 renderGrid 后预览布局丢、列数回全宽）。凡多模块共享的元素 class 一律 classList 增量维护。
+- **main.js 给 window.__sb 挂新函数必须同步 import**（v0.9.4 整页崩）：漏 import 直接顶层 ReferenceError → 整个 ES module 链失败（__sb 消失、卡片 0、页面空白，硬刷新也没用）。排查：先查 `!!window.__sb`。
+- **预览框无缝公式**（v0.9.4）：grid margin = var(--preview-w)（预览框宽）才无缝；body padding 16 推导易错（首版 50vw-32 重叠 16px）。间距对称 = margin 再加 16px。测量：贴右看 panelLeft-gridRight、**贴左看 panelRight-gridLeft**（用错边误判 gap=-1381 假 FAIL）。
+- **列表缩略图宽度必须乘 --list-scale**（v0.9.4）：.thumb-wrap/.shot-thumb 固定 var(--list-thumb-w)（80px）在预览开启时溢出列宽（40px）盖住镜头名。列表列模板的所有固定 px 列 + 缩略图元素宽度都要 calc(×scale)。
+- **marquee 框选排除列表必须覆盖展示型浮层**（v0.9.4）：预览框/快捷键面板内点击会触发 document mousedown 框选 → mouseup 清空选中（点预览框的 flip 按钮把选中清了）。排除列表加 .preview-panel/.shortcuts-panel。
+- **预览开关顺序坑**（v0.9.4）：先 applyLayout（grid 变窄）再 __zoomApply（用新宽度重算 --card-min）；反了 apply 用旧全宽算 → 卡片不缩放。列表 --list-scale 的 wFull 基准必须在 applyLayout 前记录（否则拿到窄宽 scale≈1）。关预览保存/恢复 --card-min 防列数漂移（zoom cols 状态被窄宽 clamp 后不还原）。
+- **setPreviewW 实时缩放用 __zoomApply 自带锚定**（v0.9.4）：拖拽调宽每帧调 apply → anchor/restore 自动保持选中卡在视口位置；拖拽 mousemove 用 rAF 节流（一帧一次防 reflow 风暴）。
+- **still 双轨 jpg/png**（v0.9.4）：拍屏改 still.jpg 后，老数据 still.png 仍在——前端 stillUrl 推 jpg、onerror 兜底 png；duplicate 帧文件推导 jpg 优先 png 兜底（candidates 列表）；audit 断言已改 jpg。改后端（render.py 等 Python 代码）必须重启 Blender 才生效，重启前新断言会失败（旧代码仍拍 png）。
+- **预览图同尺寸**（v0.9.4）：.preview-body img 固定 100%×100% + object-fit contain——小图(320px)放大到大图同尺寸显示，切换只有模糊→清晰区别；若用 max-width/max-height 自然尺寸，小图 320px vs 大图 698px 切换尺寸跳变。
+- **展开帧格高度**（v0.9.4）：frame-first 伸出 12px → aspect-ratio 16/9 的图更高（210 vs 203）→ 跨行行高不一致；统一 .frame-img 高度 calc(var(--card-min)×9/16) + object-fit cover；shot-info 无名字帧 min-height 46px 补齐。
+- **折叠按钮定位**（v0.9.4）：卡片 padding 9px 导致 left:0 悬在图外 9px；垂直相对卡片居中 vs 相对图居中差 23px（= padding 9 - info 半高 32，与列宽无关恒成立）——贴图右缘用 right:9px + top:calc(50% - 23px)。
 
 ## 细节指针
 
 - 架构：Blender 插件 + 内嵌 HTTP（0.0.0.0:8089）+ `bpy.app.timers` 主线程队列
 - 后端模块地图：`core/server.py`（ROUTES 表 + 静态服务）→ `core/actions.py`（每端点一函数）→ `core/queue.py`（COMMANDS 注册表 + 错误回传）/ `core/db.py`（含 next_c_name/next_c_number，软删字段 deleted/content/dialogue）/ `core/undo.py`（撤销栈）/ `core/paths.py`（目录）/ `core/scenes.py`（场景工厂）/ `core/sync.py`（同步唯一实现）/ `core/render.py`（拍屏公共函数）
-- 前端模块地图：`web/index.html`（骨架+CSS）+ `web/js/`：state（共享状态）/ ui（toast+确认条）/ render（宫格+列表+FLIP+DOM差分+首屏门控）/ data（拉取+心跳+错误toast+undoLast）/ selection / dnd（卡片拖拽+拖图分区）/ rename（改名+字段就地编辑）/ menu（右键/中键滑动+回弹+菜单）/ create（弹框）/ marquee（框选）/ zoom（滑块+Ctrl滚轮连续缩放）/ keyboard（快捷键+方向键）/ trash（垃圾桶弹窗）/ search（搜索栏定位）/ main（入口接线）
+- 前端模块地图（18 个 JS）：`web/index.html`（骨架+CSS）+ `web/js/`：state（共享状态）/ ui（toast+确认条）/ render（宫格+列表+FLIP+DOM差分+首屏门控）/ data（拉取+心跳+错误toast+undoLast）/ selection / dnd（卡片拖拽+拖图分区）/ rename（改名+字段就地编辑）/ menu（右键/中键滑动+回弹+菜单）/ create（弹框）/ marquee（框选）/ zoom（滑块+Ctrl滚轮连续缩放）/ keyboard（快捷键+方向键）/ trash（垃圾桶弹窗）/ search（搜索栏定位）/ preview（预览框：开关/贴边/调宽/详情）/ shortcuts（快捷键面板）/ main（入口接线）
 - 改名：`cmd_rename_shot`（queue.py）四层联动实现
 - 测试：改完跑 `python3 scripts/audit.py`（41 项，含 v0.2-v0.5 全部端点+垃圾桶/撤销链+多图保帧/rename 四层/时长对齐）+ `python3 scripts/audit_context_menu.py`（12 项：打开/重拍封面/复制/软删+purge）；网页 JS 改动另需 webbridge 全交互回归
