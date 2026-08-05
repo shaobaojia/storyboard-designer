@@ -148,10 +148,16 @@ function buildCard(shot, eager) {
         // 展开态：封面图保持行高，帧缩略图浮层叠加
         let framesOverlay = '';
         if (expanded) {
+            // v0.9.2：列表展开态子帧单焦点（与宫格 frame-focused 同语义）：
+            // focusedFrameId 优先，默认落封面；同一时间只有一个选中框
+            const coverFrame2 = frames.find(fr => fr.isCover) || frames[0];
+            const focusId = (state.focusedFrameId && frames.some(fr => fr.id === state.focusedFrameId))
+                ? state.focusedFrameId : (coverFrame2 && coverFrame2.id);
             const frameThumbs = frames.map(f => {
                 const imgUrl = f.imageUrl || '';
-                const cls = f.isCover ? 'frame-thumb is-cover' : 'frame-thumb';
-                return `<div class="${cls}" data-frame-id="${f.id}" data-frame-no="${f.frame_no}" data-shot-id="${shot.id}">
+                const cls = [f.isCover ? 'is-cover' : '', f.id === focusId ? 'frame-focused' : '']
+                    .filter(Boolean).join(' ');
+                return `<div class="frame-thumb ${cls}" data-frame-id="${f.id}" data-frame-no="${f.frame_no}" data-shot-id="${shot.id}">
                     ${imgUrl ? `<img src="${imgUrl}" loading="eager">` : '<div class="frame-missing">f' + f.frame_no + '</div>'}
                 </div>`;
             }).join('');
@@ -328,7 +334,16 @@ export function renderGrid() {
                 img.addEventListener('error', show, { once: true });
             }
         });
-        animateFrom(oldRects);
+        // v0.9.2 视图切换中心扩散：viewSpreadId 设置时，FLIP 起点统一收敛到选中项
+        // 位置再向外扩散——先定位后，视觉上卡片从选中项向四周炸开（丝滑过渡）
+        const spreadId = state.viewSpreadId;
+        state.viewSpreadId = null;  // 一次性消费
+        let spreadCenter = null;
+        if (spreadId) {
+            const el = grid.querySelector(`.shot-card[data-id="${spreadId}"]`);
+            if (el) spreadCenter = { left: el.offsetLeft + el.offsetWidth / 2, top: el.offsetTop + el.offsetHeight / 2 };
+        }
+        animateFrom(oldRects, spreadCenter);
     }
     updateStats();
 }
@@ -377,6 +392,8 @@ function gateFirstReveal() {
 // 测量用 offsetLeft/offsetTop 而非 getBoundingClientRect（v0.8.1）：
 // offset* 是纯布局值，不受 transform 影响——上一轮未播完的 FLIP invert / 进行中的
 // transition 不会污染下一轮捕获（getBoundingClientRect 含 transform，会连环污染）
+// spreadCenter 非空（v0.9.2 视图切换）：所有卡片起点收敛到该中心（选中项）再向外
+// 扩散——卡片 transform 从中心偏移到自身新位置，视觉上以选中项为中心炸开
 function rectKeyOf(el) {
     return el.dataset.frameId ? `${el.dataset.id}:${el.dataset.frameId}` : el.dataset.id;
 }
@@ -389,14 +406,21 @@ function captureRects() {
     return map;
 }
 
-function animateFrom(oldRects) {
+function animateFrom(oldRects, spreadCenter = null) {
     if (!oldRects || !oldRects.size) return;
     document.querySelectorAll('.shot-card').forEach(c => {
         if (state.animatingShots.has(c.dataset.id)) return;  // 弹簧编排接管中，FLIP 让位
-        const old = oldRects.get(rectKeyOf(c));
-        if (!old) return;
-        const dx = old.left - c.offsetLeft;
-        const dy = old.top - c.offsetTop;
+        let dx, dy;
+        if (spreadCenter) {
+            // 中心扩散模式：起点 = 从选中项中心出发
+            dx = spreadCenter.left - (c.offsetLeft + c.offsetWidth / 2);
+            dy = spreadCenter.top - (c.offsetTop + c.offsetHeight / 2);
+        } else {
+            const old = oldRects.get(rectKeyOf(c));
+            if (!old) return;
+            dx = old.left - c.offsetLeft;
+            dy = old.top - c.offsetTop;
+        }
         if (!dx && !dy) return;
         c.style.transition = 'none';
         c.style.transform = `translate(${dx}px, ${dy}px)`;
@@ -416,15 +440,23 @@ export function updateStats() {
     }
 }
 
-// 视图切换
+// 视图切换（v0.9.2 丝滑过渡）：先定位到选中项，再以选中项为中心向外扩散 FLIP
 export function toggleView() {
     state.viewMode = state.viewMode === 'grid' ? 'list' : 'grid';
     localStorage.setItem('sb-view', state.viewMode);
     syncViewToggleButton();
     grid.querySelectorAll('.shot-card').forEach(el => { el.dataset.key = ''; });
+    const selId = [...state.selectedIds][0] || null;
+    state.viewSpreadId = selId;  // 扩散 FLIP 中心（renderGrid 内部消费后清空）
     renderGrid();
     // 刷新缩放滑块（列表/宫格各自的范围不同）
     if (window.__zoomApply) window.__zoomApply();
+    // 先定位：立即滚到选中镜头（scrollIntoView 按布局位置，不受 FLIP transform 影响；
+    // FLIP 用 offset* 计算同样不受滚动影响，定位与扩散互不干扰）
+    if (selId) {
+        const card = grid.querySelector(`.shot-card[data-id="${selId}"]`);
+        if (card) card.scrollIntoView({ block: 'center', behavior: 'instant' });
+    }
 }
 
 export function syncViewToggleButton() {

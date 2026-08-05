@@ -453,6 +453,8 @@
         }
         .list-frames .frame-thumb.is-cover { border-color: transparent; }
         .list-frames .frame-thumb:hover { border-color: #888; }
+        /* v0.9.2：列表展开态子帧单焦点蓝框（与宫格 frame-focused 同色同语义，同一时间只有一个） */
+        .list-frames .frame-thumb.frame-focused { border-color: #4a9eff; box-shadow: 0 0 0 1px rgba(74,158,255,0.3); }
         /* 封面帧角标（v0.8.3）：与宫格展开态 cover-chip 同风格 */
         .list-frames .frame-thumb.is-cover::after {
             content: '封面';

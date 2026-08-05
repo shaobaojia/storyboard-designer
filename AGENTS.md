@@ -2,6 +2,22 @@
 
 > 给下一个 Agent（或下一个自己）的交接备忘录。**收工推送前必须更新「刚做完 / 正在做 / 下一步 / 坑」四个字段。**
 
+## 刚做完（第十一轮 v0.9.2：多选菜单统一 + 帧格级方向键 + 列表子帧单焦点 + 列表批量动画修复 + 视图定位/缩放锚定/丝滑过渡，Kimi 执行，audit 38/38）
+
+**需求 1：多选时右键菜单统一**——menu.js 帧级菜单分支加门控 `state.selectedIds.size === 1`：多选状态下不管右键落在哪个宫格（含多图展开帧格），统一弹多选菜单；单选才弹帧级菜单。实测三场景 PASS。
+
+**需求 2：方向键帧格级移动（keyboard.js arrowMove 重构）**——原按镜头移动（展开态 3 帧一起跳）。改为构造"格子序列"：展开态多图每个帧格占 1 格（frame_no 序），折叠/单图 1 格，左右 ±1 上下 ±列数；光标定位 = 选中镜头起点 + focusedFrameId 偏移；落在帧格上设 focusedFrameId + focusFrame 同步蓝框，落在镜头上清空；Shift 保持镜头级范围选。实测轨迹：c0060→(进入展开)→f0→f37→f53→c0130 ✓。
+
+**需求 3：列表视图子帧单焦点选中框**——①focusFrame 选择器扩展支持 `.frame-thumb`（宫格/列表共用单焦点机制，互斥）②main.js 点击非帧格卡片清除逻辑同覆盖 ③render.js 列表展开态子帧从"selected 全亮"改"frame-focused 单焦点"（focusedFrameId 优先、默认落封面，与宫格同 focusId 逻辑）④CSS `.list-frames .frame-thumb.frame-focused` 蓝框，删除 selected 全亮派生规则。实测：3 子帧只有 1 个蓝框、点击/方向键移动、选中其它镜头全消失 ✓。
+
+**需求 4（bug 修复）：列表批量展开/折叠动画目标错乱**——list 分支动画面板选择器 `grid.querySelector('.list-frames')` 只取第一个：批量时第二个镜头动画作用到第一个的 panel（静默无动画）。改按 shotId 精确选 `grid.querySelector('.shot-card.list-item[data-id="${shotId}"] .list-frames')`（展开/折叠两处）。实测批量展开/折叠两个镜头都有完整弹簧 ✓。**教训**：批量循环内动画目标必须按 id 精确选择，禁止裸 querySelector 取"第一个"。
+
+**需求 5：视图切换定位 + 缩放锚定**——①toggleView 切换后 scrollIntoView 选中镜头（先定位）；②zoom.js 新增 anchor/restoreAnchor：缩放前记录选中卡片中心相对视口中心偏移，缩放后恢复（滑块/Ctrl+滚轮/resize 通用）——缩放中心锚定选中项。实测：切列表/宫格 rel=0 居中 ✓、缩放 rel 保持不变 ✓。
+
+**需求 6：视图切换丝滑过渡（先定位 + 中心扩散 FLIP）**——toggleView 立即定位（去 400ms 延迟），renderGrid 用 `state.viewSpreadId` 标记切换，animateFrom 带 spreadCenter 参数：所有卡片起点 transform 收敛到选中项中心再向外扩散（选中项自身不动）。实测 79 卡全有起点 transform、方向正确 ✓。**关键认知**：scrollIntoView 按布局位置、FLIP 用 offset*，两者互不干扰，定位与扩散可同时进行。
+
+**验证**：audit 38/38；WebBridge 菜单统一/方向键轨迹/列表单焦点/批量动画/定位/扩散全 PASS。
+
 ## 刚做完（第十轮 v0.9.1：批量展开/折叠 + 展开态拖拽 + 面板帧导航 + 创建规则对齐，Kimi 执行，audit 38/38）
 
 **需求 1：拍当前帧去掉覆盖确认（用户拍板）**——`STORYBOARD_OT_snap_frame.invoke` 删掉 `invoke_confirm` 分支，同帧号直接覆盖；docstring 同步。`overwrite` 属性保留（满 5 张软提示 + 完成文案用）。MCP timer 验证：帧 56 v=3→4 帧数不变直接覆盖 ✓
@@ -342,7 +358,7 @@ WebBridge 21/21 PASS：宫格卡片/展开折叠/帧格焦点/列表行/浮层�
 
 ## 下一步
 
-- 用户前台验收第十轮：面板「拍当前帧」无确认直接覆盖 / 已拍帧下方放大导航行 ◀ ▶ / 创建镜头弹窗默认名自动编号 + 帧范围按 duration / 多选右键「全部展开·全部折叠」/ 展开态拖帧格排序 / 展开态折叠角标在第一个帧左上角
+- 用户前台验收第十一轮：多选右键统一菜单 / 方向键展开态逐帧格 / 列表子帧单焦点蓝框 / 列表批量展开折叠动画 / 切视图定位+丝滑扩散过渡 / 缩放锚定选中项
 - 幽灵场景累计 12 个 `__ghost_*`（第五轮 5 个 + 第七轮 7 个：c0050/c0100/c0230/c0340/c0480/c0560/c0970）待用户确认是否彻底删除（含 .blend 存盘防复活）；**反复出现说明 sync 待办第 7 项（孤儿场景自动收敛）值得优先做**
 - 第 9 项惯性功能按需重新启动
 - 后续可开工的优化项：稳健性待办列表（见下方）
@@ -476,6 +492,8 @@ WebBridge 21/21 PASS：宫格卡片/展开折叠/帧格焦点/列表行/浮层�
 - **WebBridge daemon 长跑会丢事件**（v0.8.3 实测）：运行 11 小时后 CDP `Input.dispatchMouseEvent` 移动事件开始丢失（扫视不触发）、evaluate 偶发空响应、screenshot 超时——表现为"测试结果随机"。先查 `/status`，`kimi-webbridge.exe restart` 恢复（Edge 不杀，扩展自动重连；session 需 find_tab/navigate 重建）。
 - **验证主世界鼠标事件用 DOM 副作用判据**：evaluate 里 addEventListener 计数收不到 CDP 事件（跨世界），计数器为 0 不代表事件没发生；判断扫视/恢复是否执行，读主世界 DOM 状态（img.src、dataset.frameId/hoverOrigSrc 变化）为准。
 - **FLIP 起点必须被浏览器真实渲染一帧再清空**（v0.9.1 批量展开静默无动画的根因）：`expandAnimated` 的"设起点 transform → `void grid.offsetWidth` reflow → 清 transform + 设 transition"在单独展开时正常，但**批量/连续调用时第二个镜头静默无动画**——后面的 renderGrid() 重建 DOM 后新元素已以自然位置渲染过（前一个镜头的动画播放推动浏览器持续渲染），随后同任务内"设起点→reflow→清空"对比的上一渲染帧是自然位置 → 从 none 到 none 无过渡。修复：清 transform + 设 transition 包进 `requestAnimationFrame`（起点渲染一帧后再清空）。**排查特征：inline transform 设置了但 computed 全程 none；同步采样起点 matrix 有值、后续帧全是 none**。教训：reflow（offsetWidth 强制）不算渲染，CSS transition 起点 = 上一渲染帧而非上次样式计算。
+- **FLIP 动画期间禁止用 getBoundingClientRect 做定位测量**（v0.9.2 视图切换定位偏差的根因）：`.shot-card` 有 `transition: transform 0.28s`，renderGrid 的 FLIP 播放期间 getBoundingClientRect 含 transform 偏移——切换后立即 scrollIntoView 会偏 765px+。解法：scrollIntoView 按布局位置（内部用 offset 系）不受 transform 影响可立即执行；但**手动 getBoundingClientRect 算滚动目标必须等 FLIP 结束或改用 offsetLeft/offsetTop**。
+- **批量循环内动画目标必须按 id 精确选择**（v0.9.2 列表批量动画错乱的根因）：`grid.querySelector('.list-frames')` 只取第一个 panel，批量展开/折叠时第二个镜头动画作用到第一个的 panel（静默无动画）。改 `.shot-card.list-item[data-id="xxx"] .list-frames`。同类问题：宫格版 expandAnimated 的 cells 已按 shotId 选（_frameCells），列表版此前漏了。
 
 ## 细节指针
 

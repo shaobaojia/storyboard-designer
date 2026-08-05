@@ -31,7 +31,28 @@ export function initZoom() {
     let cols = 0;
     let listThumbW = parseInt(localStorage.getItem('sb-list-thumb-w') || '', 10) || 80;
 
+    // v0.9.2 定位特性：缩放前记录选中卡片中心相对视口中心的偏移，
+    // 缩放后恢复该偏移——缩放中心锚定在选中项上（滑块/Ctrl+滚轮/resize 通用）
+    const anchor = () => {
+        const st = window.__sb && window.__sb.state;
+        if (!st || !st.selectedIds || st.selectedIds.size === 0) return null;
+        const id = [...st.selectedIds][0];
+        const sel = document.querySelector(`.shot-card[data-id="${id}"]`);
+        if (!sel) return null;
+        const r = sel.getBoundingClientRect();
+        return { id, rel: r.top + r.height / 2 - window.innerHeight / 2 };
+    };
+    const restoreAnchor = (a) => {
+        if (!a) return;
+        const sel = document.querySelector(`.shot-card[data-id="${a.id}"]`);
+        if (!sel) return;
+        const r = sel.getBoundingClientRect();
+        const target = window.scrollY + (r.top + r.height / 2 - window.innerHeight / 2) - a.rel;
+        window.scrollTo(0, Math.max(0, target));
+    };
+
     const apply = () => {
+        const a = anchor();  // 缩放前捕获选中项位置
         if (window.__sb && window.__sb.state.viewMode === 'list') {
             // 列表：线性像素，最大 = 最大帧数镜头展开浮层刚顶到页面右缘
             const shots = window.__sb.state.shots || [];
@@ -61,6 +82,7 @@ export function initZoom() {
             sizeSlider.value = nMax - cols;
             localStorage.setItem('sb-cols', cols);
         }
+        restoreAnchor(a);  // v0.9.2：缩放后恢复选中项位置（锚定缩放中心）
     };
 
     // 初始

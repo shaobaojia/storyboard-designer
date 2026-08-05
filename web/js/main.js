@@ -43,9 +43,10 @@ grid.addEventListener('click', (e) => {
     if (card.classList.contains('frame-cell') && card.dataset.frameId) {
         focusFrame(card.dataset.id, card.dataset.frameId);
     } else {
-        // 点击非帧格卡片：清除所有帧焦点，避免残留蓝框
+        // 点击非帧格卡片：清除所有帧焦点，避免残留蓝框（v0.9.2 含列表 frame-thumb）
         state.focusedFrameId = null;
-        grid.querySelectorAll('.frame-img.frame-focused').forEach(img => img.classList.remove('frame-focused'));
+        grid.querySelectorAll('.frame-img.frame-focused, .frame-thumb.frame-focused')
+            .forEach(el => el.classList.remove('frame-focused'));
     }
 });
 

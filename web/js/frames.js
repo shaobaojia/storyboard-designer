@@ -62,9 +62,11 @@ export function expandAnimated(shotId) {
         toggleExpand(shotId);
         renderGrid();
         // Spring-in: 浮层面板从 0 弹入
+        // v0.9.2：按 shotId 精确选本镜头的 panel——批量展开时 querySelector('.list-frames')
+        // 只取第一个，导致第二个镜头动画作用到第一个的 panel（静默无动画）
         requestAnimationFrame(() => {
             if (_animToken.get(shotId) !== token) return;
-            const panel = grid.querySelector('.list-frames');
+            const panel = grid.querySelector(`.shot-card.list-item[data-id="${shotId}"] .list-frames`);
             if (!panel) return;
             panel.style.transformOrigin = 'top left';
             panel.style.transition = 'none';
@@ -132,7 +134,9 @@ export function expandAnimated(shotId) {
 export function collapseAnimated(shotId) {
     const cells = _frameCells(shotId);
     if (state.viewMode === 'list') {
-        const panel = grid.querySelector('.list-frames');
+        // v0.9.2：按 shotId 精确选本镜头的 panel（批量折叠时 querySelector('.list-frames')
+        // 只取第一个，第二个镜头动画作用到第一个的 panel）
+        const panel = grid.querySelector(`.shot-card.list-item[data-id="${shotId}"] .list-frames`);
         if (panel) {
             panel.style.transformOrigin = 'top left';
             panel.style.transition = 'transform 0.3s ease-in, opacity 0.2s ease';
@@ -203,14 +207,15 @@ export async function jumpToFrame(shotId, frameNo) {
 }
 
 // 展开态焦点帧（v0.8.1）：蓝框跟手点击，只动 class 不动 DOM
+// v0.9.2：列表视图 frame-thumb 共用同一焦点机制（单焦点，宫格/列表互斥）
 export function focusFrame(shotId, frameId) {
     // 全局单选：同一时刻只有一个帧格有焦点框
     state.focusedFrameId = frameId;
-    grid.querySelectorAll('.frame-img.frame-focused')
-        .forEach(img => img.classList.remove('frame-focused'));
+    grid.querySelectorAll('.frame-img.frame-focused, .frame-thumb.frame-focused')
+        .forEach(el => el.classList.remove('frame-focused'));
     if (frameId) {
-        grid.querySelectorAll(`.shot-card.frame-cell[data-id="${shotId}"] .frame-img[data-frame-id="${frameId}"]`)
-            .forEach(img => img.classList.add('frame-focused'));
+        grid.querySelectorAll(`.shot-card.frame-cell[data-id="${shotId}"] .frame-img[data-frame-id="${frameId}"], .shot-card.list-item[data-id="${shotId}"] .frame-thumb[data-frame-id="${frameId}"]`)
+            .forEach(el => el.classList.add('frame-focused'));
     }
 }
 

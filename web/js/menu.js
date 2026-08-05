@@ -32,8 +32,9 @@ export function showContextMenu(x, y, shotId, frameId = null) {
             <button data-action="restore">恢复</button>
             <button class="danger" data-action="purge">彻底删除</button>
         `;
-    } else if (frameId && isMulti) {
-        // 帧级菜单：右键点在展开态的某张帧图上（v0.7.0）
+    } else if (frameId && isMulti && state.selectedIds.size === 1) {
+        // 帧级菜单：右键点在展开态的某张帧图上（v0.7.0）。
+        // v0.9.2：仅单选时生效——多选状态下所有宫格（含多图展开帧格）统一弹多选菜单
         const frame = shot.frames.find(f => f.id === frameId);
         const coverLabel = frame && frame.isCover ? '✓ 已是封面' : '设为封面';
         menu.innerHTML = `
