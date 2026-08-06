@@ -1,15 +1,22 @@
 # AGENTS.md
 
 > 给下一个 Agent（或下一个自己）的交接备忘录。**收工推送前必须更新「刚做完 / 正在做 / 下一步 / 坑」四个字段。**
-## 刚做完（v0.9.5 攒批中：展开态帧图等大+间距统一 / 拖拽插入指示线 / Pointer Events 拖拽，Kimi 执行，WebBridge 全回归；v0.9.4 已推送 GitHub）
+## 刚做完（v0.9.6：预览框三件套 + 高危/中危稳健度修复，audit 41/41 + 右键菜单 12/12 全回归）
 
-1. **展开态帧图等大 + 间距/外沿统一**（render.js/zoom.js/style.css）：每行独立图宽 `W = (行底衬宽 − 9×(行帧数+1)) / 行帧数`，外沿 = 图间距 = 9px 严格统一（**用户拍板 D**：外沿 9 优先，跨行行间图宽允许不同）；图高 = W×9/16 等比例。实现：`--frame-w` CSS 变量 + 每图 inline margin-left 精确排布（不重建 DOM、底衬连片/负 margin/FLIP/拖拽/右键全兼容），行尾格底衬窄 12px 导致图不等大的根因消除（不再 width:100%）；缩放/预览调宽联动重算（zoom.js apply 注入 applyExpandedLayout）
-2. **拖拽插入位置指示线**（dnd.js/style.css）：虚线框 → **宫格竖线**（插左/右）/ **列表横线**（插上/下），鼠标半区判定 + fixed 定位指示线（落两卡间隙中央）；reorderShots 显式 `pos=before/after` 插入（替代原"替换 dst 位置"语义）；**视图切换后指示线尺寸残留（1102×163 大蓝块）已修**——两分支互清 width/height inline 残留
-3. **拖拽改 Pointer Events 自定义实现**（dnd.js）：根治浏览器 DnD 光标问题（虚线小方块 = dropEffect move 原生光标、卡片间隙闪 no-drop = dragover 节流）——pointerdown/move/up + elementFromPoint 命中 + 源卡 transform 跟随（拖拽反馈）+ 6px 阈值防误触 + 拖后 600ms click 抑制；**外部文件拖入仍走原生 DnD**（initFileDrop 不动）；CSS 光标全程 default（删 .shot-card grab / .dragging grabbing）；pointercancel(0,0) 容错（用最后 pointermove 坐标判定落点）
-4. **audit_context_menu 断言 JPG 化**（audit_context_menu.py）：`f00000_still.png → f00000_still.jpg`（v0.9.4 拍屏 JPG 化后过时断言），12/12 PASS
+1. **预览框三件套**（preview.js/shortcuts.js/index.html/style.css）：右上角 ✕ 关闭按钮（hover 红）/ 开关弹簧动画（scale .92→1.015→1 + overshoot，transform-origin 方向感知；关闭先弹走再隐藏，closeTimer 防快速开关冲突）/ 底部避让（bottom:0→100px，避开右下 statsBadge/shortcuts-btn、左下 size-slider）
+2. **镜头名注入 500 修复**（actions.py）：`_valid_shot_name()` 白名单（拒 `..` `/` `\` `:` `*` `?` `"` `<` `>` `|` 控制字符 + Windows 保留名），create/rename/create_image 三处入口 400 拒绝（不再 makedirs WinError 123 → 500）
+3. **路径穿越双入口修复**（server.py）：`_serve_shot_file` normpath+startswith 检查（`../../` 出 project_dir → 403）+ shot_id 白名单 `[A-Za-z0-9_\-]{1,64}`
+4. **POST body 上限**（server.py）：Content-Length `isdigit()` 校验 + 200MB 上限（413）
+5. **delete/restore/purge 非原子修复**（actions.py）：queue 失败回滚 DB（_trash_one/restore/purge 三处 try/except + 逆操作）
+6. **undo.py 加锁**：`threading.Lock` 保护 push/pop/peek_label（HTTP 多线程竞态）
+7. **db.py 连接泄漏修复**：8 个写函数统一 `with _db()`（contextmanager try/finally 关闭，任何 SQL 异常不泄漏连接/悬挂事务）
+8. **XSS 修复**（render.js）：6 处 `${shot.name}`/`${content}`/`${dialogue}` 统一 `esc()` + img src `encodeURIComponent`（E2E 实测 `<img onerror>` 存 DB，前端显示转义文本不执行）
+9. **拖拽重排失败回滚**（dnd.js）：reorder 失败恢复旧顺序 + 检查 `res.ok`（500 也当失败）
+10. **假成功 toast 修复**（menu.js 14 处 + keyboard.js + selection.js）：所有 postShotAction/postBatch 调用检查 `r.status === 'ok'` 才报成功，失败报错误信息
 
 **历史轮次**（详情曾在本文件，已压缩；关键决策见「交互/设计约定」与「坑」）：
-- v0.9.4：预览框（贴边左右切/拖拽调宽/详情区/先小图后清晰提速三件套）/ 快捷键面板 / 多展开底衬断层修复 / 列表缩略图重叠修复 / 拍屏 JPG 化（still.jpg + 副作用还原）/ 展开焦点落第一帧 / 帧格高度统一 / 折叠按钮移位
+- v0.9.5：展开态帧图等大+间距/外沿统一（每行独立 W 公式/9px 严格）/ 拖拽插入指示线（宫格竖线/列表横线/半区判定）/ 拖拽改 Pointer Events（根治 DnD 光标问题）/ audit_context_menu JPG 化断言
+- v0.9.4：预览框（贴边/调宽/详情/提速）/ 快捷键面板 / 多展开底衬修复 / 拍屏 JPG 化 / 展开焦点落第一帧 / 帧格高度统一 / 折叠按钮移位
 - v0.9.3：搜索栏定位（名称/内容/台词）/ Tab 切视图 / 列表 Ctrl+滚轮 12 级 / 展开折叠滚动跳顶三层修复（删 innerHTML 全清 + overflow-anchor:none + savedScrollY 恢复）/ empty-state 残留 / 搜索定位帧焦点残留 / audit 41+12 / AGENTS.md 精简 49%
 - v0.9.2 十一轮：多选右键菜单统一 / 方向键帧格级移动 / 列表子帧单焦点 / 批量动画修复（按 id 精确选 target）/ 切视图定位+中心扩散 FLIP
 - v0.9.1 十轮：拍当前帧去确认直盖 / 多选批量展开折叠 / 展开态拖拽 / 面板帧导航 step_frame / 创建对齐网页端规则
@@ -27,7 +34,7 @@
 
 ## 正在做
 
-- v0.9.5 已推送 GitHub；**audit.py 两个 FAIL 待审**：`Batch restore from trash`（trash=1 稳定） / `Batch rename_seq`（偶发）——手动复现 batch delete/restore 全链路正常（done=2），疑 Blender 队列积压致测试镜头创建延迟 → ids 少；交接笔记 `~/AppData/Local/hermes/tmp/审计交接笔记.md`（含 TEMP-DEBUG 补丁）；**audit.py 与 audit_context_menu.py 禁并行跑**（共享 DB 互清测试镜头），Ctrl+C 中断会留 AUDIT_* 残留需先清
+- v0.9.6 已推送 GitHub；**audit.py 两个 FAIL 待审**：`Batch restore from trash`（trash=1 稳定） / `Batch rename_seq`（偶发）——手动复现 batch delete/restore 全链路正常（done=2），疑 Blender 队列积压致测试镜头创建延迟 → ids 少；交接笔记 `~/AppData/Local/hermes/tmp/审计交接笔记.md`（含 TEMP-DEBUG 补丁）；**audit.py 与 audit_context_menu.py 禁并行跑**（共享 DB 互清测试镜头），Ctrl+C 中断会留 AUDIT_* 残留需先清
 - 幽灵场景累计 12 个 `__ghost_*`（第五轮 5 个 + 第七轮 7 个：c0050/c0100/c0230/c0340/c0480/c0560/c0970 等）待用户确认是否彻底删除（含 .blend 存盘防复活）；**反复出现说明 sync 自动对账（稳健性待办 7）值得优先做**
 - 测试现场：镜头数据已还原（80 个无残留，顺序恢复原始）
 
@@ -133,6 +140,7 @@ CREATE INDEX IF NOT EXISTS idx_frames_shot ON frames(shot_id);
 
 ## 坑（已踩过的雷）
 
+- **v0.9.6：Blender 拉起时 blend 路径必须用原生路径**：MSYS `$HOME` 在 `python -c` 里解析成 `/c/Users/...` 导致 `instances.json` 找不到，blend 变量为空，Blender 把当前目录当 blend 文件报 Permission denied。正确姿势：`cat` 原生路径给 python 读，或直接用 MSYS 路径 `/c/Users/...` 拼完整路径。BlenderMCP 端口：正常启动默认 9876（recover.py 的 9877 只在 recover 流程生效），9876 被 Clash 内核 verge-mihomo 抢占时才需要 recover.py 改 9877——先 `netstat -ano | findstr :9876` 看是不是 Blender 自己绑的。
 - **Windows 双 Blender 实例端口劫持**：`socketserver` 默认 `allow_reuse_address=True`，在 Windows 上 SO_REUSEADDR 语义 = 允许第二个进程绑同一端口——两个 Blender 都"成功"监听 8089/9876，连接被随机分流，表现为服务间歇性假死、curl 空响应、MCP 超时，进程却活得好好的。解法：独占绑定 + 启动顺延扫端口（v0.4.0 起 8089→8090→…）。排查先 `netstat -ano | findstr :8089` 看是否有多个 PID 绑同一端口。**注意 BlenderMCP 插件（9876）没做同样处理，多开时 9876 仍会双绑**——MCP 调试前先确认只有一个实例，或以 `netstat` 里最新绑定的 PID 为准。
 - **直接 MCP 删场景会崩 Blender**：`bpy.data.scenes.remove(s)` 与插件 queue 定时器并发时（拍屏/遍历场景中途场景没了）Blender 4.5 整个进程闪退。测试要制造孤儿镜头用**改名场景**（`s.name="Shot_X"`）代替删除；删场景永远走插件自己的 queue delete 路径。
 - **Chrome 冻结标签页 setTimeout 也被限流**：后台标签页的 `setTimeout` 被钳到分钟级，webbridge evaluate 里 `await sleep(400)` 会挂到超时——测试代码全部同步断言，异步结果（预填/toast）拆成多次 evaluate 分开读；先 `cdp Page.bringToFront` 解冻。

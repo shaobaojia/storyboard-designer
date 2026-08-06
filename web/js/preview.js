@@ -19,6 +19,7 @@ const contentEl = document.getElementById('pfContent');
 const dialogueEl = document.getElementById('pfDialogue');
 let savedMin = null;  // 宫格开预览前的 --card-min（关闭时精确还原比例）
 let wFull = 0;        // 开预览时的 grid 全宽（列表 --list-scale 的缩放基准）
+let closeTimer = null;  // 关闭动画计时器（防快速开关冲突，v0.9.5）
 
 // 大图 URL：缩略图文件名 → 全尺寸 still（v0.9.4 新格式 _still.jpg / still.jpg；
 // 老数据 _still.png / still.png 由 showPreviewImage 的 onerror 兜底），保留 ?v= 缓存戳
@@ -110,6 +111,27 @@ function preloadNeighbors() {
     }, 120);
 }
 
+// 弹簧动画（v0.9.5）：打开 = 弹入（scale .92→1.015→1 + overshoot）；关闭 = 先弹走再隐藏
+function showPanel() {
+    if (closeTimer) { clearTimeout(closeTimer); closeTimer = null; }
+    panel.classList.remove('panel-out');
+    if (panel.style.display === 'flex' && panel.classList.contains('panel-in')) return;
+    panel.style.display = 'flex';
+    panel.classList.remove('panel-in');
+    void panel.offsetWidth;  // 强制 reflow，重启动画
+    panel.classList.add('panel-in');
+}
+function hidePanel() {
+    if (panel.style.display === 'none' || panel.classList.contains('panel-out')) return;
+    panel.classList.remove('panel-in');
+    panel.classList.add('panel-out');
+    closeTimer = setTimeout(() => {
+        closeTimer = null;
+        panel.style.display = 'none';
+        panel.classList.remove('panel-out');
+    }, 200);  // 匹配 .panel-out 动画时长
+}
+
 function applyLayout() {
     const grid = document.getElementById('grid');
     grid.classList.toggle('preview-on', state.previewOn);
@@ -117,7 +139,7 @@ function applyLayout() {
     grid.classList.toggle('preview-left', state.previewOn && state.previewSide === 'left');
     panel.classList.toggle('side-right', state.previewSide === 'right');
     panel.classList.toggle('side-left', state.previewSide === 'left');
-    panel.style.display = state.previewOn ? 'flex' : 'none';
+    if (state.previewOn) showPanel(); else hidePanel();
     btn.classList.toggle('active-view', state.previewOn);
     flip.textContent = state.previewSide === 'right' ? '⇄ 贴到左侧' : '⇄ 贴到右侧';
 }
@@ -299,5 +321,7 @@ export function initPreview() {
     if (!btn || !panel) return;
     btn.addEventListener('click', () => setPreview(!state.previewOn));
     if (flip) flip.addEventListener('click', togglePreviewSide);
+    const closeBtn = document.getElementById('previewClose');
+    if (closeBtn) closeBtn.addEventListener('click', () => setPreview(false));
     initResize();
 }

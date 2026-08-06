@@ -1,6 +1,6 @@
 // 选择：点选/Ctrl 点选/Shift 范围选/全选/清除 + 删除选中
 import { state } from './state.js';
-import { askConfirm } from './ui.js';
+import { askConfirm, toast } from './ui.js';
 import { updateStats } from './render.js';
 import { fetchShots, postShotAction, postBatch } from './data.js';
 import { updatePreview } from './preview.js';
@@ -54,22 +54,22 @@ export async function deleteSelection() {
     // 垃圾桶模式里 Delete = 彻底删除 (#3)
     if (state.trashMode) {
         if (await askConfirm(`彻底删除 ${ids.length} 个镜头？不可恢复。`)) {
-            await postBatch('purge', ids);
-            clearSelection();
-            fetchShots(true);
+            const r = await postBatch('purge', ids);
+            if (r && r.status === 'ok') { clearSelection(); fetchShots(true); }
+            else toast(r && r.message || '删除失败', true);
         }
         return;
     }
     if (ids.length === 1) {
         const shot = state.shots.find(s => s.id === ids[0]);
         // v0.8.2：软删除不再确认（进垃圾桶可恢复）
-        await postShotAction(ids[0], {action: 'delete'});
-        state.selectedIds.delete(ids[0]);
-        fetchShots();
+        const r = await postShotAction(ids[0], {action: 'delete'});
+        if (r && r.status === 'ok') { state.selectedIds.delete(ids[0]); fetchShots(); }
+        else toast(r && r.message || '删除失败', true);
     } else if (ids.length > 1) {
         // v0.8.2：批量软删除不再确认（进垃圾桶可恢复）
-        await postBatch('delete', ids);
-        clearSelection();
-        fetchShots();
+        const r = await postBatch('delete', ids);
+        if (r && r.status === 'ok') { clearSelection(); fetchShots(); }
+        else toast(r && r.message || '删除失败', true);
     }
 }

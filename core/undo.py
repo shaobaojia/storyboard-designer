@@ -12,21 +12,27 @@ Entry schema (any subset of keys):
     }
 """
 from collections import deque
+import threading
 
 _stack = deque(maxlen=20)
+_lock = threading.Lock()  # v0.9.6：HTTP 多线程下 push/pop/peek 竞态防护
 
 
 def push(label, entry):
-    _stack.append({"label": label, "entry": entry})
+    with _lock:
+        _stack.append({"label": label, "entry": entry})
 
 
 def pop():
-    return _stack.pop() if _stack else None
+    with _lock:
+        return _stack.pop() if _stack else None
 
 
 def depth():
-    return len(_stack)
+    with _lock:
+        return len(_stack)
 
 
 def peek_label():
-    return _stack[-1]["label"] if _stack else None
+    with _lock:
+        return _stack[-1]["label"] if _stack else None

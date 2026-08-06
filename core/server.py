@@ -7,9 +7,18 @@ logic lives in core/actions.py (one function per endpoint).
 """
 import json
 import os
+import re
 import threading
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse
+
+# v0.9.6 安全上限：POST body 最大 200MB（create_image_shots 收 base64 图，给足余量）
+MAX_POST_BODY = 200 * 1024 * 1024
+# shot id / name 白名单：防止路径穿越（.. / \ 等）进 os.path.join / shot_dir
+_SHOT_ID_RE = re.compile(r"[A-Za-z0-9_\-]{1,64}")
+
+def _valid_shot_id(sid):
+    return bool(sid) and bool(_SHOT_ID_RE.fullmatch(sid))
 
 import bpy
 
@@ -52,14 +61,17 @@ ROUTES = {
 
 
 def _match_route(method, path):
-    """Exact match first, then the /api/shot/* wildcard."""
+    """Exact match first, then the /api/shot/* wildcard. shot_id 白名单校验（v0.9.6 防路径穿越）。"""
     handler = ROUTES.get((method, path))
     if handler:
         return handler, None
     if path.startswith("/api/shot/"):
         handler = ROUTES.get((method, "/api/shot/*"))
         if handler:
-            return handler, path.split("/")[-1]
+            shot_id = path.split("/")[-1]
+            if not _valid_shot_id(shot_id):
+                return None, None  # 非法 id → 404（不传给 shot_action）
+            return handler, shot_id
     return None, None
 
 
@@ -181,17 +193,28 @@ class StoryboardHTTPServer:
                 # /shots/{name_id}/{file} — direct hit, then fallback search by
                 # shot id (legacy dir naming) across the shots root.
                 rel_path = path.lstrip("/")
-                filepath = os.path.join(project_dir, rel_path)
+                # v0.9.6 防路径穿越：normpath 后必须仍在 project_dir 内
+                filepath = os.path.normpath(os.path.join(project_dir, rel_path))
+                if not filepath.startswith(os.path.normpath(project_dir)):
+                    self.send_error(403)
+                    return
                 if not os.path.exists(filepath):
                     parts = rel_path.split("/")
                     if len(parts) >= 3:
                         shot_key, filename = parts[1], parts[2]
+                        # v0.9.6：shot_key/filename 白名单（防 .. 拼进 candidate 逃逸）
+                        if not (_valid_shot_id(shot_key) and ".." not in filename
+                                and "/" not in filename and "\\" not in filename):
+                            self.send_error(403)
+                            return
                         shots_dir = os.path.join(project_dir, "shots")
                         if os.path.isdir(shots_dir):
                             for d in os.listdir(shots_dir):
                                 # Match by id (old) or name_id (new)
                                 if d == shot_key or d.endswith(f"_{shot_key}"):
-                                    candidate = os.path.join(shots_dir, d, filename)
+                                    candidate = os.path.normpath(os.path.join(shots_dir, d, filename))
+                                    if not candidate.startswith(os.path.normpath(shots_dir)):
+                                        break
                                     if os.path.exists(candidate):
                                         filepath = candidate
                                         break
@@ -216,7 +239,15 @@ class StoryboardHTTPServer:
                 if not path.startswith("/api/"):
                     self.send_error(404)
                     return
-                content_length = int(self.headers.get("Content-Length", 0))
+                # v0.9.6：Content-Length 校验（畸形 → 400，超上限 → 413）
+                raw_len = self.headers.get("Content-Length", "0")
+                if not raw_len.isdigit():
+                    self._send_json({"status": "error", "message": "bad Content-Length"}, 400)
+                    return
+                content_length = int(raw_len)
+                if content_length > MAX_POST_BODY:
+                    self._send_json({"status": "error", "message": "body too large"}, 413)
+                    return
                 body = self.rfile.read(content_length).decode() if content_length > 0 else "{}"
                 try:
                     data = json.loads(body)

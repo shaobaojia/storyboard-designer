@@ -32,16 +32,21 @@ async function reorderShots(srcId, dstId, pos = 'before') {
     const insertIdx = rest.findIndex(s => s.id === dstId);
     const at = insertIdx === -1 ? rest.length : (pos === 'after' ? insertIdx + 1 : insertIdx);
     rest.splice(at, 0, ...moving);
+    const oldShots = state.shots;  // v0.9.6：保存旧顺序，失败回滚
     state.shots = rest;
 
     try {
-        await fetch('/api/reorder', {
+        const res = await fetch('/api/reorder', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({shot_ids: state.shots.map(s => s.id)})
         });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);  // v0.9.6：500 也当失败
     } catch (e) {
         console.error('Reorder failed:', e);
+        state.shots = oldShots;  // v0.9.6：回滚本地顺序，与服务端保持一致
+        renderGrid();
+        return;
     }
     renderGrid();  // FLIP 动效在 renderGrid 内部处理
 }

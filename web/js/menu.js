@@ -97,25 +97,28 @@ async function menuAction(action) {
     if (frameId && shot) {
         const frame = shot.frames.find(f => f.id === frameId);
         switch (action) {
-            case 'frame-cover':
-                await postShotAction(shotId, {action: 'set_cover', frame_id: frameId});
-                toast('已设为封面');
-                setTimeout(fetchShots, 1200);
+            case 'frame-cover': {
+                const r = await postShotAction(shotId, {action: 'set_cover', frame_id: frameId});
+                if (r && r.status === 'ok') { toast('已设为封面'); setTimeout(fetchShots, 1200); }
+                else toast(r && r.message || '操作失败', true);
                 return;
-            case 'frame-rerender':
-                await postShotAction(shotId, {action: 'render_frame', frame_no: frame.frame_no});
-                toast(`已排队重拍帧 f${frame.frame_no}`);
-                setTimeout(fetchShots, 2500);
+            }
+            case 'frame-rerender': {
+                const r = await postShotAction(shotId, {action: 'render_frame', frame_no: frame.frame_no});
+                if (r && r.status === 'ok') { toast(`已排队重拍帧 f${frame.frame_no}`); setTimeout(fetchShots, 2500); }
+                else toast(r && r.message || '操作失败', true);
                 return;
+            }
             case 'frame-jump':
                 await postShotAction(shotId, {action: 'jump_to_frame', frame_no: frame.frame_no});
                 return;
-            case 'frame-delete':
+            case 'frame-delete': {
                 // v0.8.2：删帧不再确认（软操作，帧可重拍找回）
-                await postShotAction(shotId, {action: 'delete_frame', frame_id: frameId});
-                toast('已删除');
-                setTimeout(fetchShots, 1200);
+                const r = await postShotAction(shotId, {action: 'delete_frame', frame_id: frameId});
+                if (r && r.status === 'ok') { toast('已删除'); setTimeout(fetchShots, 1200); }
+                else toast(r && r.message || '操作失败', true);
                 return;
+            }
             case 'toggle-expand':
                 if (isExpanded(shotId)) collapseAnimated(shotId);
                 else expandAnimated(shotId);
@@ -134,27 +137,34 @@ async function menuAction(action) {
         case 'open':
             openShot(shotId);
             break;
-        case 'rerender':
-            await postShotAction(shotId, {action: 'rerender'});
-            toast('已排队重渲染');
+        case 'rerender': {
+            const r = await postShotAction(shotId, {action: 'rerender'});
+            if (r && r.status === 'ok') toast('已排队重渲染');
+            else toast(r && r.message || '操作失败', true);
             break;
+        }
         case 'rename':
             startRename(null, shotId);
             break;
-        case 'duplicate':
-            await postShotAction(shotId, {action: 'duplicate'});
-            toast('已排队复制');
+        case 'duplicate': {
+            const r = await postShotAction(shotId, {action: 'duplicate'});
+            if (r && r.status === 'ok') toast('已排队复制');
+            else toast(r && r.message || '操作失败', true);
             break;
-        case 'delete':
+        }
+        case 'delete': {
             // v0.8.2：软删除不再确认（进垃圾桶可恢复）
-            await postShotAction(shotId, {action: 'delete'});
-            state.selectedIds.delete(shotId);
-            fetchShots();
+            const r = await postShotAction(shotId, {action: 'delete'});
+            if (r && r.status === 'ok') { state.selectedIds.delete(shotId); fetchShots(); }
+            else toast(r && r.message || '删除失败', true);
             break;
-        case 'batch-duplicate':
-            await postBatch('duplicate', batchIds);
-            toast(`已排队复制 ${batchIds.length} 个镜头`);
+        }
+        case 'batch-duplicate': {
+            const r = await postBatch('duplicate', batchIds);
+            if (r && r.status === 'ok') toast(`已排队复制 ${batchIds.length} 个镜头`);
+            else toast(r && r.message || '操作失败', true);
             break;
+        }
         case 'batch-expand':
             // v0.9.0 多选批量展开：只展开未展开的多图镜头（v0.9.1 与 batch-collapse 独立并存）
             {
@@ -175,46 +185,50 @@ async function menuAction(action) {
                 }
             }
             break;
-        case 'batch-rerender':
-            await postBatch('rerender', batchIds);
-            toast(`已排队重渲染 ${batchIds.length} 个镜头`);
+        case 'batch-rerender': {
+            const r = await postBatch('rerender', batchIds);
+            if (r && r.status === 'ok') toast(`已排队重渲染 ${batchIds.length} 个镜头`);
+            else toast(r && r.message || '操作失败', true);
             break;
-        case 'batch-rename':
-            await postBatch('rename_seq', batchIds);
-            toast(`已排队重命名 ${batchIds.length} 个镜头（c 系递增）`);
-            setTimeout(fetchShots, 1500);
+        }
+        case 'batch-rename': {
+            const r = await postBatch('rename_seq', batchIds);
+            if (r && r.status === 'ok') { toast(`已排队重命名 ${batchIds.length} 个镜头（c 系递增）`); setTimeout(fetchShots, 1500); }
+            else toast(r && r.message || '操作失败', true);
             break;
-        case 'batch-delete':
+        }
+        case 'batch-delete': {
             // v0.8.2：批量软删除不再确认（进垃圾桶可恢复）
-            await postBatch('delete', batchIds);
-            toast(`已删除 ${batchIds.length} 个镜头（垃圾桶可恢复）`);
-            clearSelection();
-            fetchShots();
+            const r = await postBatch('delete', batchIds);
+            if (r && r.status === 'ok') { toast(`已删除 ${batchIds.length} 个镜头（垃圾桶可恢复）`); clearSelection(); fetchShots(); }
+            else toast(r && r.message || '删除失败', true);
             break;
+        }
         // ---- 垃圾桶模式操作 (#3) ----
-        case 'restore':
-            await postShotAction(shotId, {action: 'restore'});
-            toast(`已恢复 ${shot ? shot.name : ''}`);
-            fetchShots(true);
+        case 'restore': {
+            const r = await postShotAction(shotId, {action: 'restore'});
+            if (r && r.status === 'ok') { toast(`已恢复 ${shot ? shot.name : ''}`); fetchShots(true); }
+            else toast(r && r.message || '恢复失败', true);
             break;
+        }
         case 'purge':
             if (shot && await askConfirm(`彻底删除 ${shot.name}？不可恢复。`)) {
-                await postShotAction(shotId, {action: 'purge'});
-                state.selectedIds.delete(shotId);
-                fetchShots(true);
+                const r = await postShotAction(shotId, {action: 'purge'});
+                if (r && r.status === 'ok') { state.selectedIds.delete(shotId); fetchShots(true); }
+                else toast(r && r.message || '删除失败', true);
             }
             break;
-        case 'batch-restore':
-            await postBatch('restore', batchIds);
-            toast(`已恢复 ${batchIds.length} 个镜头`);
-            clearSelection();
-            fetchShots(true);
+        case 'batch-restore': {
+            const r = await postBatch('restore', batchIds);
+            if (r && r.status === 'ok') { toast(`已恢复 ${batchIds.length} 个镜头`); clearSelection(); fetchShots(true); }
+            else toast(r && r.message || '恢复失败', true);
             break;
+        }
         case 'batch-purge':
             if (await askConfirm(`彻底删除 ${batchIds.length} 个镜头？不可恢复。`)) {
-                await postBatch('purge', batchIds);
-                clearSelection();
-                fetchShots(true);
+                const r = await postBatch('purge', batchIds);
+                if (r && r.status === 'ok') { clearSelection(); fetchShots(true); }
+                else toast(r && r.message || '删除失败', true);
             }
             break;
     }

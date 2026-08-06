@@ -693,6 +693,19 @@
             z-index: 950;
             box-shadow: 0 4px 16px rgba(0,0,0,.5);
         }
+        /* v0.9.5 弹簧动画：开 = 弹入（translateY+scale overshoot），关 = 先弹走再隐藏 */
+        .shortcuts-panel { transform-origin: bottom right; }
+        .shortcuts-panel.panel-in { animation: sc-spring-in .28s cubic-bezier(.34,1.56,.64,1); }
+        .shortcuts-panel.panel-out { animation: sc-spring-out .18s ease-in forwards; pointer-events: none; }
+        @keyframes sc-spring-in {
+            0% { transform: translateY(12px) scale(.96); opacity: 0; }
+            60% { transform: translateY(-2px) scale(1.01); opacity: 1; }
+            100% { transform: translateY(0) scale(1); opacity: 1; }
+        }
+        @keyframes sc-spring-out {
+            0% { transform: translateY(0) scale(1); opacity: 1; }
+            100% { transform: translateY(8px) scale(.97); opacity: 0; }
+        }
         .shortcuts-panel .sc-title { font-size: 13px; font-weight: 700; color: #e0e0e0; margin-bottom: 8px; }
         .sc-row {
             display: flex;
@@ -721,15 +734,27 @@
         .preview-panel {
             position: fixed;
             top: var(--header-h);
-            bottom: 0;
+            bottom: 100px;  /* v0.9.5：底部留白避开常驻组件（右下 statsBadge/快捷键按钮、左下工具条） */
             width: var(--preview-w);
             display: flex;
             flex-direction: column;
             background: #1e1e20;
             z-index: 850;
         }
-        .preview-panel.side-right { right: 16px; border-left: 1px solid #333; }
-        .preview-panel.side-left { left: 16px; border-right: 1px solid #333; }
+        .preview-panel.side-right { right: 16px; border-left: 1px solid #333; transform-origin: right center; }
+        .preview-panel.side-left { left: 16px; border-right: 1px solid #333; transform-origin: left center; }
+        /* v0.9.5 弹簧动画：开 = 弹入（scale .92→1.015→1 overshoot），关 = 先弹走再隐藏 */
+        .preview-panel.panel-in { animation: preview-spring-in .32s cubic-bezier(.34,1.56,.64,1); }
+        .preview-panel.panel-out { animation: preview-spring-out .2s ease-in forwards; pointer-events: none; }
+        @keyframes preview-spring-in {
+            0% { transform: scale(.92); opacity: .4; }
+            60% { transform: scale(1.015); opacity: 1; }
+            100% { transform: scale(1); opacity: 1; }
+        }
+        @keyframes preview-spring-out {
+            0% { transform: scale(1); opacity: 1; }
+            100% { transform: scale(.92); opacity: 0; }
+        }
         /* 拖拽调宽手柄：贴在预览框与 grid 交界侧，伸到边框外 3px 便于抓取 */
         .preview-resize {
             position: absolute;
@@ -781,6 +806,24 @@
             flex-shrink: 0;
         }
         .preview-flip:hover { background: #444; }
+        .preview-head-btns {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            flex-shrink: 0;
+        }
+        .preview-close {
+            background: #333;
+            border: none;
+            color: #e0e0e0;
+            border-radius: 4px;
+            padding: 4px 9px;
+            font-size: 12px;
+            line-height: 1;
+            cursor: pointer;
+            flex-shrink: 0;
+        }
+        .preview-close:hover { background: #c0392b; color: #fff; }
         .preview-body {
             flex: 1;
             min-height: 0;

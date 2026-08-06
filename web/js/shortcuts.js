@@ -4,6 +4,7 @@ import { SHORTCUTS } from './keyboard.js';
 
 const btn = document.getElementById('shortcutsBtn');
 const panel = document.getElementById('shortcutsPanel');
+let closeTimer = null;  // 关闭动画计时器（v0.9.5 弹簧动画）
 
 function render() {
     panel.innerHTML = '<div class="sc-title">快捷键</div>' + SHORTCUTS.map(s =>
@@ -11,20 +12,36 @@ function render() {
     ).join('');
 }
 
+// 弹簧动画（v0.9.5）：打开 = 弹入（translateY+scale overshoot）；关闭 = 先弹走再隐藏
+function open() {
+    if (closeTimer) { clearTimeout(closeTimer); closeTimer = null; }
+    panel.classList.remove('panel-out');
+    panel.style.display = 'block';
+    panel.classList.remove('panel-in');
+    void panel.offsetWidth;  // 强制 reflow，重启动画
+    panel.classList.add('panel-in');
+    btn.classList.add('active');
+}
+
 function close() {
-    panel.style.display = 'none';
+    if (panel.style.display === 'none' || panel.classList.contains('panel-out')) return;
     btn.classList.remove('active');
+    panel.classList.remove('panel-in');
+    panel.classList.add('panel-out');
+    closeTimer = setTimeout(() => {
+        closeTimer = null;
+        panel.style.display = 'none';
+        panel.classList.remove('panel-out');
+    }, 180);  // 匹配 .panel-out 动画时长
 }
 
 export function initShortcutsHelp() {
     if (!btn || !panel) return;
     render();
     btn.addEventListener('click', () => {
-        if (panel.style.display === 'block') close();
-        else {
-            panel.style.display = 'block';
-            btn.classList.add('active');
-        }
+        if (panel.classList.contains('panel-out')) open();       // 关闭动画中再点 = 重新打开
+        else if (panel.style.display === 'block') close();
+        else open();
     });
     // 点击外部关闭（按钮自身排除；stopPropagation 不必要——document 监听会判断目标）
     document.addEventListener('click', (e) => {

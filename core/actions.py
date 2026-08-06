@@ -19,6 +19,26 @@ from core.db import (
 )
 from core.paths import shot_dir
 
+# v0.9.6 镜头名白名单：防路径穿越（.. / \ : * ? " < > |）+ Windows 保留名
+_INVALID_NAME_CHARS = re.compile(r'[\\/:*?"<>|\x00-\x1f]')
+_WIN_RESERVED = {"CON", "PRN", "AUX", "NUL",
+                 *(f"COM{i}" for i in range(1, 10)),
+                 *(f"LPT{i}" for i in range(1, 10))}
+
+def _valid_shot_name(name):
+    """校验镜头名可安全用作目录名/场景名。返回 (ok, reason)。"""
+    if not name or not isinstance(name, str):
+        return False, "name required"
+    if _INVALID_NAME_CHARS.search(name):
+        return False, "name contains illegal characters"
+    if ".." in name:
+        return False, "name contains '..'"
+    if name.strip() != name or name.endswith("."):
+        return False, "name has leading/trailing space or trailing dot"
+    if name.upper() in _WIN_RESERVED:
+        return False, "name is a Windows reserved name"
+    return True, ""
+
 
 def _queue(command, params):
     """Queue a command, always resolving core.queue fresh from sys.modules.
@@ -147,7 +167,12 @@ def _trash_one(project_dir, db_path, shot):
     Returns the undo entry that would restore it."""
     trash_scene = f"__trash__{shot['scene_name']}"
     update_shot(db_path, shot["id"], deleted=1, scene_name=trash_scene)
-    _queue("trash_shot", {"scene_name": shot["scene_name"], "trash_scene_name": trash_scene})
+    try:
+        _queue("trash_shot", {"scene_name": shot["scene_name"], "trash_scene_name": trash_scene})
+    except Exception:
+        # v0.9.6：queue 失败回滚 DB（否则 DB 说已删但场景没改名，状态分裂）
+        update_shot(db_path, shot["id"], deleted=0, scene_name=shot["scene_name"])
+        raise
     return {
         "db": [(shot["id"], {"deleted": 0, "scene_name": shot["scene_name"]})],
         "queue": [("restore_shot", {"trash_scene_name": trash_scene,
@@ -158,6 +183,9 @@ def create_shot_action(project_dir, db_path, data):
     name = data.get("name") or next_c_name(db_path)
     if name_exists(db_path, name):
         return {"status": "error", "message": f"name taken: {name}"}, 409
+    ok, reason = _valid_shot_name(name)  # v0.9.6：非法名拒绝（路径穿越/非法字符会炸 makedirs）
+    if not ok:
+        return {"status": "error", "message": f"invalid name: {reason}"}, 400
     scene_name = f"Shot_{name}"
     shot_id = create_shot(db_path, name, scene_name,
                           camera=f"Cam_{name}",
@@ -189,6 +217,10 @@ def create_image_shots_action(project_dir, db_path, data):
         name = item.get("name") or next_c_name(db_path)
         if name_exists(db_path, name):
             results.append({"name": name, "status": "error", "message": "name taken"})
+            continue
+        ok, reason = _valid_shot_name(name)  # v0.9.6：非法名拒绝
+        if not ok:
+            results.append({"name": name, "status": "error", "message": f"invalid name: {reason}"})
             continue
         scene_name = f"Shot_{name}"
         shot_id = create_shot(db_path, name, scene_name,
@@ -416,6 +448,9 @@ def shot_action(project_dir, db_path, shot_id, data):
             return {"status": "ok", "message": "unchanged"}, 200
         if name_exists(db_path, new_name, exclude_id=shot_id):
             return {"status": "error", "message": f"name taken: {new_name}"}, 409
+        ok, reason = _valid_shot_name(new_name)  # v0.9.6：非法名拒绝（rename 四层联动含目录改名）
+        if not ok:
+            return {"status": "error", "message": f"invalid name: {reason}"}, 400
         _queue("rename_shot", {
             "shot_id": shot_id,
             "old_name": shot["name"],
@@ -465,10 +500,15 @@ def shot_action(project_dir, db_path, shot_id, data):
         if name_exists(db_path, shot["name"], exclude_id=shot_id):
             return {"status": "error", "message": f"name taken: {shot['name']}"}, 409
         update_shot(db_path, shot_id, deleted=0, scene_name=orig_scene)
-        _queue("restore_shot", {
-            "trash_scene_name": shot["scene_name"],
-            "scene_name": orig_scene,
-        })
+        try:
+            _queue("restore_shot", {
+                "trash_scene_name": shot["scene_name"],
+                "scene_name": orig_scene,
+            })
+        except Exception:
+            # v0.9.6：queue 失败回滚 DB（否则 DB 说已恢复但场景没改回来）
+            update_shot(db_path, shot_id, deleted=1, scene_name=shot["scene_name"])
+            raise
         # Restoring is itself undoable (inverse = trash it again)
         undo.push(f"恢复 {shot['name']}", {
             "db": [(shot_id, {"deleted": 1, "scene_name": shot["scene_name"]})],
@@ -480,12 +520,20 @@ def shot_action(project_dir, db_path, shot_id, data):
     elif action == "purge":
         # Permanent delete from the trash bin — NOT undoable
         delete_shot(db_path, shot_id)
-        _queue("delete_shot", {
-            "scene_name": shot["scene_name"],
-            "shot_name": shot["name"],
-            "shot_id": shot_id,
-            "project_dir": project_dir,
-        })
+        try:
+            _queue("delete_shot", {
+                "scene_name": shot["scene_name"],
+                "shot_name": shot["name"],
+                "shot_id": shot_id,
+                "project_dir": project_dir,
+            })
+        except Exception:
+            # v0.9.6：queue 失败回滚 DB（否则 DB 已删但场景还在，孤儿场景）
+            from core.db import create_shot as _re_create
+            _re_create(db_path, shot["name"], shot["scene_name"],
+                       camera=shot.get("camera", ""), duration=shot.get("duration", 2.0),
+                       shot_id=shot_id)
+            raise
         return {"status": "ok"}, 200
 
     elif action == "open":

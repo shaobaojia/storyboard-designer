@@ -46,6 +46,18 @@ CREATE INDEX IF NOT EXISTS idx_frames_shot ON frames(shot_id);
 """
 
 
+from contextlib import contextmanager
+
+@contextmanager
+def _db(db_path):
+    """v0.9.6：统一连接的 try/finally 关闭（任何 SQL 异常都不泄漏连接/悬挂事务）。"""
+    conn = sqlite3.connect(db_path)
+    try:
+        yield conn
+    finally:
+        conn.close()
+
+
 def _bump_rev(conn):
     """Every mutation bumps the global revision counter (meta.rev).
 
@@ -169,18 +181,17 @@ def create_shot(db_path, name, scene_name, camera="", duration=2.0, shot_id=None
     shot_id = shot_id or str(uuid.uuid4())[:8]
     now = datetime.now().isoformat()
 
-    conn = sqlite3.connect(db_path)
-    # Get next seq
-    cursor = conn.execute("SELECT COALESCE(MAX(seq), 0) + 1 FROM shots")
-    seq = cursor.fetchone()[0]
+    with _db(db_path) as conn:
+        # Get next seq
+        cursor = conn.execute("SELECT COALESCE(MAX(seq), 0) + 1 FROM shots")
+        seq = cursor.fetchone()[0]
 
-    conn.execute(
-        "INSERT INTO shots (id, seq, name, scene_name, camera, duration, notes, still_path, thumb_path, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        (shot_id, seq, name, scene_name, camera, duration, "", "", "", now)
-    )
-    _bump_rev(conn)
-    conn.commit()
-    conn.close()
+        conn.execute(
+            "INSERT INTO shots (id, seq, name, scene_name, camera, duration, notes, still_path, thumb_path, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (shot_id, seq, name, scene_name, camera, duration, "", "", "", now)
+        )
+        _bump_rev(conn)
+        conn.commit()
     return shot_id
 
 
@@ -205,23 +216,21 @@ def update_shot(db_path, shot_id, **kwargs):
     set_clause = ", ".join(set_parts)
     values.append(shot_id)
 
-    conn = sqlite3.connect(db_path)
-    conn.execute(f"UPDATE shots SET {set_clause} WHERE id = ?", values)
-    _bump_rev(conn)
-    conn.commit()
-    conn.close()
+    with _db(db_path) as conn:
+        conn.execute(f"UPDATE shots SET {set_clause} WHERE id = ?", values)
+        _bump_rev(conn)
+        conn.commit()
     return True
 
 
 def delete_shot(db_path, shot_id):
     """Delete a shot record. Frames rows go first — SQLite FK 默认不启用、
     没有级联，不删就会留下孤儿帧（v0.7.0 接手审计发现）。"""
-    conn = sqlite3.connect(db_path)
-    conn.execute("DELETE FROM frames WHERE shot_id = ?", (shot_id,))
-    conn.execute("DELETE FROM shots WHERE id = ?", (shot_id,))
-    _bump_rev(conn)
-    conn.commit()
-    conn.close()
+    with _db(db_path) as conn:
+        conn.execute("DELETE FROM frames WHERE shot_id = ?", (shot_id,))
+        conn.execute("DELETE FROM shots WHERE id = ?", (shot_id,))
+        _bump_rev(conn)
+        conn.commit()
 
 
 def get_shot(db_path, shot_id):
@@ -287,12 +296,11 @@ def reorder_shots(db_path, shot_ids):
     """Reorder shots by given id list. Updates seq only — NOT updated_at
     (a reorder is not a content edit; bumping updated_at used to rebuild
     every card and reload every thumbnail on the web side)."""
-    conn = sqlite3.connect(db_path)
-    for idx, shot_id in enumerate(shot_ids, start=1):
-        conn.execute("UPDATE shots SET seq = ? WHERE id = ?", (idx, shot_id))
-    _bump_rev(conn)
-    conn.commit()
-    conn.close()
+    with _db(db_path) as conn:
+        for idx, shot_id in enumerate(shot_ids, start=1):
+            conn.execute("UPDATE shots SET seq = ? WHERE id = ?", (idx, shot_id))
+        _bump_rev(conn)
+        conn.commit()
 
 
 # ---------- frames (multi-image shots) ----------
@@ -303,21 +311,19 @@ MAX_FRAMES_PER_SHOT = 5
 def add_frame(db_path, shot_id, frame_no, image_path=None, is_cover=False, frame_id=None):
     """Add a frame to a shot. Enforces the 5-frame cap. Returns frame id.
     Raises ValueError if the shot already has MAX_FRAMES_PER_SHOT frames."""
-    conn = sqlite3.connect(db_path)
-    count = conn.execute("SELECT COUNT(*) FROM frames WHERE shot_id = ?",
-                         (shot_id,)).fetchone()[0]
-    if count >= MAX_FRAMES_PER_SHOT:
-        conn.close()
-        raise ValueError(f"shot already has {MAX_FRAMES_PER_SHOT} frames (cap)")
-    frame_id = frame_id or str(uuid.uuid4())[:8]
-    now = datetime.now().isoformat()
-    conn.execute(
-        "INSERT INTO frames (id, shot_id, frame_no, image_path, is_cover, updated_at) "
-        "VALUES (?, ?, ?, ?, ?, ?)",
-        (frame_id, shot_id, frame_no, image_path, 1 if is_cover else 0, now))
-    _bump_rev(conn)
-    conn.commit()
-    conn.close()
+    with _db(db_path) as conn:
+        count = conn.execute("SELECT COUNT(*) FROM frames WHERE shot_id = ?",
+                             (shot_id,)).fetchone()[0]
+        if count >= MAX_FRAMES_PER_SHOT:
+            raise ValueError(f"shot already has {MAX_FRAMES_PER_SHOT} frames (cap)")
+        frame_id = frame_id or str(uuid.uuid4())[:8]
+        now = datetime.now().isoformat()
+        conn.execute(
+            "INSERT INTO frames (id, shot_id, frame_no, image_path, is_cover, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (frame_id, shot_id, frame_no, image_path, 1 if is_cover else 0, now))
+        _bump_rev(conn)
+        conn.commit()
     return frame_id
 
 
@@ -337,21 +343,19 @@ def update_frame(db_path, frame_id, **kwargs):
     if "image_path" in updates:
         set_clause += ", ver = COALESCE(ver, 0) + 1"
     values.append(frame_id)
-    conn = sqlite3.connect(db_path)
-    conn.execute(f"UPDATE frames SET {set_clause} WHERE id = ?", values)
-    _bump_rev(conn)
-    conn.commit()
-    conn.close()
+    with _db(db_path) as conn:
+        conn.execute(f"UPDATE frames SET {set_clause} WHERE id = ?", values)
+        _bump_rev(conn)
+        conn.commit()
     return True
 
 
 def delete_frame(db_path, frame_id):
     """Delete a frame record (caller's job to remove the disk file)."""
-    conn = sqlite3.connect(db_path)
-    conn.execute("DELETE FROM frames WHERE id = ?", (frame_id,))
-    _bump_rev(conn)
-    conn.commit()
-    conn.close()
+    with _db(db_path) as conn:
+        conn.execute("DELETE FROM frames WHERE id = ?", (frame_id,))
+        _bump_rev(conn)
+        conn.commit()
 
 
 def get_frames(db_path, shot_id):
@@ -378,11 +382,10 @@ def get_all_frames(db_path):
 
 def set_cover_frame(db_path, shot_id, frame_id):
     """Mark one frame as the cover (clears the flag on all siblings)."""
-    conn = sqlite3.connect(db_path)
-    now = datetime.now().isoformat()
-    conn.execute("UPDATE frames SET is_cover = 0 WHERE shot_id = ?", (shot_id,))
-    conn.execute("UPDATE frames SET is_cover = 1, updated_at = ? WHERE id = ?",
-                 (now, frame_id))
-    _bump_rev(conn)
-    conn.commit()
-    conn.close()
+    with _db(db_path) as conn:
+        now = datetime.now().isoformat()
+        conn.execute("UPDATE frames SET is_cover = 0 WHERE shot_id = ?", (shot_id,))
+        conn.execute("UPDATE frames SET is_cover = 1, updated_at = ? WHERE id = ?",
+                     (now, frame_id))
+        _bump_rev(conn)
+        conn.commit()

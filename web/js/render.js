@@ -1,6 +1,9 @@
 // 渲染：宫格/列表两种视图 + FLIP 动效 + DOM 差分 + 骨架屏首屏门控
 import { state, grid } from './state.js';
 
+// v0.9.6：XSS 防护——所有用户数据插 innerHTML 前统一过 esc（search.js 已有同款，此处补主渲染路径）
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
+
 // 差分键：只放"内容字段"。updated_at 故意不在里面——排序/改文本不该重建卡片；
 // 图片是否重载由 thumb_ver 独立决定（只有拍屏完成才递增）
 const KEY_FIELDS = ['name', 'duration', 'content', 'dialogue', 'thumb_ver'];
@@ -29,7 +32,7 @@ function screenCardCount(screens) {
 function thumbImgHtml(shot, eager) {
     const load = eager ? 'eager' : 'lazy';
     return shot.thumb_path
-        ? `<img class="shot-thumb" draggable="false" src="/shots/${shot.name}_${shot.id}/thumb.jpg?v=${shot.thumb_ver || 0}" loading="${load}" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%22320%22 height=%22180%22><rect fill=%22%23333%22 width=%22320%22 height=%22180%22/><text fill=%22%23666%22 x=%2250%25%22 y=%2250%25%22 text-anchor=%22middle%22>No image</text></svg>'">`
+        ? `<img class="shot-thumb" draggable="false" src="/shots/${encodeURIComponent(shot.name)}_${shot.id}/thumb.jpg?v=${shot.thumb_ver || 0}" loading="${load}" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%22320%22 height=%22180%22><rect fill=%22%23333%22 width=%22320%22 height=%22180%22/><text fill=%22%23666%22 x=%2250%25%22 y=%2250%25%22 text-anchor=%22middle%22>No image</text></svg>'">`
         : `<div class="shot-thumb" style="display:flex;align-items:center;justify-content:center;color:#666;">No render</div>`;
 }
 
@@ -131,7 +134,7 @@ function buildExpandedCards(shot, eager) {
                 ${f.isCover ? `<div class="cover-chip">封面</div>` : ''}${first ? `<button class="stack-badge expanded-badge" onclick="window.__sb.toggleListMulti('${shot.id}');event.stopPropagation();" title="折叠">${frames.length}</button>` : ''}
                 ${last ? '<button class="collapse-btn" title="折叠" data-action="collapse">◀</button>' : ''}
                 <div class="shot-info">
-                    ${first ? `<div class="shot-name" data-field="name">${shot.name}</div>` : `<div class="frame-no">f${f.frame_no}</div>`}
+                    ${first ? `<div class="shot-name" data-field="name">${esc(shot.name)}</div>` : `<div class="frame-no">f${f.frame_no}</div>`}
                     ${first ? `<div class="shot-meta cell-edit" data-field="duration">${shot.duration.toFixed(1)}s</div>` : ''}
                 </div>
             </div>`;
@@ -275,10 +278,10 @@ function buildCard(shot, eager) {
                     ${thumbHtml}
                     ${framesOverlay}
                 </div>
-                <div class="shot-name" data-field="name">${shot.name}${expanded ? '' : multiBadge}</div>
+                <div class="shot-name" data-field="name">${esc(shot.name)}${expanded ? '' : multiBadge}</div>
                 <div class="shot-meta cell-edit" data-field="duration">${shot.duration.toFixed(1)}s</div>
-                <div class="cell-text cell-edit ${content ? '' : 'empty'}" data-field="content">${content || '内容…'}</div>
-                <div class="cell-text cell-edit ${dialogue ? '' : 'empty'}" data-field="dialogue">${dialogue || '台词…'}</div>
+                <div class="cell-text cell-edit ${content ? '' : 'empty'}" data-field="content">${esc(content) || '内容…'}</div>
+                <div class="cell-text cell-edit ${dialogue ? '' : 'empty'}" data-field="dialogue">${esc(dialogue) || '台词…'}</div>
                 <div class="shot-updated">${updated}</div>
             </div>`;
     } else {
@@ -292,7 +295,7 @@ function buildCard(shot, eager) {
                 <div class="shot-card multi ${sel}" draggable="false" data-id="${shot.id}">
                     ${stackHtml(shot, eager)}
                     <div class="shot-info">
-                        <div class="shot-name" data-field="name">${shot.name}</div>
+                        <div class="shot-name" data-field="name">${esc(shot.name)}</div>
                         <div class="shot-meta cell-edit" data-field="duration">${shot.duration.toFixed(1)}s</div>
                     </div>
                 </div>`;
@@ -306,7 +309,7 @@ function buildCard(shot, eager) {
                 <div class="shot-card ${sel}" draggable="false" data-id="${shot.id}">
                     ${coverImgHtml}
                     <div class="shot-info">
-                        <div class="shot-name" data-field="name">${shot.name}</div>
+                        <div class="shot-name" data-field="name">${esc(shot.name)}</div>
                         <div class="shot-meta cell-edit" data-field="duration">${shot.duration.toFixed(1)}s</div>
                     </div>
                 </div>`;

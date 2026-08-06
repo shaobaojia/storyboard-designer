@@ -120,10 +120,12 @@ export function initKeyboard() {
                 const shotId = cell ? cell.dataset.id : null;
                 if (shotId) {
                     const frameNo = focused.dataset.frameNo;
-                    await postShotAction(shotId, {action: 'delete_frame', frame_id: state.focusedFrameId});
-                    state.focusedFrameId = null;
-                    toast(`已删除帧 f${frameNo}`);
-                    setTimeout(fetchShots, 1200);
+                    const r = await postShotAction(shotId, {action: 'delete_frame', frame_id: state.focusedFrameId});
+                    if (r && r.status === 'ok') {
+                        state.focusedFrameId = null;
+                        toast(`已删除帧 f${frameNo}`);
+                        setTimeout(fetchShots, 1200);
+                    } else toast(r && r.message || '删除失败', true);
                     return;
                 }
             }
