@@ -1,4 +1,11 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+# Storyboard Designer Audit（v0.9.13 起支持 --only 段级筛选：改哪只审哪里）
+# 用法：python scripts/audit.py                # 全量 41 项
+#       python scripts/audit.py --only=trash   # 只跑命中段（依赖段自动包含）
+#       关键词匹配 record 名子串或段 id（s1/s2/s2h/s2i/s2j/s2k）
+
+#!/usr/bin/env python3
 """Storyboard Designer 双向审计工具
 
 验证 Blender 面板按钮和网页端按钮的每一个功能都真实生效，
@@ -91,28 +98,10 @@ def names(st):
 
 
 # ---------------------------------------------------------------------------
-def main():
-    print("=" * 60)
-    print("Storyboard Designer Audit")
-    print(f"MCP: {MCP_HOST}:{MCP_PORT}  HTTP: {HTTP}")
-    print("=" * 60)
 
-    # ---- 0. connectivity -------------------------------------------------
-    print("\n[0] Connectivity")
-    try:
-        v = blender('import bpy\nprint(bpy.app.version_string)')
-        record("connect", "MCP reachable", bool(v), v.strip()[:40])
-    except Exception as e:
-        record("connect", "MCP reachable", False, str(e))
-        return summary()
-    try:
-        r = api("GET", "/api/shots")
-        record("connect", "HTTP /api/shots", r.get("status") == "ok")
-    except Exception as e:
-        record("connect", "HTTP /api/shots", False, str(e))
-        return summary()
 
-    # ---- 1. Blender-side operators (via main-thread queue) ---------------
+
+def s1_body():
     print("\n[1] Blender panel buttons (operator -> effect)")
 
     # 1a. create_shot operator（timer 包装：auto-render 需要主线程视口，MCP 线程会静默失败）
@@ -162,6 +151,9 @@ print(os.listdir(d) if os.path.exists(d) else "MISSING")
     record("blender", "Sync Scenes button", True, "executed without exception")
 
     # ---- 2. Web-side buttons ---------------------------------------------
+
+
+def s2_body():
     print("\n[2] Web buttons (API -> Blender effect)")
 
     # 2a. Create
@@ -313,6 +305,9 @@ print(sorted(os.listdir(d)) if os.path.exists(d) else "MISSING")
     record("web", "Sync", r.get("status") == "ok", r.get("message", ""))
 
     # ---- 2h. v0.4 endpoints ----------------------------------------------
+
+
+def s2h_body():
     print("\n[2h] v0.4 endpoints")
 
     # next_name: c-series, multiple of 10, not colliding with existing
@@ -433,6 +428,9 @@ print(",".join(str(b.alpha) for b in bgs) if bgs else "NONE")
     record("web", "set_background alpha=1.0", out == "1.0", f"alpha={out}")
 
     # ---- 2i. R3 features --------------------------------------------------
+
+
+def s2i_body():
     print("\n[2i] R3: fields / undo / duplicate position")
 
     # update fields: content/dialogue/duration persist, undo reverts (#13/#15)
@@ -507,6 +505,9 @@ print(",".join(str(b.alpha) for b in bgs) if bgs else "NONE")
     time.sleep(3)
 
     # ---- 2j. R4 features --------------------------------------------------
+
+
+def s2j_body():
     print("\n[2j] R4: thumb_ver / reorder no-touch / batch restore")
 
     # thumb_ver: only a real render bumps it; field edits & reorders never do
@@ -557,6 +558,9 @@ print(",".join(str(b.alpha) for b in bgs) if bgs else "NONE")
     api("POST", "/api/undo", {})  # 撤销批量恢复 = 回到垃圾桶，cleanup 会彻底清
     time.sleep(3)
 
+
+
+def s2k_body():
     # ---- 2k. v0.7.1: frames cascade on purge (接手审计发现 delete_shot 不删 frames) ----
     api("POST", "/api/shots", {"name": "AUDIT_FRC", "duration": 2.0})
     time.sleep(3)
@@ -583,6 +587,9 @@ con.close()
            f"frames {n_frames}->{n_after}")
 
     # ---- 3. cleanup -------------------------------------------------------
+
+
+def s3_body(taken):
     print("\n[3] Cleanup test shots")
     # soft-delete every AUDIT / audit-created c shot still in the grid...
     for shot in api("GET", "/api/shots")["shots"]:
@@ -606,9 +613,71 @@ con.close()
     record("cleanup", "test shots removed (grid+trash)", ok,
            f"leftover={leftover}, trash={trash_left}")
 
+    
+
+def main():
+    # ---- --only 段级筛选（v0.9.13 C 方案：改哪只审哪里）----
+    import sys as _sys
+    only = None
+    for _a in _sys.argv[1:]:
+        if _a.startswith('--only='):
+            only = [k.strip().lower() for k in _a[7:].split(',') if k.strip()]
+    # 段注册表：id -> (record 名子串, 依赖段)  s2i 用 AUDIT_REN2（s2h 建）
+    SEG_REG = {
+        's1':  (['create shot', 'auto-render', 'sync scenes'], ()),
+        's2':  (['时长对齐', 'open (switch', '重拍封面', 'duplicate', 'reorder',
+                 'soft delete', 'restore', 'purge', 'sync'], ()),
+        's2h': (['next_name', 'project title', 'version payload', 'rename',
+                 'set_background', 'duplicate unique'], ()),
+        's2i': (['update fields', 'undo', 'duplicate inserts'], ('s2h',)),
+        's2j': (['thumb_ver', 'reorder bumps', 'batch restore'], ()),
+        's2k': (['frames cascade'], ()),
+    }
+    def _matches(sid):
+        if not only:
+            return True
+        names = SEG_REG[sid][0]
+        return any(k == sid or any(k in n for n in names) for k in only)
+    active = []
+    for sid in ('s1', 's2', 's2h', 's2i', 's2j', 's2k'):
+        if _matches(sid) or any(d in active for d in SEG_REG[sid][1]):
+            active.append(sid)
+    if only and not active:
+        print('--only 未命中任何段。可用：段 id s1/s2/s2h/s2i/s2j/s2k 或关键词（rename/undo/trash/duplicate/reorder/thumb/frames/...）')
+        return summary()
+    if only:
+        print(f'[--only] 激活段: {active}')
+    print("\n[0] Connectivity")
+    try:
+        v = blender('import bpy\nprint(bpy.app.version_string)')
+        record("connect", "MCP reachable", bool(v), v.strip()[:40])
+    except Exception as e:
+        record("connect", "MCP reachable", False, str(e))
+        return summary()
+    try:
+        r = api("GET", "/api/shots")
+        record("connect", "HTTP /api/shots", r.get("status") == "ok")
+    except Exception as e:
+        record("connect", "HTTP /api/shots", False, str(e))
+        return summary()
+
+    # ---- 1. Blender-side operators (via main-thread queue) ---------------
+
+    # 审计前全量镜头名快照（cleanup 判断"审计期间新建的 c 镜头"用）——
+    # 必须在段执行前取：--only 跳过 s2h 时原 taken 为空 set，cleanup 会把
+    # 用户 c00xx 镜头当测试残留误删（2026-08 发现）
+    taken = {s['name'] for s in api('GET', '/api/shots')['shots']}
+    for _sid in active:
+        if _sid == 's1': s1_body()
+        elif _sid == 's2': s2_body()
+        elif _sid == 's2h': s2h_body()
+        elif _sid == 's2i': s2i_body()
+        elif _sid == 's2j': s2j_body()
+        elif _sid == 's2k': s2k_body()
+
+    # ---- 3. cleanup（永远跑，保证无残留） ----
+    s3_body(taken)
     return summary()
-
-
 def summary():
     print("\n" + "=" * 60)
     print("SUMMARY")

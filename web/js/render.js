@@ -282,32 +282,40 @@ export function startDlgEdit(e, shotId) {
     const shot = state.shots.find(s => s.id === shotId);
     if (!shot) return;
     let boxEl = grid.querySelector(`.dialogue-box[data-dlg-id="${shotId}"]`);
+    let newStrip = null;
     if (!boxEl) {
-        // v0.9.12：添加台词——无台词镜头还没有台词条，临时建一个，定位到台词条应在的
-        // 位置（卡片列 + 所在排排尾下方，与已添加台词的镜头一致）；提交后 renderGrid
-        // 归位为正式台词条，取消后 updateDialogue 按多余 box 淡出清理
+        // v0.9.13 所见即所得（用户拍板）：添加台词的那一刻就建正式父条、下一行
+        // FLIP 让位；提交后 renderGrid 对账直接复用父条+box = 台词固定原地；
+        // 取消后父条按多余淡出、布局由 renderGrid 的 FLIP 还原。
+        // （v0.9.12 曾用 absolute 浮层不占布局，提交后复用残留 inline top 掉 1545px）
         boxEl = makeDialogueBox(shotId);
         boxEl.style.width = dialogueWidthOf(shotId) + 'px';
         const card = grid.querySelector(`.shot-card[data-id="${shotId}"]`);
         if (card) {
             const rowTop = card.offsetTop;
             // 该排已有台词条（父条）→ 编辑框进父条，与其他台词框并排（同排多台词常态）
-            const strip = [...grid.querySelectorAll('.dialogue-strip:not(.dialogue-leave)')]
+            let strip = [...grid.querySelectorAll('.dialogue-strip:not(.dialogue-leave)')]
                 .find(s => s.previousElementSibling && s.previousElementSibling.offsetTop === rowTop);
             if (strip) {
                 strip.appendChild(boxEl);
                 boxEl.style.left = card.offsetLeft + 'px';
                 boxEl.style.top = '0px';
             } else {
-                // 无父条：定位到排尾下方（台词条应在的位置，与已添加台词的镜头一致）
+                // 无父条：立即建正式父条，插在该排最后格位后（台词条正式落点）
                 let last = card;
                 for (const c of grid.querySelectorAll('.shot-card')) {
                     if (c.offsetTop === rowTop && c.offsetLeft > last.offsetLeft) last = c;
                 }
-                const gap = parseFloat(getComputedStyle(grid).rowGap) || 12;
+                strip = makeDialogueRow();
+                newStrip = strip;
+                const oldRects = captureRects();          // 插入前捕获全页（让位 FLIP）
+                last.insertAdjacentElement('afterend', strip);
+                strip.appendChild(boxEl);
                 boxEl.style.left = card.offsetLeft + 'px';
-                boxEl.style.top = (last.offsetTop + last.offsetHeight + gap) + 'px';
-                grid.appendChild(boxEl);
+                boxEl.style.top = '0px';
+                strip.style.height = boxEl.offsetHeight + 'px';
+                fadeIn(strip);
+                animateFrom(oldRects);                    // 下一行让位动画
             }
         } else {
             grid.appendChild(boxEl);
@@ -327,6 +335,9 @@ export function startDlgEdit(e, shotId) {
         input.addEventListener(t, (ev) => ev.stopPropagation());
     });
     textEl.replaceWith(input);
+    // v0.9.13：新建父条（无父条排添加台词）高度跟实际编辑框走——input 比
+    // 台词文本矮（padding 1px vs 6px），量错高度会让提交后父条高突变
+    if (newStrip) newStrip.style.height = boxEl.offsetHeight + 'px';
     input.focus();
     input.select();
 

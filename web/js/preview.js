@@ -2,7 +2,7 @@
 // 丝滑原理：开关/切边只动 CSS（grid margin + --card-scale/--list-scale + __zoomApply），
 // 零 DOM 重建、零 renderGrid（除已展开镜头需重算底衬分段时）；列数保持、卡片等比缩放
 import { state } from './state.js';
-import { renderGrid } from './render.js';
+import { renderGrid, relocateDialogue } from './render.js';
 
 const GAP = 12;
 const panel = document.getElementById('previewPanel');
@@ -235,6 +235,10 @@ export function setPreview(on) {
                 // 精确还原开预览前的卡片尺寸（不经过 zoom 状态，避免列数漂移）
                 document.documentElement.style.setProperty('--card-min', savedMin);
                 savedMin = null;
+                // v0.9.13 修复：列宽还原后台词父条高/位置必须重算——开预览走
+                // __zoomApply（内部 relocateDialogue），关预览 savedMin 路径绕过 zoom，
+                // 父条会残留窄宽时的高度（实测窄宽 158px 残留到全宽，下一排被多推 72px）
+                relocateDialogue();
                 const sel = document.querySelector('.shot-card.selected');
                 if (sel) sel.scrollIntoView({ block: 'nearest' });
             } else if (window.__zoomApply) {

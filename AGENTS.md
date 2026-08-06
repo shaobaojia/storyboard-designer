@@ -1,7 +1,11 @@
 # AGENTS.md
 
 > 给下一个 Agent（或下一个自己）的交接备忘录。**收工推送前必须更新「刚做完 / 正在做 / 下一步 / 坑」四个字段。**
-## 刚做完（v0.9.9~0.9.12：宫格台词条系列重构，audit 41/41 + 右键菜单 12/12 + WebBridge 全交互回归）
+## 刚做完（v0.9.13：添加台词所见即所得 + 关预览父条高度修复 + 审计工具链降噪）
+
+1. **添加台词所见即所得**（render.js startDlgEdit，用户拍板）：点击「添加台词」那一刻**立即建正式父条**（插该排最后格位后）+ 下一行 FLIP 让位（复用 captureRects/animateFrom）；提交后 renderGrid 对账直接复用父条+box = **台词固定原地零位移**；Esc 取消父条淡出、布局 FLIP 还原。**顺带修掉 v0.9.12 遗留 bug**：临时 box 无父条分支的 inline top 残留（提交后复用进父条不清 top → 台词条掉到 1545+1545=3090px）
+2. **关预览父条高度残留修复**（preview.js setPreview）：关预览 savedMin 还原 --card-min 路径绕过 zoom apply → updateDialogue 不重算 → 父条残留窄宽高度（158px 残留，下一排被多推 72px）；修 = savedMin 分支补 `relocateDialogue()`
+3. **审计工具链降噪**（用户拍板 A+B+C）：`scripts/audit_run.py` 包装器——输出重定向 %TEMP% 日志 + 只回显 SUMMARY/FAIL（上下文 50~100K → <1K，MCP 端口自动探测，netstat GBK 解码）；`audit.py` 支持 `--only` 段级筛选（main 拆 8 段函数，依赖闭包 s2i→s2h，taken 快照移到审计前防 --only 误删用户 c 镜头，cleanup 永远跑）；子代理代跑模板见 skill
 
 1. **v0.9.9 同排合并父条**（render.js/style.css/main.js）：原"每台词镜头一条独立整行条"（同排 N 个台词镜头 = N 行条、台词被拆多行）→ **每个有台词的排一条父条**（grid-column:1/-1 占一行），父条内每台词镜头一个 box（absolute 定位，left = card.offsetLeft 对齐卡片列，父条 position:relative 作 containing block、高度 JS 显式设 = 最高 box）；无台词排不建父条。动画：新建 fade-in（.dialogue-in 播完摘类）、删除原地淡出（.dialogue-leave absolute 锁位脱离 grid 流，布局释放由 FLIP 吸收，淡完 remove）。**两个关键修复**：①**auto-placement 自锁**——旧父条未归位时干扰卡片排布 → row.last 算错 → 父条插错位置每轮自锁（reload 首帧永远对、一缩放就错）；修法 = updateDialogue 开头先把现有父条全部移到 grid 末尾（布局净化）再分组；②**box 多余判断全局化**（不属于任何排组才是真多余，先归位后删除——per-strip 判断会在 box 移到新父条前先判死 ghost，4 列缩放除首排外全清空）。对齐用 offsetLeft（grid 是 will-change:transform 的 offsetParent，零 reflow、FLIP 免疫）；FLIP 顺序修正：updateDialogue 挪到 animateFrom 之前（父条增删位移被同一轮 FLIP 吸收）
 2. **展开态台词条保留**（v0.9.9 用户要求"展开态台词不该消失"）：双锚点——分组锚 = 最后一个帧格（台词条落在展开区最后一行之后，无空洞）、对齐锚 = 第一个帧格（台词框左缘对齐展开区左缘）；v0.9.8 及以前展开态台词条消失（无主卡片直接跳过）
@@ -10,6 +14,7 @@
 5. **v0.9.12 卡片右键菜单台词功能**：卡片菜单加"编辑台词/添加台词"（无台词显示"添加"）+ "自动台词大小"勾选；台词框菜单去掉"台词"标题；**添加台词定位语义**：临时建 box（编辑框出现在台词条应在的位置）——该排已有父条 → 进父条与同排台词框并排；无父条 → 显式定位到排尾下方（last.offsetTop+offsetHeight+rowGap），提交后 renderGrid 归位、取消后按多余 box 淡出清理
 
 **历史轮次**（详情曾在本文件，已压缩；关键决策见「交互/设计约定」与「坑」）：
+- v0.9.13：添加台词所见即所得 / 关预览父条高度修复 / 审计 --only 段级筛选 + 降噪包装器（audit_run.py）
 - v0.9.9~0.9.12：宫格台词条系列（同排合并父条/展开态保留/每条独立宽度/右键菜单自动大小/卡片菜单添加台词）——v0.9.8 的台词能力（全局开关、双击就地编辑、隐藏规则、marquee 排除、cardKey 'D'）在重构中全部保留
 - v0.9.7：画幅比/分辨率设置（对话框 + 全 scene 应用 + 新镜头跟随 + 前端动态画幅 + 旧图 cover/letterbox 适配）
 - v0.9.6：预览框三件套 / 镜头名白名单 / 路径穿越 / body 上限 / delete 非原子回滚 / undo 锁 / DB 连接泄漏 / XSS esc / 拖拽回滚 / 假成功 toast
@@ -32,6 +37,7 @@
 
 ## 正在做
 
+- v0.9.13 已推：audit.py 重构后全量 41/41 已过（重启干净环境）；`--only` 实测（trash/s2i 只跑对应段 + cleanup 不误删用户镜头）待补——转换脚本 split_audit.py 在 hermes/tmp（非幂等，重跑需从备份恢复原始 audit.py）
 - v0.9.9~0.9.12 台词条系列全回归通过：audit 41/41 + 右键菜单 12/12 + WebBridge 交互回归（缩放档位/开关动画/双击编辑/拖宽持久化/展开态/菜单链路）——**两 audit 仍禁并行跑**（共享 DB 互清）
 - 幽灵场景累计 12 个 `__ghost_*`（第五轮 5 个 + 第七轮 7 个：c0050/c0100/c0230/c0340/c0480/c0560/c0970 等）待用户确认是否彻底删除（含 .blend 存盘防复活）；**反复出现说明 sync 自动对账（稳健性待办 7）值得优先做**
 - 测试现场：镜头数据已还原（78 个无残留，分辨率已回 1920×1080）；用户台词数据完整（c0020/c0130/c0250/c0330/c0120/c0380 + c0910，含用户手工调宽值 sb-dialogue-w-map）
@@ -137,6 +143,10 @@ CREATE INDEX IF NOT EXISTS idx_frames_shot ON frames(shot_id);
 
 ## 坑（已踩过的雷）
 
+- **v0.9.13：关预览父条高度残留**：setPreview(false) 的 savedMin 还原路径**绕过 zoom apply → relocateDialogue 漏调** → 父条残留窄宽时的高度（158px 残留，下一排被多推 72px）。修 = savedMin 分支补 relocateDialogue()。凡"绕过 zoom 直接改 CSS 变量"的路径都要检查父条重算
+- **v0.9.13：添加台词 inline top 残留**（v0.9.12 遗留）：临时 box 无父条分支设 `style.top=排尾+gap`（相对 grid 的 absolute 坐标），提交后 updateDialogue 复用 box 进父条（relative containing block）**不清 inline top** → 台词条掉到 1545+1545=3090px。修 = 立即建正式父条（box 直接 top:0 进父条，所见即所得）
+- **v0.9.13：audit.py 段拆分重构四坑**：①三引号字符串内部的行不能加缩进（blender() 代码原样传给 Blender 执行）；②s3 段必须剥掉原 main 的 `return summary()`（否则 SUMMARY 打两次）；③s0 段保持 main 顶层缩进（别掉进 `if only:` 块——无 --only 时 connectivity 静默不跑）；④**--only 的 taken 快照必须在段执行前取**（跳过 s2h 时为空 set，cleanup 会把用户 c00xx 镜头当测试残留误删）。转换脚本非幂等（重跑需从备份恢复原始 audit.py）
+- **WebBridge v1.11.5 CDP 无法产生 dblclick**（2026-08 实测六轮）：CDP 双击 4 变体 + 扩展 mouse_click 连点全不触发；合成 dblclick dispatch 也无效，但合成 mousedown/mouseup/click dispatch 到元素（bubbles）可达主世界。绕法：展开/折叠 = 单击选中+空格键（keyboard.js 需 selectedIds>=1）；编辑台词 = 右键菜单「编辑台词/添加台词」按钮（与 startDlgEdit 同函数）
 - **v0.9.6：Blender 拉起时 blend 路径必须用原生路径**：MSYS `$HOME` 在 `python -c` 里解析成 `/c/Users/...` 导致 `instances.json` 找不到，blend 变量为空，Blender 把当前目录当 blend 文件报 Permission denied。正确姿势：`cat` 原生路径给 python 读，或直接用 MSYS 路径 `/c/Users/...` 拼完整路径。BlenderMCP 端口：正常启动默认 9876（recover.py 的 9877 只在 recover 流程生效），9876 被 Clash 内核 verge-mihomo 抢占时才需要 recover.py 改 9877——先 `netstat -ano | findstr :9876` 看是不是 Blender 自己绑的。
 - **Windows 双 Blender 实例端口劫持**：`socketserver` 默认 `allow_reuse_address=True`，在 Windows 上 SO_REUSEADDR 语义 = 允许第二个进程绑同一端口——两个 Blender 都"成功"监听 8089/9876，连接被随机分流，表现为服务间歇性假死、curl 空响应、MCP 超时，进程却活得好好的。解法：独占绑定 + 启动顺延扫端口（v0.4.0 起 8089→8090→…）。排查先 `netstat -ano | findstr :8089` 看是否有多个 PID 绑同一端口。**注意 BlenderMCP 插件（9876）没做同样处理，多开时 9876 仍会双绑**——MCP 调试前先确认只有一个实例，或以 `netstat` 里最新绑定的 PID 为准。
 - **直接 MCP 删场景会崩 Blender**：`bpy.data.scenes.remove(s)` 与插件 queue 定时器并发时（拍屏/遍历场景中途场景没了）Blender 4.5 整个进程闪退。测试要制造孤儿镜头用**改名场景**（`s.name="Shot_X"`）代替删除；删场景永远走插件自己的 queue delete 路径。
