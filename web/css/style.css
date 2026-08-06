@@ -31,6 +31,14 @@
             border-bottom: 1px solid #333;
         }
         .header h1 { font-size: 18px; font-weight: 600; }
+        /* v0.9.5：标题栏统计（总镜数/总时长）——紧贴标题，弱化小字 */
+        .stats-bar {
+            font-size: 12px;
+            font-weight: 400;
+            color: #888;
+            margin-left: 10px;
+            white-space: nowrap;
+        }
         /* 搜索栏（v0.9.3）：header 内嵌，下拉浮层绝对定位 */
         .search-wrap { position: relative; margin: 0 16px; flex: 0 1 300px; min-width: 160px; }
         .search-wrap input {
@@ -163,6 +171,10 @@
                （否则卡片拖不动），z-index 提升盖在其他卡片上方；光标全程默认 */
             transition: none;
             z-index: 100;
+            /* v0.9.5 修复：transform 跟随让源卡盖在鼠标下，elementFromPoint 永远
+               命中源卡自己 → 插入指示线永不显示。pointer-events:none 让命中穿透
+               源卡到下方目标卡（拖拽中源卡本来就不需要指针事件） */
+            pointer-events: none;
         }
         /* v0.9.5：拖拽插入位置指示线（宫格竖线/列表横线，JS 定位）——替代虚线框 */
         .drop-indicator {
@@ -187,6 +199,10 @@
             aspect-ratio: 16/9;
             object-fit: cover;
             background: #333;
+            /* v0.9.5 修复：禁原生图片拖拽（配合 dnd.js 全局 dragstart 拦截）——
+               img 默认 draggable=true，pointerdown 在缩略图上移动会启动原生拖拽
+               → no-drop 禁止光标 + 可能吞掉 pointerup 导致拖拽不生效 */
+            -webkit-user-drag: none;
             display: block;
             -webkit-user-drag: none;  /* 缩略图不许原生拖拽，否则触发图片拖放链路 */
             user-select: none;

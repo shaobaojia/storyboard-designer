@@ -131,7 +131,14 @@ export function initCardDnd() {
         drag = null;
         state.dragSrcEl = null;
         document.body.style.userSelect = '';
+        // v0.9.5 修复：先禁过渡把 transform 落定再恢复——否则 remove('dragging')
+        // 恢复 transition 后，清 transform 被当作一次过渡（起点 = 旧位置），
+        // elementFromPoint 在过渡起点时刻命中"还在旧位置的源卡"→ 落点判定失败
+        // （实测 before 方向拖拽必中源卡 = 拖拽不生效；after 方向因 DOM 序侥幸命中）
+        st.srcEl.style.transition = 'none';
         st.srcEl.style.transform = '';
+        void st.srcEl.offsetWidth;   // 强制 reflow：transition none 下 transform 立即生效
+        st.srcEl.style.transition = '';
         st.srcEl.classList.remove('dragging');
         if (!st.active) return;  // 未超阈值 = 点击，原生 click 照常（选择/展开/聚焦）
         suppressClickUntil = Date.now() + 600;  // 拦截拖拽后浏览器补派的 click
@@ -220,6 +227,16 @@ export function initFileDrop() {
     };
 
     // 下半新建区 (#6)：实心接管事件，高亮 + 松手直接新建，不透到下层卡片
+    // v0.9.5 修复：拦截非文件的原生拖拽——缩略图 <img> 默认 draggable=true，
+    // pointerdown 落在 img 上时移动会启动 Chrome 原生图片拖拽，与 Pointer Events
+    // 拖拽并存；原生会话中 dragover 不 preventDefault（非文件）→ no-drop 禁止
+    // 光标（用户实测：随机出现禁止光标无法调换顺序），且可能吞掉 pointerup。
+    // dragstart preventDefault 取消原生会话；外部文件拖入不触发 dragstart
+    // （dragstart 只来自页面内元素），不受影响。
+    document.addEventListener('dragstart', (e) => {
+        if (!isFileDrag(e)) e.preventDefault();
+    });
+
     zoneNew.addEventListener('dragover', (e) => {
         if (!isFileDrag(e)) return;
         e.preventDefault();

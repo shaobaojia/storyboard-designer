@@ -126,7 +126,7 @@ function buildExpandedCards(shot, eager) {
         const imgCls = [f.isCover ? 'is-cover' : '', f.id === focusId ? 'frame-focused' : '']
             .filter(Boolean).join(' ');
         wrap.innerHTML = `
-            <div class="${cls.join(' ')}" draggable="true" data-id="${shot.id}" data-frame-id="${f.id}">
+            <div class="${cls.join(' ')}" draggable="false" data-id="${shot.id}" data-frame-id="${f.id}">
                 ${frameImgHtml(f, shot, eager, imgCls)}
                 ${f.isCover ? `<div class="cover-chip">封面</div>` : ''}${first ? `<button class="stack-badge expanded-badge" onclick="window.__sb.toggleListMulti('${shot.id}');event.stopPropagation();" title="折叠">${frames.length}</button>` : ''}
                 ${last ? '<button class="collapse-btn" title="折叠" data-action="collapse">◀</button>' : ''}
@@ -264,13 +264,13 @@ function buildCard(shot, eager) {
                 const cls = [f.isCover ? 'is-cover' : '', f.id === focusId ? 'frame-focused' : '']
                     .filter(Boolean).join(' ');
                 return `<div class="frame-thumb ${cls}" data-frame-id="${f.id}" data-frame-no="${f.frame_no}" data-shot-id="${shot.id}">
-                    ${imgUrl ? `<img src="${imgUrl}" loading="eager">` : '<div class="frame-missing">f' + f.frame_no + '</div>'}
+                    ${imgUrl ? `<img src="${imgUrl}" loading="eager" draggable="false">` : '<div class="frame-missing">f' + f.frame_no + '</div>'}
                 </div>`;
             }).join('');
             framesOverlay = `<div class="list-frames">${frameThumbs}${multiBadge}</div>`;
         }
         wrap.innerHTML = `
-            <div class="shot-card list-item ${sel}${isMulti ? ' multi' : ''}${expanded ? ' expanded' : ''}" draggable="true" data-id="${shot.id}">
+            <div class="shot-card list-item ${sel}${isMulti ? ' multi' : ''}${expanded ? ' expanded' : ''}" draggable="false" data-id="${shot.id}">
                 <div class="thumb-wrap">
                     ${thumbHtml}
                     ${framesOverlay}
@@ -289,7 +289,7 @@ function buildCard(shot, eager) {
         if (isMulti && !expanded) {
             // 折叠态多图：一叠牌
             wrap.innerHTML = `
-                <div class="shot-card multi ${sel}" draggable="true" data-id="${shot.id}">
+                <div class="shot-card multi ${sel}" draggable="false" data-id="${shot.id}">
                     ${stackHtml(shot, eager)}
                     <div class="shot-info">
                         <div class="shot-name" data-field="name">${shot.name}</div>
@@ -303,7 +303,7 @@ function buildCard(shot, eager) {
                 ? `<img class="shot-thumb" draggable="false" src="${coverFrame.imageUrl}" loading="${eager ? 'eager' : 'lazy'}" onerror="this.src='${SVG_NOIMG}'">`
                 : thumbImgHtml(shot, eager);
             wrap.innerHTML = `
-                <div class="shot-card ${sel}" draggable="true" data-id="${shot.id}">
+                <div class="shot-card ${sel}" draggable="false" data-id="${shot.id}">
                     ${coverImgHtml}
                     <div class="shot-info">
                         <div class="shot-name" data-field="name">${shot.name}</div>
@@ -565,13 +565,20 @@ function animateFrom(oldRects, spreadCenter = null) {
     });
 }
 
-// 右下角统计 (#8) + 垃圾桶模式标题同步 (#3)
+// 右下角统计 (#8) + 垃圾桶模式标题同步 (#3) + 标题栏总镜数/总时长 (v0.9.5)
+// 标题统一在此渲染：避免各处 innerText/textContent 赋值清掉 statsBar 子节点
 export function updateStats() {
     document.getElementById('statTotal').textContent = state.shots.length;
     document.getElementById('statSel').textContent = state.selectedIds.size;
-    if (state.trashMode) {
-        document.getElementById('pageTitle').textContent = `垃圾桶 · ${state.shots.length}`;
-    }
+    const pt = document.getElementById('pageTitle');
+    if (!pt) return;
+    const title = state.trashMode ? `垃圾桶 · ${state.shots.length}` : (state.projectTitle || 'Storyboard Grid');
+    const esc = s => String(s).replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
+    pt.innerHTML = esc(title) + '<span id="statsBar" class="stats-bar"></span>';
+    const totalSec = state.shots.reduce((a, s) => a + (Number(s.duration) || 0), 0);
+    const mm = Math.floor(totalSec / 60);
+    const ss = Math.round(totalSec % 60);
+    pt.querySelector('#statsBar').textContent = `总镜数 ${state.shots.length} 总时长 ${mm}′${String(ss).padStart(2, '0')}″`;
 }
 
 // 视图切换（v0.9.2 丝滑过渡）：先定位到选中项，再以选中项为中心向外扩散 FLIP

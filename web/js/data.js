@@ -1,6 +1,6 @@
 // 数据层：拉取、心跳（含 Blender 端错误回传）、通用 POST
 import { state, grid } from './state.js';
-import { renderGrid } from './render.js';
+import { renderGrid, updateStats } from './render.js';
 import { toast } from './ui.js';
 
 export async function fetchShots(force) {
@@ -10,7 +10,7 @@ export async function fetchShots(force) {
         const data = await res.json();
         if (data.status === 'ok') {
             state.shots = data.shots;
-            renderGrid();
+            renderGrid();  // 内部调 updateStats（右下角统计 + 标题栏总镜数/总时长）
             // 数据到位后重算缩放上限（列表 maxW 依赖最大帧数，v0.8.2）
             if (window.__zoomApply) window.__zoomApply();
             // v0.9.4：数据刷新（删除/撤销/垃圾桶切换/重拍）后预览框跟随
@@ -93,8 +93,8 @@ export async function loadProjectTitle() {
         const data = await res.json();
         if (data.status === 'ok' && data.name) {
             document.title = data.name;
-            const h1 = document.getElementById('pageTitle');
-            if (h1) h1.innerText = data.name;
+            state.projectTitle = data.name;  // 标题统一由 updateStats 渲染（保留 statsBar）
+            updateStats();
         }
     } catch (e) { /* keep default */ }
 }
