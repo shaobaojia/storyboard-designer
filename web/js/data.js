@@ -96,6 +96,12 @@ export async function loadProjectTitle() {
             state.projectTitle = data.name;  // 标题统一由 updateStats 渲染（保留 statsBar）
             updateStats();
         }
+        // v0.9.7：项目画幅比/分辨率 → 运行时注入画幅 CSS（旧图 16:9 基准适配）
+        if (data.status === 'ok' && data.aspect) {
+            state.aspect = data.aspect;
+            state.resolution = { x: data.resolution_x, y: data.resolution_y };
+            if (window.__aspectApply) window.__aspectApply();
+        }
     } catch (e) { /* keep default */ }
 }
 

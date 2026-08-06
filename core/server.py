@@ -49,6 +49,7 @@ ROUTES = {
     ("GET", "/api/version"): lambda c: actions.get_version(c["db_path"]),
     ("GET", "/api/next_name"): lambda c: actions.get_next_name(c["db_path"]),
     ("GET", "/api/project"): lambda c: actions.get_project(c["project_dir"]),
+    ("POST", "/api/project"): lambda c: actions.set_project_resolution(c["project_dir"], c["db_path"], c["data"]),
     ("GET", "/api/shot/*"): lambda c: actions.get_shot_by_id(c["db_path"], c["shot_id"]),
     ("POST", "/api/shots"): lambda c: actions.create_shot_action(c["project_dir"], c["db_path"], c["data"]),
     ("POST", "/api/shots/image"): lambda c: actions.create_image_shots_action(c["project_dir"], c["db_path"], c["data"]),

@@ -115,12 +115,60 @@ def get_next_name(db_path):
     return {"status": "ok", "name": next_c_name(db_path)}, 200
 
 
+def _read_project_json(project_dir):
+    """project.json 读盘（坏文件/缺字段静默兜底 {}）——画幅比/分辨率的持久化载体。"""
+    try:
+        with open(os.path.join(project_dir, "project.json"), encoding="utf-8") as f:
+            d = json.load(f)
+        return d if isinstance(d, dict) else {}
+    except Exception:
+        return {}
+
+
 def get_project(project_dir):
-    """Blend file name, derived from the project dir ({blend}_storyboard)."""
+    """Blend file name + 项目分辨率/画幅比（v0.9.7：前端画幅显示的权威来源）。"""
     base = os.path.basename(project_dir.rstrip("/\\"))
     suffix = "_storyboard"
     name = base[:-len(suffix)] if base.endswith(suffix) else base
-    return {"status": "ok", "name": name}, 200
+    pj = _read_project_json(project_dir)
+    rx = int(pj.get("resolution_x") or 1920)
+    ry = int(pj.get("resolution_y") or 1080)
+    return {"status": "ok", "name": name,
+            "resolution_x": rx, "resolution_y": ry,
+            "aspect": rx / ry if ry > 0 else 16 / 9}, 200
+
+
+def set_project_resolution(project_dir, db_path, data):
+    """画幅比/分辨率设置（对话框确定）：写 project.json + queue 主线程改所有 scene。
+    决策 B：宽高直改（scene resolution_x/y = 输入值），画幅比 = w/h 推导。"""
+    try:
+        w = int(data.get("width"))
+        h = int(data.get("height"))
+    except (TypeError, ValueError):
+        return {"status": "error", "message": "width/height 必须是整数"}, 400
+    if not (16 <= w <= 16384 and 16 <= h <= 16384):
+        return {"status": "error", "message": "宽/高需在 16~16384 之间"}, 400
+    pj = _read_project_json(project_dir)
+    pj["resolution_x"] = w
+    pj["resolution_y"] = h
+    pj["aspect_ratio"] = w / h
+    try:
+        with open(os.path.join(project_dir, "project.json"), "w", encoding="utf-8") as f:
+            json.dump(pj, f, indent=2, ensure_ascii=False)
+    except Exception as e:
+        return {"status": "error", "message": f"写 project.json 失败: {e}"}, 500
+    # 主线程遍历所有 scene 改渲染分辨率（queue 失败回滚 project.json，v0.9.6 非原子模式）
+    try:
+        _queue("set_project_resolution", {"width": w, "height": h})
+    except Exception as e:
+        try:
+            pj.pop("resolution_x", None); pj.pop("resolution_y", None); pj.pop("aspect_ratio", None)
+            with open(os.path.join(project_dir, "project.json"), "w", encoding="utf-8") as f:
+                json.dump(pj, f, indent=2, ensure_ascii=False)
+        except Exception:
+            pass
+        return {"status": "error", "message": f"应用分辨率失败: {e}"}, 500
+    return {"status": "ok", "resolution_x": w, "resolution_y": h, "aspect": w / h}, 200
 
 
 def get_shot_by_id(db_path, shot_id):

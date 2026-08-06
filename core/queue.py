@@ -454,6 +454,20 @@ def cmd_rename_shot(params):
     return {"renamed": f"{old_name} -> {new_name}", "scene": new_scene_name}
 
 
+def cmd_set_project_resolution(params):
+    """画幅比/分辨率设置（v0.9.7）：主线程遍历所有 scene 改渲染分辨率。
+    决策 B：宽高直改（resolution_x/y = 输入值），画幅比 = w/h。
+    垃圾桶场景（__trash__ 前缀）也一起改——恢复时分辨率应跟随项目当前设置。"""
+    w = int(params.get("width"))
+    h = int(params.get("height"))
+    changed = 0
+    for s in bpy.data.scenes:
+        s.render.resolution_x = w
+        s.render.resolution_y = h
+        changed += 1
+    return {"scenes_updated": changed, "resolution": f"{w}x{h}"}
+
+
 def cmd_create_shot_scene(params):
     """Create Blender scene for a shot (called from web API).
     Auto-renders when shot_id+project_dir are provided."""
@@ -753,6 +767,7 @@ COMMANDS = {
     "sync_scenes": (cmd_sync_scenes, []),
     "render_frame": (cmd_render_frame, ["scene_name", "shot_id", "project_dir", "frame_no"]),
     "set_cover_frame": (cmd_set_cover_frame, ["shot_id", "frame_id", "project_dir"]),
+    "set_project_resolution": (cmd_set_project_resolution, ["width", "height"]),
     "jump_to_frame": (cmd_jump_to_frame, ["scene_name", "frame_no"]),
     "delete_frame": (cmd_delete_frame, ["shot_id", "frame_id", "project_dir"]),
 }

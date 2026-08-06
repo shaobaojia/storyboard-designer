@@ -1,6 +1,6 @@
 // 入口：接线所有模块，启动心跳与首次拉取
 import { grid, state } from './state.js';
-import { syncViewToggleButton, toggleView, showSkeleton, renderGrid } from './render.js';
+import { syncViewToggleButton, toggleView, showSkeleton, renderGrid, initDialogueResize, startDlgEdit } from './render.js';
 import { fetchShots, heartbeat, loadProjectTitle, openShot, openTimeline, syncScenes, forceRefresh } from './data.js';
 import { cardClick } from './selection.js';
 import { initCardDnd, initFileDrop } from './dnd.js';
@@ -14,6 +14,7 @@ import { initTrash } from './trash.js';
 import { initSearch } from './search.js';
 import { initShortcutsHelp } from './shortcuts.js';
 import { initPreview, updatePreview, setPreview, setPreviewW, togglePreviewSide } from './preview.js';
+import { initAspect, applyAspect } from './aspect.js';
 import { isExpanded, expandAnimated, collapseAnimated, jumpToFrame, initStackHover, focusFrame } from './frames.js';
 
 // ---- 头部按钮 ----
@@ -111,9 +112,13 @@ initTrash();
 initSearch();
 initShortcutsHelp();
 initPreview();
+initAspect();  // 画幅比：默认注入 + 对话框接线（v0.9.7）
+initDialogueResize();  // 宫格台词条拖拽调宽（v0.9.8）
+initDialogueToggle();  // 全局台词开关按钮 + 双击就地编辑委托（v0.9.8）
 initStackHover();  // 多图镜头折叠态悬停扫视（v0.7.0）
 
 // e2e 调试句柄：webbridge evaluate 走页面主世界时可直接驱动编排函数
+window.__aspectApply = applyAspect;  // loadProjectTitle 拉到项目画幅后调用
 window.__sb = { state, renderGrid, expandAnimated, collapseAnimated, isExpanded, toggleView,
     updatePreview, setPreview, setPreviewW, togglePreviewSide,
     toggleListMulti(shotId) {
@@ -122,8 +127,32 @@ window.__sb = { state, renderGrid, expandAnimated, collapseAnimated, isExpanded,
     }
 };
 
+// ---- 宫格台词条：全局开关按钮 + 双击就地编辑委托（v0.9.8）----
+function initDialogueToggle() {
+    const btn = document.getElementById('dialogueBtn');
+    const syncBtn = () => btn.classList.toggle('active-view', state.dialogueOn);
+    btn.addEventListener('click', () => {
+        state.dialogueOn = !state.dialogueOn;
+        localStorage.setItem('sb-dialogue-on', state.dialogueOn ? '1' : '0');
+        syncBtn();
+        renderGrid();  // cardKey 含开关标记 → 布局在开/关间切换
+    });
+    syncBtn();
+    // 双击台词框就地编辑（委托：strip 是动态 DOM，事件绑 document）
+    document.addEventListener('dblclick', (e) => {
+        const textEl = e.target.closest('.dialogue-text');
+        if (!textEl) return;
+        const strip = textEl.closest('.dialogue-strip');
+        if (!strip || !strip.dataset.dlgId) return;
+        startDlgEdit(e, strip.dataset.dlgId);
+    });
+}
+
 // ---- 启动 ----
 syncViewToggleButton();
+// 画幅变量兜底：aspect.js 模块加载失败也不致画面错乱（保持 16:9，--aspect-h 防帧图高归 0）
+document.documentElement.style.setProperty('--aspect', 16 / 9);
+document.documentElement.style.setProperty('--aspect-h', 9 / 16);
 showSkeleton();  // 骨架屏先铺上，数据到了由 renderGrid 接棒 (#1)
 setInterval(heartbeat, 1500);
 loadProjectTitle();

@@ -1,5 +1,6 @@
 // 渲染：宫格/列表两种视图 + FLIP 动效 + DOM 差分 + 骨架屏首屏门控
 import { state, grid } from './state.js';
+import { toast } from './ui.js';  // v0.9.8：台词就地编辑的保存反馈
 
 // v0.9.6：XSS 防护——所有用户数据插 innerHTML 前统一过 esc（search.js 已有同款，此处补主渲染路径）
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
@@ -14,8 +15,192 @@ function cardKey(shot) {
     const frames = (shot.frames || []).map(f => `${f.id}:${f.imageUrl}:${f.isCover}`).join('');
     const expanded = state.expandedShotIds.has(shot.id) ? 'X' : '';
     const mode = state.viewMode;  // 视图模式变化时强制重建卡片
-    return base + '' + frames + '' + expanded + '' + mode;
+    // v0.9.8：宫格台词条存在与否影响后排布局——台词出现/消失/改行时强制重建卡片（落新行位置）
+    const dlg = state.viewMode === 'grid' && !state.trashMode && state.dialogueOn && shot.dialogue ? 'D' : '';
+    return base + '' + frames + '' + expanded + '' + mode + '' + dlg;
 }
+
+// ---- 宫格台词条（v0.9.8）----
+// 某排有台词镜头 → 排间多出一行放台词；台词框宽度可拖右沿调整（localStorage 持久化），
+// 文本自动换行。实现 = 每个台词镜头一条独立行条（grid-column:1/-1），key=shotId 差分管理；
+// 位置 = 该镜头所在排的最后一个格位之后（insertAdjacentElement afterend，把下一排顶下去）。
+// 列表/宫格功能对等原则不适用：列表已有台词列，台词条只在宫格显示（垃圾桶/列表隐藏）。
+const DLG_KEY = 'sb-dialogue-w';
+let dlgWidth = parseInt(localStorage.getItem(DLG_KEY) || '', 10) || 0;  // 0 = 未调整过（跟随卡片宽）
+
+function dialogueWidth() {
+    if (dlgWidth > 0) return dlgWidth;
+    const colW = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--card-min')) || 200;
+    return colW;
+}
+
+function makeDialogueStrip() {
+    const el = document.createElement('div');
+    el.className = 'dialogue-strip';
+    el.innerHTML = `<div class="dialogue-box"><span class="dialogue-text"></span><div class="dialogue-resize" title="拖拽调整台词框宽度"></div></div>`;
+    return el;
+}
+
+// renderGrid 完事后调用：按当前列数给每个有台词的镜头各管一条 strip——
+// 位置不对就挪（insertAdjacentElement 对已挂载节点是移动不是复制，无"先remove后insert"同帧抖动）；
+// 文本/宽度/偏移有变才写（差分友好，不干扰 FLIP）
+export function updateDialogue() {
+    const off = state.viewMode !== 'grid' || state.trashMode || !state.dialogueOn;
+    const want = off ? []
+        : state.shots.filter(s => s.dialogue && s.dialogue.trim());
+    const wantIds = new Set(want.map(s => s.id));
+    // 移除已不再有台词的 strip
+    grid.querySelectorAll('.dialogue-strip').forEach(el => {
+        if (!wantIds.has(el.dataset.dlgId)) el.remove();
+    });
+    if (!want.length) return;
+    const cards = [...grid.querySelectorAll('.shot-card')];
+    for (const shot of want) {
+        const card = cards.find(c => c.dataset.id === shot.id && !c.dataset.frameId);
+        if (!card) continue;
+        let strip = grid.querySelector(`.dialogue-strip[data-dlg-id="${shot.id}"]`);
+        if (!strip) {
+            strip = makeDialogueStrip();
+            strip.dataset.dlgId = shot.id;
+        }
+        // 文本（textContent 赋值自带转义，无 XSS 面）；双击编辑中不覆盖（editingDlg）
+        const t = strip.querySelector('.dialogue-text');
+        if (state.editingDlg !== shot.id && t.textContent !== shot.dialogue) t.textContent = shot.dialogue;
+        // 宽度（手动调过 = 固定值；未调过 = 跟随列宽）
+        const box = strip.querySelector('.dialogue-box');
+        const w = dialogueWidth() + 'px';
+        if (box.style.width !== w) box.style.width = w;
+        // 左偏移 = 卡片左缘（视口坐标差，对任何 offsetParent 都正确——
+        // v0.9.8 曾多加 body padding 16 导致台词框比卡片右偏 16px，用户发现）
+        const ml = Math.round(card.getBoundingClientRect().left - grid.getBoundingClientRect().left) + 'px';
+        if (box.style.marginLeft !== ml) box.style.marginLeft = ml;
+        // 位置：本排最后一个格位之后
+        const rowTop = card.offsetTop;
+        let last = card;
+        for (const c of cards) {
+            if (c.offsetTop === rowTop && c.offsetLeft > last.offsetLeft) last = c;
+        }
+        if (strip.previousElementSibling !== last) {
+            last.insertAdjacentElement('afterend', strip);
+        }
+    }
+}
+
+// 拖拽调宽（右沿手柄）：mousedown 记起点，mousemove 改宽（rAF 节流），mouseup 持久化
+export function initDialogueResize() {
+    document.addEventListener('mousedown', (e) => {
+        const handle = e.target.closest('.dialogue-resize');
+        if (!handle) return;
+        e.preventDefault();
+        e.stopPropagation();
+        const box = handle.closest('.dialogue-box');
+        const startX = e.clientX, startW = box.offsetWidth;
+        const gridW = grid.clientWidth;
+        document.body.style.userSelect = 'none';
+        let raf = 0;
+        const onMove = (ev) => {
+            if (raf) return;
+            raf = requestAnimationFrame(() => {
+                raf = 0;
+                const w = Math.round(Math.min(Math.max(startW + ev.clientX - startX, 120), gridW - 16));
+                box.style.width = w + 'px';
+                dlgWidth = w;
+            });
+        };
+        const onUp = () => {
+            document.removeEventListener('mousemove', onMove, true);
+            document.removeEventListener('mouseup', onUp, true);
+            document.body.style.userSelect = '';
+            // 以被拖的这个 box 的实际宽度为准（多条 strip 共享同一宽度值，
+            // 别 querySelector 第一条——那是别的镜头没拖的条，会覆盖掉拖出来的宽度）
+            const w = Math.round(box.isConnected ? box.getBoundingClientRect().width : dlgWidth);
+            if (w > 0) {
+                dlgWidth = w;
+                localStorage.setItem(DLG_KEY, String(w));
+            }
+        };
+        document.addEventListener('mousemove', onMove, true);
+        document.addEventListener('mouseup', onUp, true);
+    }, true);
+}
+
+// 缩放/视口变化后列数变 → 台词镜头可能换排，条位置/默认宽重算（zoom.js apply 注入调用）
+export function relocateDialogue() {
+    updateDialogue();
+}
+
+// 双击台词框就地编辑（v0.9.8）：复用 startRename 模式——input 替换文本、
+// Enter 保存/Esc 取消/blur 保存、事件全 stopPropagation（防拖拽/框选）
+export function startDlgEdit(e, shotId) {
+    if (e) {
+        e.preventDefault();
+        e.stopPropagation();
+    }
+    if (state.editingDlg || state.trashMode) return;
+    const shot = state.shots.find(s => s.id === shotId);
+    if (!shot) return;
+    const strip = grid.querySelector(`.dialogue-strip[data-dlg-id="${shotId}"]`);
+    if (!strip) return;
+    const textEl = strip.querySelector('.dialogue-text');
+    if (!textEl) return;
+    // 右沿手柄（8px）上的双击不算编辑
+    if (e && e.target.closest('.dialogue-resize')) return;
+
+    state.editingDlg = shotId;
+    const input = document.createElement('input');
+    input.className = 'dialogue-edit';
+    input.value = shot.dialogue;
+    input.draggable = false;
+    ['mousedown', 'mousemove', 'mouseup', 'dragstart', 'selectstart', 'click', 'dblclick'].forEach(t => {
+        input.addEventListener(t, (ev) => ev.stopPropagation());
+    });
+    textEl.replaceWith(input);
+    input.focus();
+    input.select();
+
+    let done = false;
+    const finish = (commit) => {
+        if (done) return;
+        done = true;
+        const newText = input.value.trim();
+        state.editingDlg = null;
+        // 换回文本元素（updateDialogue 会按最新 state.shots 同步内容）
+        if (input.isConnected) input.replaceWith(textEl);
+        if (commit && newText !== shot.dialogue) {
+            commitDialogue(shotId, newText);
+        } else {
+            renderGrid();  // 未变更也重渲染，确保 strip 文本与 state 一致
+        }
+    };
+    input.addEventListener('keydown', (ev) => {
+        if (ev.key === 'Enter') finish(true);
+        else if (ev.key === 'Escape') finish(false);
+        ev.stopPropagation();
+    });
+    input.addEventListener('blur', () => finish(true));
+}
+
+async function commitDialogue(shotId, newText) {
+    try {
+        const res = await fetch(`/api/shot/${shotId}`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({action: 'update', fields: {dialogue: newText}})
+        });
+        const data = await res.json();
+        if (data.status !== 'ok') {
+            toast(data.message || '台词保存失败', true);
+            renderGrid();
+        } else {
+            toast('台词已更新');
+        }
+    } catch (err) {
+        toast('台词保存失败：' + err.message, true);
+        renderGrid();
+    }
+}
+
+
 
 // 首屏预载窗口：前 3 屏 eager，更远处 lazy（#2/#16）
 function screenCardCount(screens) {
@@ -24,7 +209,7 @@ function screenCardCount(screens) {
     const cols = state.viewMode === 'list'
         ? 1
         : Math.max(1, Math.floor(window.innerWidth / (cardMin + 12)));
-    const cardH = state.viewMode === 'list' ? 60 : (cardMin * 9 / 16 + 60);
+    const cardH = state.viewMode === 'list' ? 60 : (cardMin / (state.aspect || 16 / 9) + 60);  // 卡高随画幅比（v0.9.7）
     const rows = Math.max(1, Math.ceil(window.innerHeight / cardH));
     return cols * rows * screens;
 }
@@ -483,6 +668,8 @@ export function renderGrid() {
     // clamp 掉了（跳顶/跳到 674 类值），这里同步滚回原值；此时内容已完整，scrollY 有效，
     // 浏览器渲染帧不会再调整。首屏（scrollY=0）与 FLIP 起点帧不受影响。
     if (window.scrollY !== savedScrollY) window.scrollTo(0, savedScrollY);
+    // v0.9.8：宫格台词条（排间行）——滚动恢复后再定位/复用（读 offsetTop 需布局落定）
+    updateDialogue();
 }
 
 function gateFirstReveal() {

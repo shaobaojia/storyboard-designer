@@ -1,7 +1,7 @@
 // 缩略图尺寸：左下角滑块 + Ctrl/⌘+滚轮
 // 宫格：段落式列数缩放，每排 N 张
 // 列表：线性像素缩放，滑块无极
-import { applyExpandedLayout } from './render.js';
+import { applyExpandedLayout, relocateDialogue } from './render.js';
 const GAP = 12;
 const MIN_W = 120;
 const MAX_W = 480;
@@ -90,7 +90,10 @@ export function initZoom() {
         restoreAnchor(a);  // v0.9.2：缩放后恢复选中项位置（锚定缩放中心）
         // v0.9.5：缩放/预览调宽后重算展开态帧图等大布局（--frame-w + margin-left），
         // 只改变量/内联样式不重建 DOM——丝滑原则（grid 列数变化时行分段类也顺带同步）
-        if (window.__sb && window.__sb.state.viewMode === 'grid') applyExpandedLayout();
+        if (window.__sb && window.__sb.state.viewMode === 'grid') {
+            applyExpandedLayout();
+            relocateDialogue();  // v0.9.8：列数变 → 台词镜头换排/列宽变，条位置+默认宽重算
+        }
     };
 
     // 初始

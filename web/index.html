@@ -42,6 +42,8 @@
         <button id="viewToggle" class="bar-btn">列表视图</button>
         <button id="trashBtn" class="bar-btn">垃圾桶<span id="trashCount"></span></button>
         <button id="previewBtn" class="bar-btn" title="预览框：显示选中镜头大图">预览</button>
+        <button id="aspectBtn" class="bar-btn" title="画幅比/分辨率：应用到全部场景与显示">画幅</button>
+        <button id="dialogueBtn" class="bar-btn" title="全局台词显示开关">台词</button>
     </div>
 
     <div id="statsBadge">共 <b id="statTotal">0</b> · 已选 <b id="statSel">0</b></div>
@@ -86,6 +88,24 @@
             <div class="modal-actions">
                 <button class="btn-cancel">取消</button>
                 <button class="btn-primary">创建</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="aspectModal" class="modal-overlay" style="display:none;">
+        <div class="modal">
+            <h2>画幅比 / 分辨率</h2>
+            <div class="field">
+                <label>宽（px）</label>
+                <input type="number" id="aspectW" value="1920" min="16" max="16384" step="1">
+            </div>
+            <div class="field">
+                <label>高（px）</label>
+                <input type="number" id="aspectH" value="1080" min="16" max="16384" step="1">
+            </div>
+            <div class="modal-actions">
+                <button class="btn-cancel">取消</button>
+                <button class="btn-primary">确定</button>
             </div>
         </div>
     </div>

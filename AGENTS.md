@@ -1,20 +1,20 @@
 # AGENTS.md
 
 > 给下一个 Agent（或下一个自己）的交接备忘录。**收工推送前必须更新「刚做完 / 正在做 / 下一步 / 坑」四个字段。**
-## 刚做完（v0.9.6：预览框三件套 + 高危/中危稳健度修复，audit 41/41 + 右键菜单 12/12 全回归）
+## 刚做完（v0.9.8：宫格台词条，audit 41/41 + 右键菜单 12/12 + WebBridge 核心交互 10/10 全回归）
 
-1. **预览框三件套**（preview.js/shortcuts.js/index.html/style.css）：右上角 ✕ 关闭按钮（hover 红）/ 开关弹簧动画（scale .92→1.015→1 + overshoot，transform-origin 方向感知；关闭先弹走再隐藏，closeTimer 防快速开关冲突）/ 底部避让（bottom:0→100px，避开右下 statsBadge/shortcuts-btn、左下 size-slider）
-2. **镜头名注入 500 修复**（actions.py）：`_valid_shot_name()` 白名单（拒 `..` `/` `\` `:` `*` `?` `"` `<` `>` `|` 控制字符 + Windows 保留名），create/rename/create_image 三处入口 400 拒绝（不再 makedirs WinError 123 → 500）
-3. **路径穿越双入口修复**（server.py）：`_serve_shot_file` normpath+startswith 检查（`../../` 出 project_dir → 403）+ shot_id 白名单 `[A-Za-z0-9_\-]{1,64}`
-4. **POST body 上限**（server.py）：Content-Length `isdigit()` 校验 + 200MB 上限（413）
-5. **delete/restore/purge 非原子修复**（actions.py）：queue 失败回滚 DB（_trash_one/restore/purge 三处 try/except + 逆操作）
-6. **undo.py 加锁**：`threading.Lock` 保护 push/pop/peek_label（HTTP 多线程竞态）
-7. **db.py 连接泄漏修复**：8 个写函数统一 `with _db()`（contextmanager try/finally 关闭，任何 SQL 异常不泄漏连接/悬挂事务）
-8. **XSS 修复**（render.js）：6 处 `${shot.name}`/`${content}`/`${dialogue}` 统一 `esc()` + img src `encodeURIComponent`（E2E 实测 `<img onerror>` 存 DB，前端显示转义文本不执行）
-9. **拖拽重排失败回滚**（dnd.js）：reorder 失败恢复旧顺序 + 检查 `res.ok`（500 也当失败）
-10. **假成功 toast 修复**（menu.js 14 处 + keyboard.js + selection.js）：所有 postShotAction/postBatch 调用检查 `r.status === 'ok'` 才报成功，失败报错误信息
+1. **宫格卡片台词功能**（render.js/zoom.js/main.js/marquee.js/style.css）：某排存在有台词的镜头 → 该排末尾插入 `grid-column:1/-1` 的独立行条（把下一排顶下去 = 排间多出一行）；台词框左缘对齐台词镜头卡片（16+offsetLeft），文本自动换行（pre-wrap）
+2. **每台词镜头一条独立 strip**（data-dlg-id 差分管理）：插入用 `insertAdjacentElement afterend`（对已挂载节点是移动非复制，无"先 remove 后 insert"同帧抖动）；文本/宽度/偏移有变才写（差分友好，不干扰 FLIP）
+3. **宽度可拖右沿调整 + 持久化**：`.dialogue-resize` 手柄（mousedown 记起点 + rAF 节流 mousemove + clamp 120~gridW-16）；mouseup 以**被拖 box 实际宽度**为准存 `localStorage('sb-dialogue-w')`（多条 strip 共享同一宽度，别 querySelector 第一条未拖的条）；未调过 = 跟随列宽 `--card-min`
+4. **隐藏规则**：垃圾桶模式/列表视图不渲染（列表已有台词列）；缩放列数变 → zoom.js apply 注入 `relocateDialogue()` 重算位置/默认宽；marquee 框选排除列表加 `.dialogue-strip`
+5. **cardKey 加台词标记**（grid 视图非垃圾桶且有台词 → 'D'）：台词出现/消失/改行时强制重建卡片（落新行位置）；台词文本用 textContent 赋值（无 XSS 面）
+6. **全局台词开关**（工具条「台词」按钮，active-view 高亮）：点击切换 `state.dialogueOn` + localStorage('sb-dialogue-on'，默认开，与 sb-view/sb-cols 同层显示偏好)；updateDialogue off 条件 + cardKey 'D' 标记都含开关（关时台词不占行、布局回到无台词状态）；reload 保持
+7. **双击台词框就地编辑**（startDlgEdit/commitDialogue，复用 startRename 模式）：双击 .dialogue-text → input 替换（events 全 stopPropagation）→ Enter 保存/Esc 取消/blur 保存 → POST update fields.dialogue → toast 反馈；编辑锁 state.editingDlg（updateDialogue 跳过编辑中的 strip 防心跳覆盖）；右沿手柄 8px 内双击不算编辑
+8. **台词框左对齐修复**（用户发现）：marginLeft 曾多加 body padding 16 → 台词框比卡片右偏 16px；改为 `card.getBoundingClientRect().left - grid.getBoundingClientRect().left`（视口坐标差，任何 offsetParent 都正确）
 
 **历史轮次**（详情曾在本文件，已压缩；关键决策见「交互/设计约定」与「坑」）：
+- v0.9.7：画幅比/分辨率设置（对话框 + 全 scene 应用 + 新镜头跟随 + 前端动态画幅 + 旧图 cover/letterbox 适配）
+- v0.9.6：预览框三件套 / 镜头名白名单 / 路径穿越 / body 上限 / delete 非原子回滚 / undo 锁 / DB 连接泄漏 / XSS esc / 拖拽回滚 / 假成功 toast
 - v0.9.5：展开态帧图等大+间距/外沿统一（每行独立 W 公式/9px 严格）/ 拖拽插入指示线（宫格竖线/列表横线/半区判定）/ 拖拽改 Pointer Events（根治 DnD 光标问题）/ audit_context_menu JPG 化断言
 - v0.9.4：预览框（贴边/调宽/详情/提速）/ 快捷键面板 / 多展开底衬修复 / 拍屏 JPG 化 / 展开焦点落第一帧 / 帧格高度统一 / 折叠按钮移位
 - v0.9.3：搜索栏定位（名称/内容/台词）/ Tab 切视图 / 列表 Ctrl+滚轮 12 级 / 展开折叠滚动跳顶三层修复（删 innerHTML 全清 + overflow-anchor:none + savedScrollY 恢复）/ empty-state 残留 / 搜索定位帧焦点残留 / audit 41+12 / AGENTS.md 精简 49%
@@ -34,13 +34,12 @@
 
 ## 正在做
 
-- v0.9.6 已推送 GitHub；**audit.py 两个 FAIL 待审**：`Batch restore from trash`（trash=1 稳定） / `Batch rename_seq`（偶发）——手动复现 batch delete/restore 全链路正常（done=2），疑 Blender 队列积压致测试镜头创建延迟 → ids 少；交接笔记 `~/AppData/Local/hermes/tmp/审计交接笔记.md`（含 TEMP-DEBUG 补丁）；**audit.py 与 audit_context_menu.py 禁并行跑**（共享 DB 互清测试镜头），Ctrl+C 中断会留 AUDIT_* 残留需先清
+- audit 两 FAIL 已闭环：v0.9.7 重启后重跑 41/41 全过（Batch restore / Batch rename_seq 均 PASS）——印证是"Blender 队列积压致创建延迟"，重启即消；**两 audit 仍禁并行跑**（共享 DB 互清），Ctrl+C 中断留 AUDIT_* 残留需先清
 - 幽灵场景累计 12 个 `__ghost_*`（第五轮 5 个 + 第七轮 7 个：c0050/c0100/c0230/c0340/c0480/c0560/c0970 等）待用户确认是否彻底删除（含 .blend 存盘防复活）；**反复出现说明 sync 自动对账（稳健性待办 7）值得优先做**
-- 测试现场：镜头数据已还原（80 个无残留，顺序恢复原始）
+- 测试现场：镜头数据已还原（78 个无残留，分辨率已回 1920×1080）
 
 ## 下一步
 
-- **审 audit.py 两个 FAIL**（见「正在做」：打 TEMP-DEBUG 打印创建响应/ids 数量 → 确认是否创建延迟 → 修 sleep/轮询 → 41/41 → 删调试清残留）
 - 幽灵场景确认删除 → sync 自动对账（稳健性待办 7）优先级可提前
 - **稳健性待办（v0.6.3 对抗审计产出，用户已阅，优先级低暂缓）**，按性价比排序：
   1. ~~**拍屏副作用还原**：`render_shot_files` 改完 `scene.render.filepath/file_format/engine` 不还原，污染用户正式渲染设置~~ ✅ v0.9.4 已修（改完全部恢复）
@@ -223,11 +222,17 @@ CREATE INDEX IF NOT EXISTS idx_frames_shot ON frames(shot_id);
 - **预览图同尺寸**（v0.9.4）：.preview-body img 固定 100%×100% + object-fit contain——小图(320px)放大到大图同尺寸显示，切换只有模糊→清晰区别；若用 max-width/max-height 自然尺寸，小图 320px vs 大图 698px 切换尺寸跳变。
 - **展开帧格高度**（v0.9.4）：frame-first 伸出 12px → aspect-ratio 16/9 的图更高（210 vs 203）→ 跨行行高不一致；统一 .frame-img 高度 calc(var(--card-min)×9/16) + object-fit cover；shot-info 无名字帧 min-height 46px 补齐。
 - **折叠按钮定位**（v0.9.4）：卡片 padding 9px 导致 left:0 悬在图外 9px；垂直相对卡片居中 vs 相对图居中差 23px（= padding 9 - info 半高 32，与列宽无关恒成立）——贴图右缘用 right:9px + top:calc(50% - 23px)。
+- **画幅比功能的"基准比例"假设**（v0.9.7）：已有帧图以 16:9 为基准（用户拍板）——宽比裁上下（cover）、高比上下留空（contain）；但**改比例后新拍的帧已经是新比例**（拍屏跟 scene resolution 走），contain 下新帧会四周留空——混合比例镜头集的显示是近似适配，真要多比例共存需给帧存原始比例元数据（未做）。
+- **宫格单图镜头的 .shot-thumb 是卡片的裸直接子级，不在 .thumb-wrap 里**（v0.9.7 实测）：`.thumb-wrap` 是列表视图的结构——给它写的 object-fit/样式规则对宫格单图不生效。覆盖规则要带 `.shot-card:not(.list-item):not(.frame-cell) > .shot-thumb`；v0.9.7 首版漏了这条，高比 contain 对宫格单图静默失效（fit 仍 cover），PIL 采样没采到留空条才暴露。
+- **多条台词 strip 共享同一宽度值，mouseup 持久化别 querySelector 第一条**（v0.9.8 实测）：拖某条的手柄改宽后，`document.querySelector('.dialogue-strip .dialogue-box')` 拿到的是 DOM 里**第一条**（别的镜头没拖的条，还是旧宽）→ 把拖出来的宽度覆盖回旧值、localStorage 存错。修复：onUp 闭包里用**被拖的那个 box 引用**（`box.isConnected ? box.getBoundingClientRect().width : dlgWidth`）。
+- **audit 中断会让 queue 积压 → timer 假死 → 重跑 audit 在 duplicate 类用例崩**（v0.9.8 实测两次）：audit 中途 Ctrl+C/异常退出时，已入队的命令（create/duplicate 等）滞留在 `_command_queue` 不被消费（QSIZE 恒定、5s 不动），重跑 audit 时 duplicate 命令排队不执行 → `AUDIT_WEB_COPY` 找不到 StopIteration / 撞名 409。判别：MCP 查 `core.queue._command_queue.qsize()` 长期 >0 即实锤。处置：taskkill 重启 Blender（队列清空）再跑 audit——**不是 audit 脚本 bug，别对着改脚本**。
+- **台词框左偏移别用 16+offsetLeft**（v0.9.8 用户发现）：card.offsetLeft 相对 offsetParent（grid 有 will-change:transform 是 offsetParent，但别的容器下语义会变），加 body padding 16 是错的（grid 内容区左缘 = body padding 后，strip 的 marginLeft 相对 grid 内容区，再 +16 就右偏）。正确 = `Math.round(card.getBoundingClientRect().left - grid.getBoundingClientRect().left)`（视口坐标差，滚动时同滚，任何 offsetParent 都成立）。
+- **测试/还原台词数据别写死值**（v0.9.8 事故）：还原时用备份的精确原值（`backup[sid]`），别用"当前第一条 strip 的 id + 写死的另一个镜头台词"——会覆盖别的镜头（本次把用户加的 c0130 台词误覆盖成 c0020 的，靠测试输出里残留的原值救回）。页面数据可能有用户手工加的测试台词（c0250/c0330/c0120），清理时只动自己建的。
 
 ## 细节指针
 
 - 架构：Blender 插件 + 内嵌 HTTP（0.0.0.0:8089）+ `bpy.app.timers` 主线程队列
 - 后端模块地图：`core/server.py`（ROUTES 表 + 静态服务）→ `core/actions.py`（每端点一函数）→ `core/queue.py`（COMMANDS 注册表 + 错误回传）/ `core/db.py`（含 next_c_name/next_c_number，软删字段 deleted/content/dialogue）/ `core/undo.py`（撤销栈）/ `core/paths.py`（目录）/ `core/scenes.py`（场景工厂）/ `core/sync.py`（同步唯一实现）/ `core/render.py`（拍屏公共函数）
-- 前端模块地图（18 个 JS）：`web/index.html`（骨架+CSS）+ `web/js/`：state（共享状态）/ ui（toast+确认条）/ render（宫格+列表+FLIP+DOM差分+首屏门控）/ data（拉取+心跳+错误toast+undoLast）/ selection / dnd（卡片拖拽+拖图分区）/ rename（改名+字段就地编辑）/ menu（右键/中键滑动+回弹+菜单）/ create（弹框）/ marquee（框选）/ zoom（滑块+Ctrl滚轮连续缩放）/ keyboard（快捷键+方向键）/ trash（垃圾桶弹窗）/ search（搜索栏定位）/ preview（预览框：开关/贴边/调宽/详情）/ shortcuts（快捷键面板）/ main（入口接线）
+- 前端模块地图（19 个 JS）：`web/index.html`（骨架+CSS）+ `web/js/`：state（共享状态）/ ui（toast+确认条）/ render（宫格+列表+FLIP+DOM差分+首屏门控）/ data（拉取+心跳+错误toast+undoLast）/ selection / dnd（卡片拖拽+拖图分区）/ rename（改名+字段就地编辑）/ menu（右键/中键滑动+回弹+菜单）/ create（弹框）/ marquee（框选）/ zoom（滑块+Ctrl滚轮连续缩放）/ keyboard（快捷键+方向键）/ trash（垃圾桶弹窗）/ search（搜索栏定位）/ preview（预览框：开关/贴边/调宽/详情）/ shortcuts（快捷键面板）/ aspect（画幅比：applyAspect 注入 + 对话框）/ main（入口接线）
 - 改名：`cmd_rename_shot`（queue.py）四层联动实现
 - 测试：改完跑 `python3 scripts/audit.py`（41 项，含 v0.2-v0.5 全部端点+垃圾桶/撤销链+多图保帧/rename 四层/时长对齐）+ `python3 scripts/audit_context_menu.py`（12 项：打开/重拍封面/复制/软删+purge）；网页 JS 改动另需 webbridge 全交互回归

@@ -5,10 +5,30 @@ preset (location/rotation) and the optional background-image attach used to
 be copy-pasted in three places. Keep it here, once.
 """
 import os
+import json
 import bpy
 
 DEFAULT_CAM_LOCATION = (7, -7, 5)
 DEFAULT_CAM_ROTATION = (1.1, 0, 0.785)
+
+
+def _project_resolution():
+    """画幅比/分辨率设置（v0.9.7）：读当前项目 project.json。
+    返回 (w, h) 或 None（无项目/无字段/坏文件 → 不动场景默认分辨率）。
+    用 bpy.data.filepath 推导 project_dir（pitfall 49：零转义）。"""
+    try:
+        blend = bpy.data.filepath
+        if not blend:
+            return None
+        project_dir = os.path.join(
+            os.path.dirname(blend),
+            os.path.splitext(os.path.basename(blend))[0] + "_storyboard")
+        with open(os.path.join(project_dir, "project.json"), encoding="utf-8") as f:
+            pj = json.load(f)
+        w, h = int(pj["resolution_x"]), int(pj["resolution_y"])
+        return (w, h) if w > 0 and h > 0 else None
+    except Exception:
+        return None
 
 
 def create_shot_scene(shot_name, scene_name=None, image_path=None,
@@ -27,6 +47,11 @@ def create_shot_scene(shot_name, scene_name=None, image_path=None,
         new_scene.render.fps = template_scene.render.fps
         new_scene.render.resolution_x = template_scene.render.resolution_x
         new_scene.render.resolution_y = template_scene.render.resolution_y
+    else:
+        # v0.9.7：无模板时按项目画幅设置（网页/API 创建路径）
+        res = _project_resolution()
+        if res:
+            new_scene.render.resolution_x, new_scene.render.resolution_y = res
 
     cam_data = bpy.data.cameras.new(name=f"Cam_{shot_name}")
     cam_obj = bpy.data.objects.new(name=f"Cam_{shot_name}", object_data=cam_data)

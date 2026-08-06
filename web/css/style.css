@@ -86,7 +86,7 @@
         }
         .skel-thumb {
             width: 100%;
-            aspect-ratio: 16/9;
+            aspect-ratio: var(--aspect, 1.778);  /* v0.9.7：画幅跟随项目设置 */
             background: linear-gradient(100deg, #2a2a2a 30%, #363636 50%, #2a2a2a 70%);
             background-size: 200% 100%;
             animation: shimmer 1.4s ease-in-out infinite;
@@ -196,7 +196,7 @@
         }
         .shot-thumb {
             width: 100%;
-            aspect-ratio: 16/9;
+            aspect-ratio: var(--aspect, 1.778);
             object-fit: cover;
             background: #333;
             /* v0.9.5 修复：禁原生图片拖拽（配合 dnd.js 全局 dragstart 拦截）——
@@ -212,7 +212,7 @@
         .frame-stack {
             position: relative;
             width: 100%;
-            aspect-ratio: 16/9;
+            aspect-ratio: var(--aspect, 1.778);
         }
         .frame-stack .frame-img {
             position: absolute;
@@ -282,7 +282,7 @@
                16/9 的图更高（210 vs 203），跨行展开时行高不一致（底衬锯齿）；
                统一高度后伸出格靠 object-fit: cover 裁掉溢出，所有帧格同高 */
             aspect-ratio: auto;
-            height: calc(var(--frame-w, var(--card-min)) * 9 / 16);
+            height: calc(var(--frame-w, var(--card-min)) * var(--aspect-h, 0.5625));
             object-fit: cover;
             background: #333;
             border-radius: 6px;
@@ -433,7 +433,7 @@
             /* v0.9.4：宽度跟随 --list-scale（预览开启时列表等比缩小），
                否则缩略图保持原始 80px 溢出列宽盖住镜头名 */
             width: calc(var(--list-thumb-w) * var(--list-scale));
-            aspect-ratio: 16/9;
+            aspect-ratio: var(--aspect, 1.778);
         }
         .thumb-wrap .shot-thumb {
             width: 100%;
@@ -462,7 +462,7 @@
             pointer-events: auto;
             width: auto;
             height: 100%;
-            aspect-ratio: 16/9;
+            aspect-ratio: var(--aspect, 1.778);
         }
         .shot-card.list-item .shot-thumb {
             width: calc(var(--list-thumb-w) * var(--list-scale));
@@ -471,7 +471,7 @@
         }
         .shot-card.list-item .shot-thumb,
         .shot-card.list-item .list-frames .frame-thumb img {
-            aspect-ratio: 16/9;
+            aspect-ratio: var(--aspect, 1.778);
         }
         .shot-card.list-item .shot-name { margin-bottom: 0; }
         .multi-badge {
@@ -523,7 +523,7 @@
         }
         .list-frames .frame-thumb {
             width: 56px;
-            aspect-ratio: 16/9;
+            aspect-ratio: var(--aspect, 1.778);
             border-radius: 3px;
             overflow: hidden;
             cursor: pointer;
@@ -637,6 +637,21 @@
         }
         .size-slider .bar-btn:hover { background: #444; }
         .size-slider .bar-btn.active-view { background: #4a9eff; color: #fff; }
+        /* v0.9.8：台词开关按钮的高亮态（工具条按钮在 header，选择器放宽到全局） */
+        .bar-btn.active-view { background: #4a9eff; color: #fff; }
+        /* 台词框双击就地编辑输入框（v0.9.8，复用卡片改名输入框同款外观） */
+        .dialogue-edit {
+            width: 100%;
+            background: #0f1114;
+            border: 1px solid #4a9eff;
+            border-radius: 4px;
+            color: #e0e0e0;
+            font-size: 12px;
+            line-height: 1.5;
+            padding: 1px 4px;
+            outline: none;
+            box-sizing: border-box;
+        }
         #trashCount {
             background: #c0392b;
             color: #fff;
@@ -1069,3 +1084,39 @@
         body.trash-mode #btnTimeline { display: none; }
         body.trash-mode .header h1 { color: #ff9b6b; }
         body.trash-mode #trashBtn { background: #4a9eff; color: #fff; }
+
+        /* ---- 宫格台词条（v0.9.8）：排间独立行，台词框宽度可拖右沿调整（持久化）---- */
+        .dialogue-strip {
+            grid-column: 1 / -1;   /* 独占整行，把下一排顶下去 = 排间多出一行 */
+            pointer-events: auto;
+        }
+        .dialogue-box {
+            position: relative;   /* resize 手柄的定位基准 */
+            display: inline-block;
+            max-width: 100%;
+            background: #16181d;
+            border: 1px solid #2a2e37;
+            border-radius: 6px;
+            padding: 6px 14px 6px 9px;  /* 右侧多留 5px 给手柄 */
+            font-size: 12px;
+            line-height: 1.5;
+            color: #c8cdd5;
+            white-space: pre-wrap;      /* 自动换行 */
+            word-break: break-word;
+        }
+        .dialogue-resize {
+            position: absolute;
+            top: 0; right: -3px;
+            width: 8px; height: 100%;
+            cursor: col-resize;
+        }
+        .dialogue-resize::after {       /* 右沿视觉手柄（hover 亮起） */
+            content: '';
+            position: absolute;
+            top: 20%; bottom: 20%;
+            right: 3px;
+            width: 2px;
+            border-radius: 1px;
+            background: #3a3f4a;
+        }
+        .dialogue-box:hover .dialogue-resize::after { background: #4a9eff; }
