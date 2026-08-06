@@ -20,70 +20,210 @@ function cardKey(shot) {
     return base + '' + frames + '' + expanded + '' + mode + '' + dlg;
 }
 
-// ---- 宫格台词条（v0.9.8）----
-// 某排有台词镜头 → 排间多出一行放台词；台词框宽度可拖右沿调整（localStorage 持久化），
-// 文本自动换行。实现 = 每个台词镜头一条独立行条（grid-column:1/-1），key=shotId 差分管理；
-// 位置 = 该镜头所在排的最后一个格位之后（insertAdjacentElement afterend，把下一排顶下去）。
+// ---- 宫格台词条（v0.9.8 / v0.9.9 重构：同排合并为一条父条）----
+// v0.9.9：原实现"每台词镜头一条独立整行条"——同排多个台词镜头 = 多行条（台词被拆多行），
+// 且每排凭空多 N 行。重构为：每个"有台词的排"一条父条（grid-column:1/-1 占一行），
+// 父条内每个台词镜头一个台词框（margin-left 对齐到对应卡片列）——同排 N 个台词镜头
+// = 一行并排 N 框，排只多一行。无台词排不建父条（零占行）。
+// 动画：新建 fade-in（.dialogue-in，播完摘类）；删除原地淡出（.dialogue-leave：
+// absolute 锁视觉位置脱离 grid 流，父条释放整行布局由 renderGrid 的 FLIP 吸收，淡完 remove）。
 // 列表/宫格功能对等原则不适用：列表已有台词列，台词条只在宫格显示（垃圾桶/列表隐藏）。
-const DLG_KEY = 'sb-dialogue-w';
-let dlgWidth = parseInt(localStorage.getItem(DLG_KEY) || '', 10) || 0;  // 0 = 未调整过（跟随卡片宽）
+// v0.9.11：每条台词框两种状态——自动大小（默认：宽度 = 卡片宽，随缩放同步变化）/
+// 自定义（拖动手柄或取消勾选后固定宽度）。状态 = map 里有没有该镜头：
+// 无 = 自动（跟随列宽），有 = 自定义（固定值）。手动拖动自动写入 map（解除同步）。
+// v0.9.10 的全局默认 sb-dialogue-w 已废弃（需求：默认必须跟卡片同步，不保留固定默认值）。
+const DLG_MAP_KEY = 'sb-dialogue-w-map';  // per-shot 自定义宽度：{shotId: width}
+let dlgWidthMap = (() => {
+    try { return JSON.parse(localStorage.getItem(DLG_MAP_KEY) || '{}') || {}; }
+    catch { return {}; }
+})();
 
-function dialogueWidth() {
-    if (dlgWidth > 0) return dlgWidth;
+// 每条宽度：map 有值 = 自定义；无 = 自动跟随卡片宽（列宽），缩放同步变化
+function dialogueWidthOf(shotId) {
+    const w = dlgWidthMap[shotId];
+    if (w > 0) return w;
     const colW = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--card-min')) || 200;
     return colW;
 }
 
-function makeDialogueStrip() {
+// 自动大小开关（右键菜单调用）：auto=true 恢复跟随卡片（删覆盖值）；
+// auto=false 固定当前显示宽度（取消勾选瞬间宽度不变，之后不再随缩放）
+export function setDialogueAuto(shotId, auto) {
+    if (auto) {
+        delete dlgWidthMap[shotId];
+    } else {
+        const box = grid.querySelector(`.dialogue-box[data-dlg-id="${shotId}"]`);
+        const w = Math.round(box ? box.getBoundingClientRect().width : dialogueWidthOf(shotId));
+        if (w > 0) dlgWidthMap[shotId] = w;
+    }
+    localStorage.setItem(DLG_MAP_KEY, JSON.stringify(dlgWidthMap));
+    updateDialogue();  // 立即应用（宽度就地更新，无需整页渲染）
+}
+
+// 当前是否自动大小（右键菜单勾选状态用）
+export function isDialogueAuto(shotId) {
+    return !dlgWidthMap[shotId];
+}
+
+function makeDialogueRow() {
     const el = document.createElement('div');
     el.className = 'dialogue-strip';
-    el.innerHTML = `<div class="dialogue-box"><span class="dialogue-text"></span><div class="dialogue-resize" title="拖拽调整台词框宽度"></div></div>`;
     return el;
 }
 
-// renderGrid 完事后调用：按当前列数给每个有台词的镜头各管一条 strip——
-// 位置不对就挪（insertAdjacentElement 对已挂载节点是移动不是复制，无"先remove后insert"同帧抖动）；
-// 文本/宽度/偏移有变才写（差分友好，不干扰 FLIP）
+function makeDialogueBox(shotId) {
+    const el = document.createElement('div');
+    el.className = 'dialogue-box';
+    el.dataset.dlgId = shotId;
+    el.innerHTML = `<span class="dialogue-text"></span><div class="dialogue-resize" title="拖拽调整台词框宽度"></div>`;
+    return el;
+}
+
+// 原地淡出：锁当前视觉位置（offset 系相对 grid——grid 的 will-change:transform 使
+// 其成为 offsetParent/containing block）→ absolute 脱离 grid 流（布局释放）→ 淡完 remove。
+// 父条的 left/right 由 CSS 拉伸，top 由调用方按需设置；box 的 left/top 由调用方设置。
+function ghostOut(el, ms = 200) {
+    if (!el.isConnected) return;
+    el.classList.add('dialogue-leave');
+    setTimeout(() => el.remove(), ms + 30);
+}
+
+// 入场淡入（新建节点专用；动画类播完即摘——类留着重插 DOM 会重播）
+function fadeIn(el) {
+    el.classList.add('dialogue-in');
+    el.addEventListener('animationend', () => el.classList.remove('dialogue-in'), { once: true });
+}
+
+// renderGrid 完事后调用（v0.9.9 起在 animateFrom 之前——父条增删引起的全页位移必须
+// 落在 FLIP 播放前，才能被同一轮动画吸收）：
+// 按排分组（offsetTop 相同 = 同排）→ 每排至多一条父条（插在该排最后一个格位后，
+// insertAdjacentElement 对已挂载节点是移动不是复制，无"先remove后insert"同帧抖动）；
+// 父条内每个台词镜头一个 box，margin-left 对齐卡片列（card.offsetLeft 直接可用：
+// grid 是 will-change:transform 的 offsetParent）；文本/宽度/偏移有变才写（差分友好）
 export function updateDialogue() {
+    // 关闭态（列表/垃圾桶/台词开关关）：所有父条淡出删除，不占行
     const off = state.viewMode !== 'grid' || state.trashMode || !state.dialogueOn;
-    const want = off ? []
-        : state.shots.filter(s => s.dialogue && s.dialogue.trim());
-    const wantIds = new Set(want.map(s => s.id));
-    // 移除已不再有台词的 strip
-    grid.querySelectorAll('.dialogue-strip').forEach(el => {
-        if (!wantIds.has(el.dataset.dlgId)) el.remove();
-    });
-    if (!want.length) return;
-    const cards = [...grid.querySelectorAll('.shot-card')];
-    for (const shot of want) {
-        const card = cards.find(c => c.dataset.id === shot.id && !c.dataset.frameId);
-        if (!card) continue;
-        let strip = grid.querySelector(`.dialogue-strip[data-dlg-id="${shot.id}"]`);
-        if (!strip) {
-            strip = makeDialogueStrip();
-            strip.dataset.dlgId = shot.id;
-        }
-        // 文本（textContent 赋值自带转义，无 XSS 面）；双击编辑中不覆盖（editingDlg）
-        const t = strip.querySelector('.dialogue-text');
-        if (state.editingDlg !== shot.id && t.textContent !== shot.dialogue) t.textContent = shot.dialogue;
-        // 宽度（手动调过 = 固定值；未调过 = 跟随列宽）
-        const box = strip.querySelector('.dialogue-box');
-        const w = dialogueWidth() + 'px';
-        if (box.style.width !== w) box.style.width = w;
-        // 左偏移 = 卡片左缘（视口坐标差，对任何 offsetParent 都正确——
-        // v0.9.8 曾多加 body padding 16 导致台词框比卡片右偏 16px，用户发现）
-        const ml = Math.round(card.getBoundingClientRect().left - grid.getBoundingClientRect().left) + 'px';
-        if (box.style.marginLeft !== ml) box.style.marginLeft = ml;
-        // 位置：本排最后一个格位之后
-        const rowTop = card.offsetTop;
-        let last = card;
-        for (const c of cards) {
-            if (c.offsetTop === rowTop && c.offsetLeft > last.offsetLeft) last = c;
-        }
-        if (strip.previousElementSibling !== last) {
-            last.insertAdjacentElement('afterend', strip);
-        }
+    const want = off ? [] : state.shots.filter(s => s.dialogue && s.dialogue.trim());
+    if (!want.length) {
+        grid.querySelectorAll('.dialogue-strip:not(.dialogue-leave)').forEach(el => {
+            el.style.top = el.offsetTop + 'px';
+            ghostOut(el);
+        });
+        return;
     }
+    // v0.9.9 修正：先把现有父条临时移到 grid 末尾（布局净化）再分组——旧父条未归位时
+    // 会干扰 grid auto-placement（缩放后 CSS 变量先变、父条还占着旧行，卡片排布被挤乱，
+    // row.last 算错 → 父条插错位置后每轮自锁；reload 首帧无父条所以总是对的，一缩放就错）。
+    // 同任务内移动节点无渲染帧，不闪；末尾的父条不再干扰前面卡片的行排布。
+    const existingStrips = [...grid.querySelectorAll('.dialogue-strip:not(.dialogue-leave)')];
+    existingStrips.forEach(el => grid.appendChild(el));
+    const allCards = [...grid.querySelectorAll('.shot-card')];
+    // v0.9.9 展开态修复：展开态镜头无主卡片（只渲染帧格）——分组锚 = 最后一个帧格
+    // （台词条落在展开区最后一行之后，帧格 DOM 连续、父条插在整行最右后不推挤其他卡片），
+    // 对齐锚 = 第一个帧格（台词框左缘对齐展开区左缘）
+    const anchorOf = new Map(allCards.filter(c => !c.dataset.frameId).map(c => [c.dataset.id, c]));
+    for (let i = allCards.length - 1; i >= 0; i--) {
+        const c = allCards[i];
+        if (c.dataset.frameId && !anchorOf.has(c.dataset.id)) anchorOf.set(c.dataset.id, c);
+    }
+    const alignOf = new Map(allCards.filter(c => !c.dataset.frameId).map(c => [c.dataset.id, c]));
+    for (const c of allCards) {
+        if (c.dataset.frameId && !alignOf.has(c.dataset.id)) alignOf.set(c.dataset.id, c);
+    }
+    // 按排分组：top → { last: 该排最右格位(含展开帧格), shots: [台词镜头] }
+    const rows = new Map();
+    for (const shot of want) {
+        const card = anchorOf.get(shot.id);
+        if (!card) continue;
+        const top = card.offsetTop;
+        let r = rows.get(top);
+        if (!r) {
+            r = { top, last: card, shots: [] };
+            rows.set(top, r);
+        }
+        r.shots.push(shot);
+    }
+    if (!rows.size) return;
+    // 补排尾：同排 offsetLeft 最大的格位（展开态帧格也算，父条插它后面才不挤乱布局）
+    for (const c of allCards) {
+        const r = rows.get(c.offsetTop);
+        if (r && c.offsetLeft > r.last.offsetLeft) r.last = c;
+    }
+    const rowList = [...rows.values()].sort((a, b) => a.top - b.top);
+    // 父条对账：现有父条（DOM 顺序 = 排顺序）与排组一一对应；多的淡出删除
+    const strips = [...grid.querySelectorAll('.dialogue-strip:not(.dialogue-leave)')];
+    while (strips.length > rowList.length) {
+        const el = strips.pop();
+        el.style.top = el.offsetTop + 'px';
+        ghostOut(el);
+    }
+    // box 对账：全部现有 box（含在旧父条里的）按 dlgId 索引，换排 = 移动节点
+    const boxMap = new Map();
+    grid.querySelectorAll('.dialogue-box:not(.dialogue-leave)').forEach(b => boxMap.set(b.dataset.dlgId, b));
+    // v0.9.9 修正：多余判断必须全局化（box 不属于任何排组才是真多余）——
+    // 原 per-strip 判断会在 box 移到新父条前先把它判死 ghost（4 列缩放实测：除首排外
+    // 所有父条 box 被清空），因为旧父条里的 box 属于"别的排组"，不该在旧父条处被删。
+    const allWant = new Set();
+    rowList.forEach(r => r.shots.forEach(s => allWant.add(s.id)));
+    boxMap.forEach((b, id) => {
+        if (!allWant.has(id)) {
+            if (state.editingDlg === id) state.editingDlg = null;
+            ghostOut(b, 150);
+        }
+    });
+    const gridW = grid.clientWidth;
+    rowList.forEach((row, i) => {
+        let strip = strips[i];
+        if (!strip) {
+            strip = makeDialogueRow();
+            strips.push(strip);
+            grid.appendChild(strip);  // 先挂上，下面统一归位（同任务内无渲染帧，不闪）
+            fadeIn(strip);
+        }
+        if (strip.previousElementSibling !== row.last) {
+            row.last.insertAdjacentElement('afterend', strip);
+        }
+        // 组内台词镜头按列序（左→右；展开态对齐锚 = 第一个帧格）
+        row.shots.sort((a, b) => alignOf.get(a.id).offsetLeft - alignOf.get(b.id).offsetLeft);
+        // 每台词镜头一个 box：新建（fade-in）/换排移动/更新文本与位置
+        // （多余 box 已在全局阶段删除；这里只归位 + 更新）
+        const n = row.shots.length;
+        const capW = Math.max(120, Math.floor((gridW - 16 - (n - 1) * 9) / n));  // 同排并排容量钳制
+        let maxH = 0;
+        row.shots.forEach((shot, si) => {
+            const card = alignOf.get(shot.id);
+            let box = boxMap.get(shot.id);
+            if (!box) {
+                box = makeDialogueBox(shot.id);
+                boxMap.set(shot.id, box);
+                strip.appendChild(box);
+                fadeIn(box);
+            } else if (box.parentElement !== strip) {
+                strip.appendChild(box);  // 换排：移动节点
+            }
+            // 按列序插入（absolute 定位视觉不受 DOM 顺序影响，但保持整洁/
+            // 编辑顺序正确）：box 应排在组内第 si 个 box 的位置
+            const siblings = [...strip.querySelectorAll('.dialogue-box:not(.dialogue-leave)')];
+            if (siblings.indexOf(box) !== si) {
+                strip.insertBefore(box, siblings[si] || null);
+            }
+            // 文本（textContent 赋值自带转义，无 XSS 面）；双击编辑中不覆盖（editingDlg）
+            const t = box.querySelector('.dialogue-text');
+            if (state.editingDlg !== shot.id && t.textContent !== shot.dialogue) t.textContent = shot.dialogue;
+            // 宽度（v0.9.10 每条独立：per-shot 覆盖 > 全局默认 > 列宽；同排并排时受容量钳制）
+            const w = Math.min(dialogueWidthOf(shot.id), capW) + 'px';
+            if (box.style.width !== w) box.style.width = w;
+            // 左偏移 = 卡片左缘（absolute left 相对父条内容左缘 = grid 左缘；card.offsetLeft
+            // 相对 grid 的 offsetParent 坐标，v0.9.9 起替代 getBoundingClientRect——零 reflow、
+            // FLIP 动画期间免疫 transform 污染；v0.9.8 曾多加 body padding 16 右偏 16px）
+            const l = card.offsetLeft + 'px';
+            if (box.style.left !== l) box.style.left = l;
+            maxH = Math.max(maxH, box.offsetHeight);
+        });
+        // 父条高 = 该排最高 box（absolute 子元素不撑高父条，需显式设；有变才写）
+        const h = maxH + 'px';
+        if (strip.style.height !== h) strip.style.height = h;
+    });
 }
 
 // 拖拽调宽（右沿手柄）：mousedown 记起点，mousemove 改宽（rAF 节流），mouseup 持久化
@@ -103,20 +243,22 @@ export function initDialogueResize() {
             raf = requestAnimationFrame(() => {
                 raf = 0;
                 const w = Math.round(Math.min(Math.max(startW + ev.clientX - startX, 120), gridW - 16));
+                // v0.9.10：只改被拖的这条（每条独立宽度）——v0.9.9 曾同步应用全部 box
+                // 是全局共享宽度语义，现已废弃
                 box.style.width = w + 'px';
-                dlgWidth = w;
             });
         };
         const onUp = () => {
             document.removeEventListener('mousemove', onMove, true);
             document.removeEventListener('mouseup', onUp, true);
             document.body.style.userSelect = '';
-            // 以被拖的这个 box 的实际宽度为准（多条 strip 共享同一宽度值，
-            // 别 querySelector 第一条——那是别的镜头没拖的条，会覆盖掉拖出来的宽度）
-            const w = Math.round(box.isConnected ? box.getBoundingClientRect().width : dlgWidth);
-            if (w > 0) {
-                dlgWidth = w;
-                localStorage.setItem(DLG_KEY, String(w));
+            // v0.9.10：per-shot 持久化——以被拖 box 的实际宽度为准存 map
+            // （别 querySelector 第一条——那是别的镜头没拖的条，会覆盖掉拖出来的宽度）
+            const shotId = box.dataset.dlgId;
+            const w = Math.round(box.isConnected ? box.getBoundingClientRect().width : (dlgWidthMap[shotId] || 0));
+            if (w > 0 && shotId) {
+                dlgWidthMap[shotId] = w;
+                localStorage.setItem(DLG_MAP_KEY, JSON.stringify(dlgWidthMap));
             }
         };
         document.addEventListener('mousemove', onMove, true);
@@ -139,9 +281,39 @@ export function startDlgEdit(e, shotId) {
     if (state.editingDlg || state.trashMode) return;
     const shot = state.shots.find(s => s.id === shotId);
     if (!shot) return;
-    const strip = grid.querySelector(`.dialogue-strip[data-dlg-id="${shotId}"]`);
-    if (!strip) return;
-    const textEl = strip.querySelector('.dialogue-text');
+    let boxEl = grid.querySelector(`.dialogue-box[data-dlg-id="${shotId}"]`);
+    if (!boxEl) {
+        // v0.9.12：添加台词——无台词镜头还没有台词条，临时建一个，定位到台词条应在的
+        // 位置（卡片列 + 所在排排尾下方，与已添加台词的镜头一致）；提交后 renderGrid
+        // 归位为正式台词条，取消后 updateDialogue 按多余 box 淡出清理
+        boxEl = makeDialogueBox(shotId);
+        boxEl.style.width = dialogueWidthOf(shotId) + 'px';
+        const card = grid.querySelector(`.shot-card[data-id="${shotId}"]`);
+        if (card) {
+            const rowTop = card.offsetTop;
+            // 该排已有台词条（父条）→ 编辑框进父条，与其他台词框并排（同排多台词常态）
+            const strip = [...grid.querySelectorAll('.dialogue-strip:not(.dialogue-leave)')]
+                .find(s => s.previousElementSibling && s.previousElementSibling.offsetTop === rowTop);
+            if (strip) {
+                strip.appendChild(boxEl);
+                boxEl.style.left = card.offsetLeft + 'px';
+                boxEl.style.top = '0px';
+            } else {
+                // 无父条：定位到排尾下方（台词条应在的位置，与已添加台词的镜头一致）
+                let last = card;
+                for (const c of grid.querySelectorAll('.shot-card')) {
+                    if (c.offsetTop === rowTop && c.offsetLeft > last.offsetLeft) last = c;
+                }
+                const gap = parseFloat(getComputedStyle(grid).rowGap) || 12;
+                boxEl.style.left = card.offsetLeft + 'px';
+                boxEl.style.top = (last.offsetTop + last.offsetHeight + gap) + 'px';
+                grid.appendChild(boxEl);
+            }
+        } else {
+            grid.appendChild(boxEl);
+        }
+    }
+    const textEl = boxEl.querySelector('.dialogue-text');
     if (!textEl) return;
     // 右沿手柄（8px）上的双击不算编辑
     if (e && e.target.closest('.dialogue-resize')) return;
@@ -632,6 +804,11 @@ export function renderGrid() {
     // 否则动画从旧图宽的位置起飞；差分复用路径也靠这里重算（列宽/列数变化后）
     applyExpandedLayout();
 
+    // v0.9.9：台词条父条增删/归位必须赶在 FLIP 播放前——父条占整行，
+    // 增删引起的全页卡片位移要被同一轮 FLIP 吸收（原 v0.9.8 在 animateFrom
+    // 之后调用，台词条消失时卡片会先按"父条还在"布局飞完再跳一下）
+    updateDialogue();
+
     // 首屏门控：首屏缩略图就位后波浪式揭幕 (#1)
     if (!state.firstLoadDone) {
         state.firstLoadDone = true;
@@ -668,8 +845,6 @@ export function renderGrid() {
     // clamp 掉了（跳顶/跳到 674 类值），这里同步滚回原值；此时内容已完整，scrollY 有效，
     // 浏览器渲染帧不会再调整。首屏（scrollY=0）与 FLIP 起点帧不受影响。
     if (window.scrollY !== savedScrollY) window.scrollTo(0, savedScrollY);
-    // v0.9.8：宫格台词条（排间行）——滚动恢复后再定位/复用（读 offsetTop 需布局落定）
-    updateDialogue();
 }
 
 function gateFirstReveal() {

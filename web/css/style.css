@@ -1085,14 +1085,19 @@
         body.trash-mode .header h1 { color: #ff9b6b; }
         body.trash-mode #trashBtn { background: #4a9eff; color: #fff; }
 
-        /* ---- 宫格台词条（v0.9.8）：排间独立行，台词框宽度可拖右沿调整（持久化）---- */
+        /* v0.9.9 结构：.dialogue-strip（每有台词的排一条，grid-column:1/-1 占一行）
+           → .dialogue-box（每台词镜头一个，absolute 定位，left 由 JS 对齐卡片列）
+           v0.9.9 修正：box 不能用 inline-block+margin-left——inline-block 的 margin 是
+           流式累加的（相对前一个兄弟），同排第 2 个框的 748px 偏移会溢出父条宽度换行，
+           台词被拆成两行（父条高 = 2×box 高实锤）。absolute + left 才是绝对偏移。 */
         .dialogue-strip {
             grid-column: 1 / -1;   /* 独占整行，把下一排顶下去 = 排间多出一行 */
+            position: relative;    /* box 绝对定位的 containing block */
             pointer-events: auto;
         }
         .dialogue-box {
-            position: relative;   /* resize 手柄的定位基准 */
-            display: inline-block;
+            position: absolute;    /* v0.9.9：left/top 由 JS 对齐卡片列（替代 margin-left） */
+            left: 0; top: 0;
             max-width: 100%;
             background: #16181d;
             border: 1px solid #2a2e37;
@@ -1104,6 +1109,21 @@
             white-space: pre-wrap;      /* 自动换行 */
             word-break: break-word;
         }
+        /* v0.9.9：入场淡入（新建父条/box 播完即摘类） */
+        .dialogue-in { animation: dialogueIn 0.25s ease; }
+        @keyframes dialogueIn {
+            from { opacity: 0; transform: translateY(3px); }
+            to   { opacity: 1; transform: none; }
+        }
+        /* v0.9.9：原地淡出——absolute 锁视觉位置脱离 grid 流（布局释放由 FLIP 吸收），
+           top 由 JS 设（父条 left/right 拉伸占整行；box 的 left/top 由 JS 设） */
+        .dialogue-leave {
+            position: absolute;
+            opacity: 0;
+            transition: opacity 0.2s ease;
+            pointer-events: none;
+        }
+        .dialogue-strip.dialogue-leave { left: 0; right: 0; }
         .dialogue-resize {
             position: absolute;
             top: 0; right: -3px;

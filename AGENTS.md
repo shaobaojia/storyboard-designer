@@ -1,18 +1,16 @@
 # AGENTS.md
 
 > 给下一个 Agent（或下一个自己）的交接备忘录。**收工推送前必须更新「刚做完 / 正在做 / 下一步 / 坑」四个字段。**
-## 刚做完（v0.9.8：宫格台词条，audit 41/41 + 右键菜单 12/12 + WebBridge 核心交互 10/10 全回归）
+## 刚做完（v0.9.9~0.9.12：宫格台词条系列重构，audit 41/41 + 右键菜单 12/12 + WebBridge 全交互回归）
 
-1. **宫格卡片台词功能**（render.js/zoom.js/main.js/marquee.js/style.css）：某排存在有台词的镜头 → 该排末尾插入 `grid-column:1/-1` 的独立行条（把下一排顶下去 = 排间多出一行）；台词框左缘对齐台词镜头卡片（16+offsetLeft），文本自动换行（pre-wrap）
-2. **每台词镜头一条独立 strip**（data-dlg-id 差分管理）：插入用 `insertAdjacentElement afterend`（对已挂载节点是移动非复制，无"先 remove 后 insert"同帧抖动）；文本/宽度/偏移有变才写（差分友好，不干扰 FLIP）
-3. **宽度可拖右沿调整 + 持久化**：`.dialogue-resize` 手柄（mousedown 记起点 + rAF 节流 mousemove + clamp 120~gridW-16）；mouseup 以**被拖 box 实际宽度**为准存 `localStorage('sb-dialogue-w')`（多条 strip 共享同一宽度，别 querySelector 第一条未拖的条）；未调过 = 跟随列宽 `--card-min`
-4. **隐藏规则**：垃圾桶模式/列表视图不渲染（列表已有台词列）；缩放列数变 → zoom.js apply 注入 `relocateDialogue()` 重算位置/默认宽；marquee 框选排除列表加 `.dialogue-strip`
-5. **cardKey 加台词标记**（grid 视图非垃圾桶且有台词 → 'D'）：台词出现/消失/改行时强制重建卡片（落新行位置）；台词文本用 textContent 赋值（无 XSS 面）
-6. **全局台词开关**（工具条「台词」按钮，active-view 高亮）：点击切换 `state.dialogueOn` + localStorage('sb-dialogue-on'，默认开，与 sb-view/sb-cols 同层显示偏好)；updateDialogue off 条件 + cardKey 'D' 标记都含开关（关时台词不占行、布局回到无台词状态）；reload 保持
-7. **双击台词框就地编辑**（startDlgEdit/commitDialogue，复用 startRename 模式）：双击 .dialogue-text → input 替换（events 全 stopPropagation）→ Enter 保存/Esc 取消/blur 保存 → POST update fields.dialogue → toast 反馈；编辑锁 state.editingDlg（updateDialogue 跳过编辑中的 strip 防心跳覆盖）；右沿手柄 8px 内双击不算编辑
-8. **台词框左对齐修复**（用户发现）：marginLeft 曾多加 body padding 16 → 台词框比卡片右偏 16px；改为 `card.getBoundingClientRect().left - grid.getBoundingClientRect().left`（视口坐标差，任何 offsetParent 都正确）
+1. **v0.9.9 同排合并父条**（render.js/style.css/main.js）：原"每台词镜头一条独立整行条"（同排 N 个台词镜头 = N 行条、台词被拆多行）→ **每个有台词的排一条父条**（grid-column:1/-1 占一行），父条内每台词镜头一个 box（absolute 定位，left = card.offsetLeft 对齐卡片列，父条 position:relative 作 containing block、高度 JS 显式设 = 最高 box）；无台词排不建父条。动画：新建 fade-in（.dialogue-in 播完摘类）、删除原地淡出（.dialogue-leave absolute 锁位脱离 grid 流，布局释放由 FLIP 吸收，淡完 remove）。**两个关键修复**：①**auto-placement 自锁**——旧父条未归位时干扰卡片排布 → row.last 算错 → 父条插错位置每轮自锁（reload 首帧永远对、一缩放就错）；修法 = updateDialogue 开头先把现有父条全部移到 grid 末尾（布局净化）再分组；②**box 多余判断全局化**（不属于任何排组才是真多余，先归位后删除——per-strip 判断会在 box 移到新父条前先判死 ghost，4 列缩放除首排外全清空）。对齐用 offsetLeft（grid 是 will-change:transform 的 offsetParent，零 reflow、FLIP 免疫）；FLIP 顺序修正：updateDialogue 挪到 animateFrom 之前（父条增删位移被同一轮 FLIP 吸收）
+2. **展开态台词条保留**（v0.9.9 用户要求"展开态台词不该消失"）：双锚点——分组锚 = 最后一个帧格（台词条落在展开区最后一行之后，无空洞）、对齐锚 = 第一个帧格（台词框左缘对齐展开区左缘）；v0.9.8 及以前展开态台词条消失（无主卡片直接跳过）
+3. **v0.9.10 每条独立宽度**（用户要求"每个台词条都有自己的大小可单独调整"）：per-shot 覆盖存 `sb-dialogue-w-map`（{shotId: width}），拖拽只改被拖 box、mouseup 存 map；未调过的条跟随列宽（随卡片缩放同步变化，v0.9.11 删除了全局默认 sb-dialogue-w 的固定语义）
+4. **v0.9.11 台词框右键菜单**（menu.js）：右键台词框 → 编辑台词 + 自动大小（✓ 勾选态）；自动大小 = map 无该镜头（跟随卡片宽），取消勾选 = 固定当前宽度，手动拖动 = 自动解除+存自定义；默认（未调过）= 卡片宽并随缩放
+5. **v0.9.12 卡片右键菜单台词功能**：卡片菜单加"编辑台词/添加台词"（无台词显示"添加"）+ "自动台词大小"勾选；台词框菜单去掉"台词"标题；**添加台词定位语义**：临时建 box（编辑框出现在台词条应在的位置）——该排已有父条 → 进父条与同排台词框并排；无父条 → 显式定位到排尾下方（last.offsetTop+offsetHeight+rowGap），提交后 renderGrid 归位、取消后按多余 box 淡出清理
 
 **历史轮次**（详情曾在本文件，已压缩；关键决策见「交互/设计约定」与「坑」）：
+- v0.9.9~0.9.12：宫格台词条系列（同排合并父条/展开态保留/每条独立宽度/右键菜单自动大小/卡片菜单添加台词）——v0.9.8 的台词能力（全局开关、双击就地编辑、隐藏规则、marquee 排除、cardKey 'D'）在重构中全部保留
 - v0.9.7：画幅比/分辨率设置（对话框 + 全 scene 应用 + 新镜头跟随 + 前端动态画幅 + 旧图 cover/letterbox 适配）
 - v0.9.6：预览框三件套 / 镜头名白名单 / 路径穿越 / body 上限 / delete 非原子回滚 / undo 锁 / DB 连接泄漏 / XSS esc / 拖拽回滚 / 假成功 toast
 - v0.9.5：展开态帧图等大+间距/外沿统一（每行独立 W 公式/9px 严格）/ 拖拽插入指示线（宫格竖线/列表横线/半区判定）/ 拖拽改 Pointer Events（根治 DnD 光标问题）/ audit_context_menu JPG 化断言
@@ -34,9 +32,9 @@
 
 ## 正在做
 
-- audit 两 FAIL 已闭环：v0.9.7 重启后重跑 41/41 全过（Batch restore / Batch rename_seq 均 PASS）——印证是"Blender 队列积压致创建延迟"，重启即消；**两 audit 仍禁并行跑**（共享 DB 互清），Ctrl+C 中断留 AUDIT_* 残留需先清
+- v0.9.9~0.9.12 台词条系列全回归通过：audit 41/41 + 右键菜单 12/12 + WebBridge 交互回归（缩放档位/开关动画/双击编辑/拖宽持久化/展开态/菜单链路）——**两 audit 仍禁并行跑**（共享 DB 互清）
 - 幽灵场景累计 12 个 `__ghost_*`（第五轮 5 个 + 第七轮 7 个：c0050/c0100/c0230/c0340/c0480/c0560/c0970 等）待用户确认是否彻底删除（含 .blend 存盘防复活）；**反复出现说明 sync 自动对账（稳健性待办 7）值得优先做**
-- 测试现场：镜头数据已还原（78 个无残留，分辨率已回 1920×1080）
+- 测试现场：镜头数据已还原（78 个无残留，分辨率已回 1920×1080）；用户台词数据完整（c0020/c0130/c0250/c0330/c0120/c0380 + c0910，含用户手工调宽值 sb-dialogue-w-map）
 
 ## 下一步
 
@@ -228,6 +226,11 @@ CREATE INDEX IF NOT EXISTS idx_frames_shot ON frames(shot_id);
 - **audit 中断会让 queue 积压 → timer 假死 → 重跑 audit 在 duplicate 类用例崩**（v0.9.8 实测两次）：audit 中途 Ctrl+C/异常退出时，已入队的命令（create/duplicate 等）滞留在 `_command_queue` 不被消费（QSIZE 恒定、5s 不动），重跑 audit 时 duplicate 命令排队不执行 → `AUDIT_WEB_COPY` 找不到 StopIteration / 撞名 409。判别：MCP 查 `core.queue._command_queue.qsize()` 长期 >0 即实锤。处置：taskkill 重启 Blender（队列清空）再跑 audit——**不是 audit 脚本 bug，别对着改脚本**。
 - **台词框左偏移别用 16+offsetLeft**（v0.9.8 用户发现）：card.offsetLeft 相对 offsetParent（grid 有 will-change:transform 是 offsetParent，但别的容器下语义会变），加 body padding 16 是错的（grid 内容区左缘 = body padding 后，strip 的 marginLeft 相对 grid 内容区，再 +16 就右偏）。正确 = `Math.round(card.getBoundingClientRect().left - grid.getBoundingClientRect().left)`（视口坐标差，滚动时同滚，任何 offsetParent 都成立）。
 - **测试/还原台词数据别写死值**（v0.9.8 事故）：还原时用备份的精确原值（`backup[sid]`），别用"当前第一条 strip 的 id + 写死的另一个镜头台词"——会覆盖别的镜头（本次把用户加的 c0130 台词误覆盖成 c0020 的，靠测试输出里残留的原值救回）。页面数据可能有用户手工加的测试台词（c0250/c0330/c0120），清理时只动自己建的。
+- **node --check 是 CommonJS 模式，测不出 ESM 语法错误**（v0.9.9 白屏事故）：`forEach((shot, si) => {` 缺 `)` 时 node --check 显示通过、浏览器 ESM 解析直接 SyntaxError → 整页白屏（__sb undefined、cards 0、performance 显示 19 个 JS 全传输、window error 监听也捕获不到 module 编译错）。**改 JS 后必须 `node --input-type=module --check < file`**（stdin 按 ESM 解析报行号）；白屏诊断链：动态 import('/js/main.js').catch 拿错误 → 逐个 import 模块定位（级联 FAIL 只查第一个）
+- **台词条父条 auto-placement 自锁 + box 全局对账**（v0.9.9 实测）：①缩放后旧父条未归位占旧行 → 卡片排布被挤乱 → row.last 算错 → 父条插错位置每轮自锁（**症状：reload 首帧永远对、一缩放就错且持续**）——updateDialogue 开头先把现有父条移到 grid 末尾（布局净化）再分组；②同排多 box 不能 inline-block+margin-left（流式累加溢出换行，父条高 = 2×box 高实锤）——必须 absolute + 父条 relative + 高度 JS 显式设；③box 多余判断必须全局化（先归位后删除，per-strip 判断 4 列缩放时除首排外全清空）
+- **右键菜单测试：CDP 真右键会派生 click 把菜单立即隐藏**（v0.9.11 实测）——右键测试 = 合成事件弹菜单（mousedown/mouseup button=2）+ CDP 真左键点菜单项；reload 恢复滚动位置会让台词框 rect.top 为负 → 菜单定位视口外（先 window.scrollTo(0,0)）；台词框右键 = rDown.dlgBox 单独分支（台词框不在卡片内，closest('.shot-card') 为 null）
+- **localStorage 也是用户数据**（v0.9.12 事故）：用户拖宽自定义值存 sb-dialogue-w-map，测试后 removeItem 全清——测试动 localStorage 前必须备份、还原精确写回；**commit 断言时机**：异步 POST + 心跳 0.8s，Enter 后等 2.5s+ 再断言（1.2s 内断言假 FAIL）
+- **"添加台词"临时编辑框定位**（v0.9.12 用户追问驱动）：absolute 无 left/top 的静态位置落在卡片内部左上角（盖卡片内容）——该排已有父条 → 进父条并排；无父条 → 显式 left=card.offsetLeft、top=排尾卡片.offsetTop+offsetHeight+rowGap（读 getComputedStyle(grid).rowGap 兜底 12）
 
 ## 细节指针
 

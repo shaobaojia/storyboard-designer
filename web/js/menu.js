@@ -5,6 +5,23 @@ import { isExpanded, expandAnimated, collapseAnimated } from './frames.js';
 import { fetchShots, postShotAction, postBatch, openShot } from './data.js';
 import { updateSelectionUI, clearSelection } from './selection.js';
 import { startRename } from './rename.js';
+import { startDlgEdit, setDialogueAuto, isDialogueAuto } from './render.js';  // v0.9.11：台词框右键菜单
+
+// ---- 台词框右键菜单（v0.9.11）：编辑 / 自动大小 ----
+// v0.9.12：去掉"台词"标题，直接显示功能项
+// 自动大小勾选状态 = map 里无该镜头（render.js 语义：无 = 跟随卡片宽）
+function showDialogueMenu(x, y, shotId) {
+    const auto = isDialogueAuto(shotId);
+    const menu = document.getElementById('contextMenu');
+    menu.innerHTML = `
+        <button data-action="dlg-edit">编辑台词</button>
+        <button data-action="dlg-auto">${auto ? '✓ ' : ''}自动大小</button>
+    `;
+    menu.style.display = 'block';
+    const mw = 170, mh = menu.offsetHeight || 120;
+    menu.style.left = Math.min(x, window.innerWidth - mw - 8) + 'px';
+    menu.style.top = Math.min(y, window.innerHeight - mh - 8) + 'px';
+}
 
 // ---- 右键菜单 ----
 export function showContextMenu(x, y, shotId, frameId = null) {
@@ -63,10 +80,14 @@ export function showContextMenu(x, y, shotId, frameId = null) {
     } else {
         const expanded = isExpanded(shotId);
         const expandLabel = expanded ? '折叠' : '展开';
+        // v0.9.12：卡片菜单加台词功能——添加/编辑台词（无台词显示"添加"）+ 自动台词大小勾选
+        const hasDlg = shot && shot.dialogue && shot.dialogue.trim();
         menu.innerHTML = `
             ${isMulti ? `<button data-action="toggle-expand">${expandLabel}</button>` : ''}
             <button data-action="open">Open Shot</button>
             <button data-action="rerender">重拍封面</button>
+            <button data-action="dlg-edit">${hasDlg ? '编辑台词' : '添加台词'}</button>
+            <button data-action="dlg-auto">${isDialogueAuto(shotId) ? '✓ ' : ''}自动台词大小</button>
             <button data-action="rename">Rename</button>
             <button data-action="duplicate">Duplicate</button>
             <button class="danger" data-action="delete">Delete</button>
@@ -130,6 +151,18 @@ async function menuAction(action) {
     }
 
     switch (action) {
+        // ---- 台词框菜单（v0.9.11）----
+        case 'dlg-edit':
+            startDlgEdit(null, shotId);
+            break;
+        case 'dlg-auto': {
+            // 勾选 = 跟随卡片；取消 = 固定当前宽度（setDialogueAuto 内部处理）
+            setDialogueAuto(shotId, !isDialogueAuto(shotId));
+            // 菜单勾选态即时刷新（菜单还开着）
+            const btn = document.querySelector('#contextMenu button[data-action="dlg-auto"]');
+            if (btn) btn.textContent = (isDialogueAuto(shotId) ? '✓ ' : '') + '自动大小';
+            break;
+        }
         case 'toggle-expand':
             if (isExpanded(shotId)) collapseAnimated(shotId);
             else expandAnimated(shotId);
@@ -315,6 +348,7 @@ export function initContextMenu() {
             lastX: e.clientX, lastY: e.clientY,
             panning: false,
             card: e.target.closest('.shot-card'),
+            dlgBox: e.target.closest('.dialogue-box'),  // v0.9.11：台词框右键（不在卡片内）
             samples: [{t: performance.now(), x: e.clientX, y: e.clientY}]
         };
     });
@@ -402,6 +436,12 @@ export function initContextMenu() {
                 };
                 glideRaf = requestAnimationFrame(glide);
             }
+        } else if (st.button === 2 && st.dlgBox) {
+            // v0.9.11：台词框右键菜单（台词框不在卡片内，st.card 为空，单独分支）
+            const shotId = st.dlgBox.dataset.dlgId;
+            state.contextShotId = shotId;   // menuAction 依赖 contextShotId
+            state.contextFrameId = null;
+            showDialogueMenu(e.clientX, e.clientY, shotId);
         } else if (st.button === 2 && st.card) {
             // 原地松开在卡片上 = 弹镜头菜单（仅右键；中键原地松开无操作）
             // 点在展开态帧图上 → 帧级菜单（v0.7.0）。折叠态多图是一叠牌，

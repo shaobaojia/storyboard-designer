@@ -138,13 +138,14 @@ function initDialogueToggle() {
         renderGrid();  // cardKey 含开关标记 → 布局在开/关间切换
     });
     syncBtn();
-    // 双击台词框就地编辑（委托：strip 是动态 DOM，事件绑 document）
+    // 双击台词框就地编辑（委托：父条/box 是动态 DOM，事件绑 document）
+    // v0.9.9：data-dlg-id 移到 .dialogue-box（父条不再带 id），查 box 链
     document.addEventListener('dblclick', (e) => {
         const textEl = e.target.closest('.dialogue-text');
         if (!textEl) return;
-        const strip = textEl.closest('.dialogue-strip');
-        if (!strip || !strip.dataset.dlgId) return;
-        startDlgEdit(e, strip.dataset.dlgId);
+        const boxEl = textEl.closest('.dialogue-box');
+        if (!boxEl || !boxEl.dataset.dlgId) return;
+        startDlgEdit(e, boxEl.dataset.dlgId);
     });
 }
 
