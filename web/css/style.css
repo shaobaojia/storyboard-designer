@@ -503,14 +503,41 @@
         }
         .shot-card.list-item .shot-name-input,
         .shot-card.list-item .field-input { width: 100%; margin-bottom: 0; font-weight: 400; }
+        /* v0.9.19：内容/台词列编辑态 = 多行 textarea（高随内容，至少撑满条目内容区
+           与显示态一致；字号随列表缩放；resize:none 禁手柄、overflow:hidden 由 JS 适配） */
+        .shot-card.list-item .field-input.multiline {
+            display: block;
+            font-size: calc(12px * var(--list-scale));
+            line-height: 1.4;
+            padding: 2px 4px;
+            margin: 0;
+            resize: none;
+            overflow: hidden;
+            word-break: break-word;
+            box-sizing: border-box;
+            background: #111;
+            color: #e0e0e0;
+            border: 1px solid #4a9eff;
+            border-radius: 3px;
+            outline: none;
+            vertical-align: top;
+        }
         .shot-card.list-item .shot-meta { white-space: nowrap; }
         .shot-card.list-item .cell-text {
-            font-size: 12px;
+            font-size: calc(12px * var(--list-scale));  /* v0.9.19：字号随列表缩放 */
+            line-height: 1.4;
             color: #bbb;
-            white-space: nowrap;
+            /* v0.9.19：单行截断 → 多行文本框（内容可换行显示；超出条目高截断，
+               完整内容看编辑态）；align-self:stretch 撑满条目内容区高，上下间隔
+               与缩略图一致（条目 padding 4px + 本元素 2px = 缩略图居中间隔 6px） */
+            white-space: pre-wrap;
+            word-break: break-word;
             overflow: hidden;
-            text-overflow: ellipsis;
             cursor: text;
+            align-self: stretch;
+            display: flex;
+            align-items: center;
+            padding: 2px 0;
         }
         .shot-card.list-item .cell-text.empty { color: #555; }
         .shot-card.list-item .shot-updated {
@@ -667,18 +694,28 @@
         .size-slider .bar-btn.active-view { background: #4a9eff; color: #fff; }
         /* v0.9.8：台词开关按钮的高亮态（工具条按钮在 header，选择器放宽到全局） */
         .bar-btn.active-view { background: #4a9eff; color: #fff; }
-        /* 台词框双击就地编辑输入框（v0.9.8，复用卡片改名输入框同款外观） */
+        /* 台词框双击就地编辑输入框（v0.9.8，复用卡片改名输入框同款外观）
+           v0.9.19：input → textarea（多行自动换行适配高度，与非编辑态 box 一致大小）
+           ——padding 归 0（box 内容区已提供 6px 14px 6px 9px）、border 改 outline
+           （outline 不占布局，auto-resize 的 scrollHeight 计算无干扰）；
+           resize:none 禁右下角拖拽手柄；overflow:hidden 高度由 JS 适配禁滚动条 */
         .dialogue-edit {
+            display: block;
             width: 100%;
             background: #0f1114;
-            border: 1px solid #4a9eff;
+            border: none;
+            outline: 1px solid #4a9eff;
             border-radius: 4px;
             color: #e0e0e0;
             font-size: 12px;
             line-height: 1.5;
-            padding: 1px 4px;
-            outline: none;
+            padding: 0;
+            margin: 0;
+            resize: none;
+            overflow: hidden;
+            word-break: break-word;   /* 与 .dialogue-box 一致：极长英文单词断词换行 */
             box-sizing: border-box;
+            vertical-align: top;
         }
         #trashCount {
             background: #c0392b;

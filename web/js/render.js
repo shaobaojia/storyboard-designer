@@ -477,16 +477,29 @@ export function startDlgEdit(e, shotId) {
     if (e && e.target.closest('.dialogue-resize')) return;
 
     state.editingDlg = shotId;
-    const input = document.createElement('input');
+    // v0.9.19：input → textarea（多行自动换行适配高度，与非编辑态 box 一致大小）；
+    // Enter(无Shift)=保存、Shift+Enter=手动换行、Esc=取消、blur=保存
+    const input = document.createElement('textarea');
     input.className = 'dialogue-edit';
     input.value = shot.dialogue;
     input.draggable = false;
+    input.rows = 1;
+    input.wrap = 'soft';
     ['mousedown', 'mousemove', 'mouseup', 'dragstart', 'selectstart', 'click', 'dblclick'].forEach(t => {
         input.addEventListener(t, (ev) => ev.stopPropagation());
     });
     textEl.replaceWith(input);
-    // v0.9.13：新建父条（无父条排添加台词）高度跟实际编辑框走——input 比
-    // 台词文本矮（padding 1px vs 6px），量错高度会让提交后父条高突变
+    // v0.9.19：高度随文字量自适应（textarea 撑高 box，父条高度跟随 = 下一排即时让位）
+    const autoResize = () => {
+        input.style.height = 'auto';
+        input.style.height = input.scrollHeight + 'px';
+        const st = boxEl.closest('.dialogue-strip');
+        if (st) st.style.height = boxEl.offsetHeight + 'px';
+    };
+    input.addEventListener('input', autoResize);
+    autoResize();
+    // v0.9.13：新建父条（无父条排添加台词）高度跟实际编辑框走——量在 autoResize 后
+    //（v0.9.19 前 input 比台词文本矮 padding 1px vs 6px，量错高度会让提交后父条高突变）
     if (newStrip) newStrip.style.height = boxEl.offsetHeight + 'px';
     input.focus();
     input.select();
@@ -506,7 +519,7 @@ export function startDlgEdit(e, shotId) {
         }
     };
     input.addEventListener('keydown', (ev) => {
-        if (ev.key === 'Enter') finish(true);
+        if (ev.key === 'Enter' && !ev.shiftKey) { ev.preventDefault(); finish(true); }
         else if (ev.key === 'Escape') finish(false);
         ev.stopPropagation();
     });

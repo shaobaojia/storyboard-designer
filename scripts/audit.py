@@ -28,6 +28,11 @@ HTTP = f"http://{MCP_HOST}:{os.environ.get('SB_HTTP_PORT', '8089')}"
 
 RESULTS = []  # (category, name, ok, detail)
 
+# 审计开始前 undo 栈深度（v2026-08-07：排空循环只弹审计自己的逆操作，
+# 审计前用户/种子数据 push 的条目必须保留——曾无条件弹到 empty 误 purge
+# STD_S10 并清空 STD_S01/STD_S6 台词）。None = MCP 取不到 → 保守跳过排空。
+_UNDO_DEPTH0 = None
+
 
 def record(category, name, ok, detail=""):
     RESULTS.append((category, name, ok, detail))
@@ -415,6 +420,10 @@ print(s.camera.name if s and s.camera else "MISSING")
     api("POST", f"/api/shot/{shot['id']}",
         {"action": "set_background", "filename": "audit_bg.png", "data_base64": png_b64})
     time.sleep(4)
+    # v0.9.19：补拍 f1 成多图镜头（改名丢图 bug 的触发前提：多帧 frames 全指向旧目录）
+    api("POST", f"/api/shot/{shot['id']}", {"action": "render_frame", "frame_no": 1})
+    wait_ok("拍 f1(AUDIT_BGREN)", lambda: any(
+        f.get("frame_no") == 1 for f in (_get_shot(shot["id"]) or {}).get("frames", [])), timeout=15)
     old_dir = f"AUDIT_BGREN_{shot['id']}"
     api("POST", f"/api/shot/{shot['id']}", {"action": "rename", "new_name": "AUDIT_BGREN2"})
     wait_ok("改名 AUDIT_BGREN2", lambda: _shot_by_name("AUDIT_BGREN2") is not None, timeout=10)
@@ -448,6 +457,25 @@ print(json.dumps({{
           and info.get("bg_exists") is True)
     record("web", "Rename 四层 (DB+scene+camera+目录+bg重指)", ok,
            f"dir_new={info.get('dir_new')}, dir_old={info.get('dir_old')}, bg={info.get('bg_path')}, bg_exists={info.get('bg_exists')}")
+
+    # v0.9.19 修过的漏网 bug：改名后 frames.image_path 必须重指新目录（多图镜头
+    # 改名丢图——frames 绝对路径不随目录改名更新 → 前端 imageUrl 全丢红格子）
+    fr_rows = blender(f'''import json, sqlite3
+from core.paths import get_project_dir
+from core.db import get_db_path
+con = sqlite3.connect(get_db_path(get_project_dir()))
+rows = con.execute("SELECT frame_no, image_path FROM frames WHERE shot_id='{shot['id']}'").fetchall()
+con.close()
+print(json.dumps(rows))
+''').strip()
+    try:
+        fr_ips = json.loads(fr_rows.splitlines()[-1])
+    except Exception:
+        fr_ips = []
+    frame_ok = bool(fr_ips) and all(
+        ip and f"AUDIT_BGREN2_{shot['id']}" in ip and os.path.exists(ip)
+        for _no, ip in fr_ips)
+    record("web", "Rename 后 frames.image_path 重指新目录", frame_ok, f"frames={fr_ips}")
 
     # duplicate uniqueness: two copies without explicit names never collide
     for i in range(2):
@@ -550,18 +578,39 @@ def s2i_body():
     ok = ok and "AUDIT_TMP" not in names(st) and not any("AUDIT_TMP" in s for s in st["scenes"])
     record("web", "Undo create = purge new shot", ok, "")
 
-    # Drain whatever is left on the undo stack; the final pop must report
-    # "empty" without crashing. Inverses replayed here only touch AUDIT_*
-    # shots (user order was already restored by the reorder-undo above).
+    # Drain whatever is left on the undo stack; stop as soon as we reach the
+    # depth recorded at audit start (pre-audit user/seed operations must NOT
+    # be replayed — 2026-08-07 实测: 无条件弹到 empty 回放了审计前的逆操作,
+    # 误 purge STD_S10 并清空 STD_S01/STD_S6 台词).
     drained = False
-    for _ in range(25):
-        r = api("POST", "/api/undo", {})
-        if r.get("status") == "empty":
-            drained = True
-            break
-        time.sleep(0.5)
-    if not drained:
-        drained = wait_ok("撤销栈排空", lambda: api("POST", "/api/undo", {}).get("status") == "empty", timeout=30)
+    if _UNDO_DEPTH0 is not None:
+        for _ in range(25):
+            r = api("POST", "/api/undo", {})
+            if r.get("status") == "empty":
+                drained = True
+                break
+            try:
+                _d = int(blender("import core.undo; print(core.undo.depth())").strip())
+            except Exception:
+                _d = 0
+            if _d <= _UNDO_DEPTH0:      # 已弹到审计前深度，剩下的用户条目保留
+                drained = True
+                break
+            time.sleep(0.5)
+        if not drained:
+            # 兜底：同样的深度门控，30s 内弹完 audit 自己的即算安全排空
+            def _drain_safe():
+                r = api("POST", "/api/undo", {})
+                if r.get("status") == "empty":
+                    return True
+                try:
+                    _d = int(blender("import core.undo; print(core.undo.depth())").strip())
+                except Exception:
+                    _d = 0
+                return _d <= _UNDO_DEPTH0
+            drained = wait_ok("撤销栈排空", _drain_safe, timeout=30)
+    else:
+        drained = True  # 深度未知（MCP 异常）→ 保守跳过排空，不碰栈
     record("web", "Undo stack drains to empty safely", drained, f"last=empty")
 
     # ---- 2j. R4 features --------------------------------------------------
@@ -742,6 +791,15 @@ def main():
     # 必须在段执行前取：--only 跳过 s2h 时原 taken 为空 set，cleanup 会把
     # 用户 c00xx 镜头当测试残留误删（2026-08 发现）
     taken = {s['name'] for s in api('GET', '/api/shots')['shots']}
+    # 审计前 undo 栈深度（2026-08-07 修复：排空循环只弹审计自己的逆操作，
+    # 审计前用户/种子数据 push 的条目必须保留——曾误 purge STD_S10/清台词）
+    global _UNDO_DEPTH0
+    _UNDO_DEPTH0 = None
+    try:
+        _d = blender("import core.undo; print(core.undo.depth())").strip()
+        _UNDO_DEPTH0 = int(_d) if _d.isdigit() else None
+    except Exception:
+        _UNDO_DEPTH0 = None
     for _sid in active:
         if _sid == 's1': s1_body()
         elif _sid == 's2': s2_body()

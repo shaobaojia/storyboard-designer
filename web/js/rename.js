@@ -90,10 +90,24 @@ export function startFieldEdit(e, cellEl, shotId, field) {
     state.editingId = shotId;
     card.draggable = false;
     const oldVal = field === 'duration' ? String(shot.duration) : (shot[field] || '');
-    const input = document.createElement('input');
-    input.className = 'field-input';
+    // v0.9.19：内容/台词 = 多行 textarea（自动换行 + 高随内容，至少撑满条目内容区
+    // 与显示态一致）；时长 = 单行 input
+    const isMultiline = (field === 'content' || field === 'dialogue');
+    const input = document.createElement(isMultiline ? 'textarea' : 'input');
+    input.className = isMultiline ? 'field-input multiline' : 'field-input';
     input.value = oldVal;
     input.draggable = false;
+    if (isMultiline) {
+        input.rows = 1;
+        input.wrap = 'soft';
+        const cellH = cellEl.offsetHeight;   // 编辑前显示态高度（撑满条目内容区）
+        const autoResize = () => {
+            input.style.height = 'auto';
+            input.style.height = Math.max(input.scrollHeight, cellH) + 'px';
+        };
+        input.addEventListener('input', autoResize);
+        autoResize();
+    }
     ['mousedown', 'mousemove', 'mouseup', 'dragstart', 'selectstart', 'click', 'dblclick'].forEach(t => {
         input.addEventListener(t, (ev) => ev.stopPropagation());
     });
@@ -127,7 +141,8 @@ export function startFieldEdit(e, cellEl, shotId, field) {
         }
     };
     input.addEventListener('keydown', (ev) => {
-        if (ev.key === 'Enter') finish(true);
+        // v0.9.19：多行框 Enter=保存、Shift+Enter=换行；单行框 Enter=保存
+        if (ev.key === 'Enter' && !(isMultiline && ev.shiftKey)) { ev.preventDefault(); finish(true); }
         else if (ev.key === 'Escape') finish(false);
         ev.stopPropagation();
     });

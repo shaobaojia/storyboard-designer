@@ -447,6 +447,12 @@ def main():
     drive("if (window.__sb) { window.__sb.state.expandedShotIds.clear(); window.__sb.state.selectedIds.clear(); window.__sb.renderGrid(); }")
     time.sleep(1.0)
     wait_anim()
+    # 2026-08-07 修复：强制宫格视图初始态——localStorage 'sb-view' 可能残留 list
+    #（用户手动切过视图/Tab 快捷键持久化），各段假设初始 grid：list 下多图折叠态
+    # 帧格/台词条/--card-min 全部查不到 → 连环假 FAIL（本次 6 FAIL 根因）
+    drive("(() => { window.__sb.state.viewMode = 'grid'; localStorage.setItem('sb-view', 'grid'); window.__sb.renderGrid(); return 1; })()")
+    time.sleep(1.0)
+    wait_anim()
     ev(r"window.scrollTo(0, 0)")  # 滚动归零（pitfall 15：残留滚动让首行卡片 y 落在标题栏/视口外）
 
     only = None

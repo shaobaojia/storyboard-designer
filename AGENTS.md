@@ -2,6 +2,15 @@
 
 > 给下一个 Agent（或下一个自己）的交接备忘录。**收工推送前必须更新「刚做完 / 正在做 / 下一步 / 坑」四个字段。**
 
+## 刚做完（v0.9.19：台词条/列表多行 + rename 丢图修复 + 审计两修，2026-08-07 空库全量验证 42/42+12/12+23/23）
+
+- **宫格台词条编辑/新建态高度自适应**（render.js + style.css）：input → textarea（autoResize 高随文字量、父条高度同步、Enter=保存/Shift+Enter=换行/Esc=取消/blur=保存）；提交后正常态高度 == 编辑态（122==122 实测）
+- **列表视图内容/台词列多行文本框**（rename.js + style.css）：显示态 nowrap+ellipsis → pre-wrap 多行 + align-self:stretch 撑满条目（上下间隔 6px 与缩略图一致）；编辑态 content/dialogue → textarea（minHeight=条目内容区高）；字号 calc(12px×--list-scale) 随缩放；duration 保持单行
+- **修复真 Bug：多图镜头改名丢图**（core/queue.py cmd_rename_shot + audit.py 补断言）：改名只更新 name/scene/camera/still/thumb，frames.image_path 绝对路径不随目录改名重指 → 前端 imageUrl 全丢红格子。修 = 第 4.5 步遍历 frames 重指新目录（update_frame 顺带 bump 帧 ver）；**坑：检查存在性必须查新路径（目录已改名，查旧路径恒 False）**。audit 补断言"Rename 后 frames.image_path 重指新目录"（AUDIT_BGREN 补拍 f1 成多图再改名）→ 42 项
+- **审计修复一：audit.py undo 排空循环深度门控**（2026-08-07 空库全量实测翻车后修）：R3 段"撤销栈排空"无条件弹到 empty，会回放审计前栈里的非审计逆操作（审计前 API 造数据 → STD_S10 被 purge 误删、台词被清）。修 = main() 审计前 MCP 记 undo depth，排空只弹到该深度（None 时保守跳过）；**真实用户危害：审计前刚拖拽/改台词会被审计撤销**（2026-08-06"顺序变倒序"之谜即此）
+- **审计修复二：web_audit.py 强制宫格初始态**：localStorage 'sb-view' 残留 list（用户切过视图/Tab 持久化）时各段连环假 FAIL（多图折叠态/台词条/--card-min 全查不到，本次 6 FAIL 根因）；修 = reload 后强制 viewMode='grid' + localStorage 同步
+- 空库隔离全量验证（audit_test/audit_clean.blend，10 标准镜头）：audit 42/42 + ctx 12/12 + web 23/23；**旧库 39/44 FAIL 实锤脏数据（幽灵/乱名）导致，非代码 bug**；空库环境遗留：audit_clean 独立库 10 镜头（STD_S01-05 单图 + STD_S6-10 多图 3 帧，S01/S6/用户手加 S02 有台词），旧库 N:/.../storyboard_test.blend 77 镜头完好未动
+
 ## 刚做完（v0.9.18：六项前端改动，2026-08-07/08 已部署+实测）
 
 - **台词开关 FLIP 锚定滚动补偿修复**：captureRects 记 scrollY，animateFrom 的 dy 减滚动差（transform 起点=旧视口位置），pendingAnchor 滚动提前到 FLIP 前——页面末尾镜头 c0960 开关台词不再上下抖（实测开：574 恒钉住；关：平滑过渡）
@@ -66,7 +75,7 @@
 
 ## 正在做
 
-- **【下个会话最高优先】rename 段审计触发 Blender 崩溃（C 档弹窗）定位**：全量回归 rename_seq 超时（幽灵场景 Shot_c0060 撞名——已改名 __ghost_c0060 并存盘固化，78 镜头场景全在位）；但随后 --only=rename 段连崩 2 次（进程活+端口监听+MCP refused=C 档弹窗，audit 日志因 stdout 缓冲为空看不到崩溃前操作）；重启后手动逐步复现（创建/set_background/rename/rename_seq 单步+MCP 探活脚本 ~/AppData/Local/hermes/tmp/repro_rename_crash.py）第一次跑因脚本 bug 中断，**未定位崩溃操作**；候选：create+自动拍屏（第一次崩前 AUDIT_BGREN 创建超时=主线程已卡）或 set_background；重启后 Blender 当前 PID 45120（81 场景，3 __ghost_ 正常）；复现脚本已修好 api() 签名待跑；**崩溃定位前不要整跑 rename 段审计**
+- **【下个会话最高优先】rename 段审计触发 Blender 崩溃（C 档弹窗）定位**：全量回归 rename_seq 超时（幽灵场景 Shot_c0060 撞名——已改名 __ghost_c0060 并存盘固化，78 镜头场景全在位）；但随后 --only=rename 段连崩 2 次（进程活+端口监听+MCP refused=C 档弹窗，audit 日志因 stdout 缓冲为空看不到崩溃前操作）；重启后手动逐步复现（创建/set_background/rename/rename_seq 单步+MCP 探活脚本 ~/AppData/Local/hermes/tmp/repro_rename_crash.py）第一次跑因脚本 bug 中断，**未定位崩溃操作**；候选：create+自动拍屏（第一次崩前 AUDIT_BGREN 创建超时=主线程已卡）或 set_background；重启后 Blender 当前 PID 45120（81 场景，3 __ghost_ 正常）；复现脚本已修好 api() 签名待跑；**崩溃定位前不要整跑 rename 段审计**。**2026-08-07 空库新线索：create 链路主线程卡死已复现**（审计全过后 ~4 分钟无操作，手动创建 STD_S10 触发 HTTP+MCP 全拒——进程活+端口监听 C 档假死；重启后重建数据秒过、全量审计创建全秒过）——**与幽灵场景无关，是真实偶发问题**，候选=render_shot_files 拍屏卡主线程；repro 方向不变
 - **v0.9.14 审计体系重构已实测**：audit.py 12 段全量 41/41 + 段级（trash/undo/rerender/open）全过；ctx 4 段 12/12；web_audit 23/23（38s）；watchdog 前后端链路实测全过（web 23/23、back 41/41+12/12）。**watchdog 已退役常驻（2026-08-07 用户拍板：交付前全量回归替代自动触发，按需启动见 skill）**；--only 关键词全集（create/open/rerender/duplicate/reorder/trash/sync/rename/undo/thumb/frames/panel）待逐段实测
 - 幽灵场景：**正名幽灵 c0970-c1000 已删**（2026-08-07，rename_seq 改名失败 3 轮元凶）；**2026-08-07 审计处置再改 7 个为 __ghost_***（漏网正名幽灵 Shot_c0060/Shot_c0110 + 审计残留 AUDIT_TV/CTX_TEST/__ren_1f36814d/__un_25d46d9d/__un_5e24b41d，改名方案见坑列表 + skill pitfalls 146）；**现共 22 个 `__ghost_*`**（前缀不干扰改名）待用户确认是否彻底删除（含 .blend 存盘防复活）；**反复出现说明 sync 自动对账（稳健性待办 7）值得优先做**
 - 测试现场：镜头数据已还原（78 个无残留，分辨率已回 1920×1080）；用户台词数据完整（c0020/c0130/c0250/c0330/c0120/c0380 + c0910，含用户手工调宽值 sb-dialogue-w-map）
@@ -172,6 +181,9 @@ CREATE INDEX IF NOT EXISTS idx_frames_shot ON frames(shot_id);
 
 ## 坑（已踩过的雷）
 
+- **v0.9.19：rename 丢图根因 = frames.image_path 不随目录改名重指**（已修，cmd_rename_shot 第 4.5 步）：改名四层联动只更新 name/scene/camera/still/thumb，**frames 表绝对路径仍指旧目录 → 前端 imageUrl 全丢红格子**（多图镜头改名必现）。修复注意：**检查文件存在性必须查新路径**（目录已改名，查旧路径恒 False，白改一轮）；update_frame 重指顺带 bump 帧 ver = 前端恰好刷新
+- **v0.9.19：audit.py undo 排空循环误伤审计前操作**（已修，深度门控）：undo 栈全局共享（core/undo.py deque maxlen=20），R3 段"撤销栈排空"无条件弹到 empty 会回放审计前 push 的逆操作（实测：审计前 API 造数据 → STD_S10 被 purge、台词被清；**真实用户场景 = 审计前刚拖拽/改台词会被审计撤销**，2026-08-06"顺序变倒序"之谜即此）。修 = 审计开始前 MCP 记 undo depth，排空只弹到该深度
+- **v0.9.19：web_audit 假设初始 grid 的脆弱性**（已修，强制初始态）：localStorage 'sb-view' 残留 list（用户切过视图）时，多图折叠态帧格/台词条/--card-min 断言全查不到 → 连环假 FAIL（本次 6 FAIL 根因，非功能 bug）。修 = reload 后强制 viewMode='grid' + localStorage 同步
 - **v0.9.14：web_audit 开发六坑**：①**restore_all/重置把 Set 赋值成 [] = 页面运行时 state 污染**（expandedShotIds/selectedIds 是 Set，必须 .clear()——曾导致全页面 .has 炸、误判"跑旧 JS"）；②**浏览器无 ETag/Last-Modified 时 no-cache 也启发式缓存旧 JS**——web_audit 强制 clearBrowserCache+reload+版本探针；③**reload 后必须 bringToFront**（setTimeout/rAF 冻结 → 搜索 debounce 不跑/事件不触发）；④**合成事件可达主世界**（input/click dispatch 有效，CDP 真实输入非必需——但合成 mousedown/up 目标必须在视口内，elementFromPoint 视口外返回 null）；⑤**展开态帧格是独立卡片**（.shot-card.frame-cell 兄弟节点，不在折叠卡内部）；⑥**__zoomApply 无参**（读闭包 cols，滑块 sizeSlider 合成 input 才是驱动入口）
 - **v0.9.14：审计段拆分的两个坑**：拆函数后段内变量作用域独立（s4/s5 需自取 shot，原 s2 单函数共享变量）；SEG_REG 依赖声明漏写（s3/s4 依赖 s2，漏了段级 --only=open/rerender 会 StopIteration——全量不受影响因顺序天然对）
 - **v0.9.14：搜索是下拉结果列表，不过滤卡片**（search.js onInput → #searchResults 最多 12 条 search-item，点击 locate 定位）；**菜单项文本英文混中文**（Open Shot/Rename/Duplicate/Delete + 重拍封面/编辑台词/自动台词大小）

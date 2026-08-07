@@ -451,6 +451,19 @@ def cmd_rename_shot(params):
                 still_path=still_path if os.path.exists(still_path) else "",
                 thumb_path=thumb_path if os.path.exists(thumb_path) else "")
 
+    # 4.5) frames 行的 image_path 重指向新目录（v0.9.19 修复：改名后 frames 表
+    # 仍指向旧目录绝对路径 → 前端 imageUrl 全丢（红格子），多图镜头改名丢图。
+    # update_frame 重指会顺带 bump 帧 ver → 前端恰好刷新该帧图。undo 改名反打
+    # 时目录改回旧名、路径再次匹配，无需逆更新。）
+    if moved_new:
+        from core.db import get_frames, update_frame
+        for fr in get_frames(db_path, shot_id):
+            ip = fr.get("image_path")
+            if ip:
+                new_ip = os.path.join(moved_new, os.path.basename(ip))
+                if os.path.exists(new_ip):   # 文件确实随目录搬到新位置（目录已改名，别查旧路径）
+                    update_frame(db_path, fr["id"], image_path=new_ip)
+
     return {"renamed": f"{old_name} -> {new_name}", "scene": new_scene_name}
 
 
