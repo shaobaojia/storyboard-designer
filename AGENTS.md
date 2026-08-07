@@ -7,8 +7,9 @@
 2. **audit_context_menu.py 拆 4 段**（open/rerender/duplicate/delete），每段自建 CTX_TEST 自清（cleanup_shot），无跨段依赖，断言保持 12 项（duplicate 段的 copy 清理顺带保留 2 项删除断言）
 3. **audit_run.py 透传 --only + 环境预检 + 审计互斥锁**：`audit_run.py --only=trash` 直接可用；**preflight()**（MCP 命令响应/HTTP 在线/单实例 8089+9876 同 PID/无测试残留）不过不跑审计（exit 2）；**sb_audit.lock 互斥锁**（watchdog 与手动审计禁并行，共享 DB 互清）；修了 Traceback 无 FAIL 记录时误报"全部通过"
 4. **web_audit.py 前端交互审计（23 项 9 段 ~38s）**：render/view/expand/menu/search/zoom/preview/dialogue/keyboard。WebBridge 驱动，每段自还原 + 收尾兜底还原。预检（WebBridge 在线 + HTTP + 无残留）+ 强制 reload + **JS 版本探针**（expandedShotIds.constructor==='Set'，防浏览器缓存旧 JS）。合成事件可达主世界（input/click dispatch 有效，CDP 真实输入不需要）；展开态帧格是独立卡片（.shot-card.frame-cell 兄弟节点）；搜索是下拉结果列表不过滤卡片；菜单项文本英文 Open Shot/Rename/Duplicate/Delete 混中文；__zoomApply 无参（滑块 sizeSlider 合成 input 才是驱动入口）；reload 后必须 bringToFront
-5. **watch_audit.py 审计 watchdog（后台常驻）**：监听源码 web//core//__init__.py 变化 → web 改动自动部署+跑 web_audit（38s 不碰 Blender）/ core 改动自动部署+攒批 30s+重启 Blender+全量 41+12（~5min）。日志 ~/AppData/Local/hermes/tmp/audit_watch.log。已实测全链路（web 23/23、back 41/41+12/12）。**常驻方式：Hermes background process（当前会话 proc_e225577f70cd），会话结束需手动重启**
+5. **watch_audit.py 审计 watchdog（后台常驻）**：监听源码 web//core//__init__.py 变化 → web 改动自动部署+跑 web_audit（38s 不碰 Blender）/ core 改动自动部署+攒批 30s+重启 Blender+全量 41+12（~5min）。日志 ~/AppData/Local/hermes/tmp/audit_watch.log。已实测全链路（web 23/23、back 41/41+12/12）。**2026-08-07 用户拍板：退役常驻**（审计轻量化后全量回归移到交付前必跑 41+12+web_audit 23，开发中改哪测哪；watchdog 保留脚本、按需手动启动，查重/启动流程见 skill）
 6. **全量实测**：41+12 完整 4m47s；段级 trash 13/13(1m05s) / undo 18/18(2m07s) / rerender 6/6；ctx open 1/1；web_audit 23/23(38s)
+7. **audit.py 轮询化（2026-08-07 用户拍板）**：固定 sleep 全改 wait_ok 轮询（[HH:MM:SS] 时间戳 + 0.25s 间隔 + 0.3s 稳定确认 + 超时=FAIL+详情），整跑 6min→3m42s（41 2m07s / ctx 58s / web 37s，76/76 全过）；顺带删正名幽灵场景 c0970-c1000（撞 rename_seq 的 3 轮 FAIL 元凶）、cleanup 补 __ren 前缀；坑见坑列表末尾
 
 ### v0.9.13 明细（已推，压入历史前的存档）
 
@@ -46,8 +47,8 @@
 
 ## 正在做
 
-- **v0.9.14 审计体系重构已实测**：audit.py 12 段全量 41/41 + 段级（trash/undo/rerender/open）全过；ctx 4 段 12/12；web_audit 23/23（38s）；watchdog 前后端链路实测全过（web 23/23、back 41/41+12/12）。**watchdog 常驻中（Hermes background proc_e225577f70cd），会话结束后需手动重启 `python scripts/watch_audit.py`**；--only 关键词全集（create/open/rerender/duplicate/reorder/trash/sync/rename/undo/thumb/frames/panel）待逐段实测
-- 幽灵场景累计 12 个 `__ghost_*`（c0050/c0100/c0230/c0340/c0480/c0560/c0970 等）待用户确认是否彻底删除（含 .blend 存盘防复活）；**反复出现说明 sync 自动对账（稳健性待办 7）值得优先做**
+- **v0.9.14 审计体系重构已实测**：audit.py 12 段全量 41/41 + 段级（trash/undo/rerender/open）全过；ctx 4 段 12/12；web_audit 23/23（38s）；watchdog 前后端链路实测全过（web 23/23、back 41/41+12/12）。**watchdog 已退役常驻（2026-08-07 用户拍板：交付前全量回归替代自动触发，按需启动见 skill）**；--only 关键词全集（create/open/rerender/duplicate/reorder/trash/sync/rename/undo/thumb/frames/panel）待逐段实测
+- 幽灵场景：**正名幽灵 c0970-c1000 已删**（2026-08-07，rename_seq 改名失败 3 轮元凶）；剩余 12 个 `__ghost_*`（前缀不干扰改名）待用户确认是否彻底删除（含 .blend 存盘防复活）；**反复出现说明 sync 自动对账（稳健性待办 7）值得优先做**
 - 测试现场：镜头数据已还原（78 个无残留，分辨率已回 1920×1080）；用户台词数据完整（c0020/c0130/c0250/c0330/c0120/c0380 + c0910，含用户手工调宽值 sb-dialogue-w-map）
 
 ## 下一步
@@ -252,6 +253,8 @@ CREATE INDEX IF NOT EXISTS idx_frames_shot ON frames(shot_id);
 - **右键菜单测试：CDP 真右键会派生 click 把菜单立即隐藏**（v0.9.11 实测）——右键测试 = 合成事件弹菜单（mousedown/mouseup button=2）+ CDP 真左键点菜单项；reload 恢复滚动位置会让台词框 rect.top 为负 → 菜单定位视口外（先 window.scrollTo(0,0)）；台词框右键 = rDown.dlgBox 单独分支（台词框不在卡片内，closest('.shot-card') 为 null）
 - **localStorage 也是用户数据**（v0.9.12 事故）：用户拖宽自定义值存 sb-dialogue-w-map，测试后 removeItem 全清——测试动 localStorage 前必须备份、还原精确写回；**commit 断言时机**：异步 POST + 心跳 0.8s，Enter 后等 2.5s+ 再断言（1.2s 内断言假 FAIL）
 - **"添加台词"临时编辑框定位**（v0.9.12 用户追问驱动）：absolute 无 left/top 的静态位置落在卡片内部左上角（盖卡片内容）——该排已有父条 → 进父条并排；无父条 → 显式 left=card.offsetLeft、top=排尾卡片.offsetTop+offsetHeight+rowGap（读 getComputedStyle(grid).rowGap 兜底 12）
+- **审计轮询化四坑**（v0.9.14 续，2026-08-07 实测）：audit.py 固定 sleep → wait_ok 轮询（完成即继续）后：①queue 命令分步执行（DB 先写场景后动）→ 轮询条件满足瞬间可能命中命令执行中途 → 假 FAIL（Soft delete scene parked=False）——wait_until 条件 True 后必须 0.3s 稳定确认再返回；②轮询间隔 0.25s，别用 50ms——高频 GET /api/shots 与 rename_seq 的 SQLite 连续写抢锁，拖到 60s 超时都不够；③rename_seq 两阶段（先全改 __ren_ 临时名再统一转正式名）超时给 60s（3 镜头×2 阶段×SMB 余量），20s 必炸；④cleanup 清理条件必须含 __ren 前缀（rename_seq 失败残留 __ren_xxx 不含 AUDIT 也不以 c 开头 → 漏网逐轮累积恶性循环）
+- **正名幽灵场景破坏 rename_seq**（v0.9.14 实测 3 轮 FAIL 元凶）：场景里有 Shot_c0970-c1000（DB 无记录，sync 遗留），rename_seq 阶段 2 生成编号 c0970+ 撞场景名冲突 → 改名抛错卡 __ren_ 临时名（部分转正部分卡住，位置随机）。__ghost_ 前缀不干扰改名。处置：MCP batch_remove 删正名幽灵必须 use_global_undo=False（否则 1.2GB 撤销快照卡死假死——进程活着端口监听但 MCP 拒绝/HTTP 空响应，重启才恢复）+ **删完存盘**（purge/删除场景不存盘，重启后场景复活继续撞名）
 
 ## 细节指针
 

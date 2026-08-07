@@ -31,8 +31,55 @@ RESULTS = []  # (category, name, ok, detail)
 
 def record(category, name, ok, detail=""):
     RESULTS.append((category, name, ok, detail))
+    ts = time.strftime('%H:%M:%S')
     mark = "PASS" if ok else "FAIL"
-    print(f"  [{mark}] {name}" + (f" -- {detail}" if detail else ""))
+    print(f"  [{ts}] [{mark}] {name}" + (f" -- {detail}" if detail else ""))
+
+
+# ---- 轮询等待（2026-08-07 用户拍板：固定 sleep 防抖 → 50ms 轮询，完成即继续） ----
+# 原则：轮询条件只用 HTTP API 副作用（~10ms/次），不用 MCP（0.5~1s/次反而更慢）；
+# MCP 只留在最终断言。超时上限按操作类型给足（防 SMB/queue 抖动），超时=FAIL+详情。
+
+def _shots():
+    return api("GET", "/api/shots").get("shots", [])
+
+def _get_shot(sid):
+    for s in _shots():
+        if s["id"] == sid:
+            return s
+    return None
+
+def _shot_by_name(nm):
+    for s in _shots():
+        if s["name"] == nm:
+            return s
+    return None
+
+def wait_until(desc, cond, timeout=10.0, interval=0.25):
+    """轮询 cond() 直到 True（完成即继续）；超时抛 TimeoutError。查询瞬时异常不算超时。
+    稳定确认：cond True 后 0.3s 再验一次——queue 命令分步执行（DB 先写、场景后动），
+    避免 HTTP 查询命中命令执行中途窗口（v0.9.14 轮询化实测 Soft delete/Purge 假 FAIL）。"""
+    deadline = time.time() + timeout
+    while True:
+        try:
+            if cond():
+                time.sleep(0.3)
+                if cond():
+                    return
+        except Exception:
+            pass
+        if time.time() >= deadline:
+            raise TimeoutError(f"等待超时: {desc}（>{timeout}s）")
+        time.sleep(interval)
+
+def wait_ok(desc, cond, timeout=10.0):
+    """wait_until + 超时 → record FAIL（不中断，后续断言继续跑，重复 FAIL 同根因）。"""
+    try:
+        wait_until(desc, cond, timeout)
+        return True
+    except TimeoutError as e:
+        record("web", desc, False, str(e))
+        return False
 
 
 def blender(code, timeout=20):
@@ -118,7 +165,7 @@ def run():
 bpy.app.timers.register(run, first_interval=0.2)
 print("queued")
 ''')
-    time.sleep(5)
+    wait_ok("创建 AUDIT_CREATE(含自动拍屏)", lambda: bool((_shot_by_name("AUDIT_CREATE") or {}).get("frames")), timeout=15)
     after = state()
     ok = "AUDIT_CREATE" in names(after) and any("AUDIT_CREATE" in s for s in after["scenes"])
     record("blender", "Create Shot button", ok,
@@ -159,7 +206,7 @@ def s2_body():
     # 2a. Create
     before = state()
     r = api("POST", "/api/shots", {"name": "AUDIT_WEB", "duration": 2.0})
-    time.sleep(3)
+    wait_ok("创建 AUDIT_WEB", lambda: _shot_by_name("AUDIT_WEB") is not None, timeout=10)
     after = state()
     ok = "AUDIT_WEB" in names(after) and "Shot_AUDIT_WEB" in after["scenes"]
     record("web", "Create Shot", ok,
@@ -188,8 +235,9 @@ def s4_rerender_body():
     print("\n[4] 重拍封面 (cover frame)")
     # 2c. Rerender = 重拍封面帧（v0.8.4: 统一 frames 模型，等价旧 RenderShot）
     shot = next(s for s in api("GET", "/api/shots")["shots"] if s["name"] == "AUDIT_WEB")
+    _ver0 = shot.get("thumb_ver") or 0
     api("POST", f"/api/shot/{shot['id']}", {"action": "rerender"})
-    time.sleep(8)
+    wait_ok("重拍封面完成", lambda: (_get_shot(shot['id']) or {}).get("thumb_ver", 0) > _ver0, timeout=15)
     sid = shot["id"]
     out = blender(f'''import bpy, os
 project_dir = os.path.join(os.path.dirname(bpy.data.filepath),
@@ -204,7 +252,7 @@ def s5_duplicate_body():
     # 2d. Duplicate
     shot = next(s for s in api("GET", "/api/shots")["shots"] if s["name"] == "AUDIT_WEB")
     api("POST", f"/api/shot/{shot['id']}", {"action": "duplicate", "new_name": "AUDIT_WEB_COPY"})
-    time.sleep(3)
+    wait_ok("复制 AUDIT_WEB_COPY", lambda: _shot_by_name("AUDIT_WEB_COPY") is not None, timeout=10)
     after = state()
     ok = "AUDIT_WEB_COPY" in names(after) and "Shot_AUDIT_WEB_COPY" in after["scenes"]
     record("web", "Duplicate", ok,
@@ -212,17 +260,17 @@ def s5_duplicate_body():
 
     # 2d2. duplicate 多图保帧（v0.8.4 修过的漏网 bug：复制多图丢帧——固化防复发）
     api("POST", "/api/shots", {"name": "AUDIT_DUP", "duration": 2.0})
-    time.sleep(3)
+    wait_ok("创建 AUDIT_DUP", lambda: _shot_by_name("AUDIT_DUP") is not None, timeout=10)
     shot = next(s for s in api("GET", "/api/shots")["shots"] if s["name"] == "AUDIT_DUP")
     api("POST", f"/api/shot/{shot['id']}", {"action": "render_frame", "frame_no": 1})
-    time.sleep(6)
+    wait_ok("拍 f1(AUDIT_DUP)", lambda: any(f.get("frame_no") == 1 for f in (_get_shot(shot['id']) or {}).get("frames", [])), timeout=15)
     api("POST", f"/api/shot/{shot['id']}", {"action": "render_frame", "frame_no": 2})
-    time.sleep(6)
+    wait_ok("拍 f2", lambda: any(f.get("frame_no") == 2 for f in (_get_shot(shot['id']) or {}).get("frames", [])), timeout=15)
     src = next(s for s in api("GET", "/api/shots")["shots"] if s["id"] == shot["id"])
     src_frames = src.get("frames") or []
     src_cover = next((f["frame_no"] for f in src_frames if f.get("isCover")), None)
     api("POST", f"/api/shot/{shot['id']}", {"action": "duplicate", "new_name": "AUDIT_DUP_COPY"})
-    time.sleep(4)
+    wait_ok("复制 AUDIT_DUP_COPY(含帧拷贝)", lambda: bool((_shot_by_name("AUDIT_DUP_COPY") or {}).get("frames")), timeout=15)
     copy = next((s for s in api("GET", "/api/shots")["shots"] if s["name"] == "AUDIT_DUP_COPY"), None)
     copy_frames = (copy.get("frames") or []) if copy else []
     copy_cover = next((f["frame_no"] for f in copy_frames if f.get("isCover")), None)
@@ -247,13 +295,13 @@ def s6_reorder_body():
     ids = [s["id"] for s in shots]
     orig_order = [s["name"] for s in shots]
     api("POST", "/api/reorder", {"shot_ids": list(reversed(ids))})
-    time.sleep(1)
+    wait_ok("reorder 执行", lambda: [s["name"] for s in _shots()] != orig_order, timeout=5)
     new_order = [s["name"] for s in api("GET", "/api/shots")["shots"]]
     record("web", "Reorder", new_order[0] == shots[-1]["name"],
            f"first now {new_order[0]}")
     # undo the reversal immediately (stack top = this reorder)
     r = api("POST", "/api/undo", {})
-    time.sleep(1)
+    wait_ok("undo reorder 执行", lambda: [s["name"] for s in _shots()] == orig_order, timeout=5)
     back_order = [s["name"] for s in api("GET", "/api/shots")["shots"]]
     record("web", "Undo reorder", r.get("status") == "ok" and back_order == orig_order,
            f"undo={r.get('label')}, order restored: {back_order == orig_order}")
@@ -264,7 +312,7 @@ def s7_trash_body():
     trash_baseline = api("GET", "/api/version").get("trash_count", 0)
     shot = next(s for s in api("GET", "/api/shots")["shots"] if s["name"] == "AUDIT_WEB_COPY")
     api("POST", f"/api/shot/{shot['id']}", {"action": "delete"})
-    time.sleep(3)
+    wait_ok("软删 AUDIT_WEB_COPY", lambda: any(s["name"] == "AUDIT_WEB_COPY" for s in api("GET", "/api/trash").get("shots", [])), timeout=10)
     after = state()
     trash = api("GET", "/api/trash")
     in_trash = any(s["name"] == "AUDIT_WEB_COPY" for s in trash.get("shots", []))
@@ -279,7 +327,7 @@ def s7_trash_body():
     # restore from trash
     tid = next(s["id"] for s in api("GET", "/api/trash")["shots"] if s["name"] == "AUDIT_WEB_COPY")
     r = api("POST", f"/api/shot/{tid}", {"action": "restore"})
-    time.sleep(3)
+    wait_ok("恢复 AUDIT_WEB_COPY", lambda: _shot_by_name("AUDIT_WEB_COPY") is not None, timeout=10)
     after = state()
     ok = (r.get("status") == "ok" and "AUDIT_WEB_COPY" in names(after)
           and "Shot_AUDIT_WEB_COPY" in after["scenes"])
@@ -287,13 +335,13 @@ def s7_trash_body():
 
     # undo the restore -> shot should be back in trash
     api("POST", "/api/undo", {})
-    time.sleep(3)
+    wait_ok("undo restore 执行", lambda: any(s["name"] == "AUDIT_WEB_COPY" for s in api("GET", "/api/trash").get("shots", [])), timeout=10)
     in_trash = any(s["name"] == "AUDIT_WEB_COPY" for s in api("GET", "/api/trash")["shots"])
     record("web", "Undo restore = re-trash", in_trash, f"in_trash={in_trash}")
 
     # undo the delete -> shot should be back in the grid
     api("POST", "/api/undo", {})
-    time.sleep(3)
+    wait_ok("undo delete 执行", lambda: _shot_by_name("AUDIT_WEB_COPY") is not None, timeout=10)
     after = state()
     ok = "AUDIT_WEB_COPY" in names(after) and "Shot_AUDIT_WEB_COPY" in after["scenes"]
     record("web", "Undo delete = restore", ok, "")
@@ -301,10 +349,10 @@ def s7_trash_body():
     # purge = permanent delete, NOT undoable
     shot = next(s for s in api("GET", "/api/shots")["shots"] if s["name"] == "AUDIT_WEB_COPY")
     api("POST", f"/api/shot/{shot['id']}", {"action": "delete"})
-    time.sleep(3)
+    wait_ok("软删(二次)", lambda: any(s["name"] == "AUDIT_WEB_COPY" for s in api("GET", "/api/trash").get("shots", [])), timeout=10)
     tid = next(s["id"] for s in api("GET", "/api/trash")["shots"] if s["name"] == "AUDIT_WEB_COPY")
     api("POST", f"/api/shot/{tid}", {"action": "purge"})
-    time.sleep(3)
+    wait_ok("purge 彻底删除", lambda: not any(s["name"] == "AUDIT_WEB_COPY" for s in api("GET", "/api/trash").get("shots", [])), timeout=10)
     after = state()
     gone = ("AUDIT_WEB_COPY" not in names(after)
             and not any(s["name"] == "AUDIT_WEB_COPY" for s in api("GET", "/api/trash")["shots"])
@@ -345,10 +393,10 @@ def s2h_body():
 
     # rename: DB + scene + camera follow the new name
     api("POST", "/api/shots", {"name": "AUDIT_REN", "duration": 2.0})
-    time.sleep(3)
+    wait_ok("创建 AUDIT_REN", lambda: _shot_by_name("AUDIT_REN") is not None, timeout=10)
     shot = next(s for s in api("GET", "/api/shots")["shots"] if s["name"] == "AUDIT_REN")
     api("POST", f"/api/shot/{shot['id']}", {"action": "rename", "new_name": "AUDIT_REN2"})
-    time.sleep(3)
+    wait_ok("改名 AUDIT_REN2", lambda: _shot_by_name("AUDIT_REN2") is not None, timeout=10)
     st = state()
     cam = blender('''import bpy
 s = bpy.data.scenes.get("Shot_AUDIT_REN2")
@@ -362,14 +410,14 @@ print(s.camera.name if s and s.camera else "MISSING")
     png_b64 = ("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4"
                "2mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==")
     api("POST", "/api/shots", {"name": "AUDIT_BGREN", "duration": 2.0})
-    time.sleep(3)
+    wait_ok("创建 AUDIT_BGREN", lambda: _shot_by_name("AUDIT_BGREN") is not None, timeout=10)
     shot = next(s for s in api("GET", "/api/shots")["shots"] if s["name"] == "AUDIT_BGREN")
     api("POST", f"/api/shot/{shot['id']}",
         {"action": "set_background", "filename": "audit_bg.png", "data_base64": png_b64})
     time.sleep(4)
     old_dir = f"AUDIT_BGREN_{shot['id']}"
     api("POST", f"/api/shot/{shot['id']}", {"action": "rename", "new_name": "AUDIT_BGREN2"})
-    time.sleep(3)
+    wait_ok("改名 AUDIT_BGREN2", lambda: _shot_by_name("AUDIT_BGREN2") is not None, timeout=10)
     st = state()
     out = blender(f'''import bpy, os, json
 project_dir = os.path.join(os.path.dirname(bpy.data.filepath),
@@ -402,10 +450,9 @@ print(json.dumps({{
            f"dir_new={info.get('dir_new')}, dir_old={info.get('dir_old')}, bg={info.get('bg_path')}, bg_exists={info.get('bg_exists')}")
 
     # duplicate uniqueness: two copies without explicit names never collide
-    for _ in range(2):
+    for i in range(2):
         api("POST", f"/api/shot/{shot['id']}", {"action": "duplicate"})
-        time.sleep(2)
-    time.sleep(2)
+        wait_ok("duplicate unique", lambda: len([s for s in _shots() if s["name"].startswith("c") and s["name"] not in taken]) >= i + 1, timeout=10)
     st = state()
     dupes = sorted(n for n in names(st) if n.startswith("c") and n not in taken
                    and n != "AUDIT_REN2" and "AUDIT" not in n)
@@ -415,10 +462,10 @@ print(json.dumps({{
     # rename_seq: selection renumbered into ascending unique c-names
     for nm in ("AUDIT_S1", "AUDIT_S2", "AUDIT_S3"):
         api("POST", "/api/shots", {"name": nm, "duration": 2.0})
-        time.sleep(2)
+        wait_ok(f"创建 {nm}", lambda: _shot_by_name(nm) is not None, timeout=10)
     ids = [s["id"] for s in api("GET", "/api/shots")["shots"] if s["name"].startswith("AUDIT_S")]
     r = api("POST", "/api/batch", {"action": "rename_seq", "shot_ids": ids})
-    time.sleep(10)
+    wait_ok("rename_seq 批量改名", lambda: len([s for s in _shots() if s["id"] in ids]) == 3 and all(re.fullmatch(r"c\d{3}0", s.get("name") or "") for s in _shots() if s["id"] in ids), timeout=60)
     st = state()
     seq_names = [n for n, i, sn in st["db"] if i in ids]
     ok = (len(seq_names) == 3 and len(set(seq_names)) == 3
@@ -449,14 +496,14 @@ def s2i_body():
     old_dur = shot["duration"]
     r = api("POST", f"/api/shot/{shot['id']}", {"action": "update", "fields": {
         "content": "审计内容", "dialogue": "审计台词", "duration": 9.9}})
-    time.sleep(1)
+    wait_ok("update fields 执行", lambda: (_get_shot(shot["id"]) or {}).get("content") == "审计内容", timeout=8)
     shot2 = next(s for s in api("GET", "/api/shots")["shots"] if s["id"] == shot["id"])
     ok = (r.get("status") == "ok" and shot2.get("content") == "审计内容"
           and shot2.get("dialogue") == "审计台词" and abs(shot2["duration"] - 9.9) < 0.01)
     record("web", "update fields (content/dialogue/duration)", ok,
            f"content={shot2.get('content')!r}, dur={shot2['duration']}")
     api("POST", "/api/undo", {})
-    time.sleep(1)
+    wait_ok("undo update 执行", lambda: not (_get_shot(shot["id"]) or {}).get("content"), timeout=8)
     shot3 = next(s for s in api("GET", "/api/shots")["shots"] if s["id"] == shot["id"])
     ok = (not shot3.get("content") and not shot3.get("dialogue")
           and abs(shot3["duration"] - old_dur) < 0.01)
@@ -464,19 +511,19 @@ def s2i_body():
 
     # duplicate inserts the copy right after the source (#9), undo purges it
     api("POST", "/api/shots", {"name": "AUDIT_POS", "duration": 2.0})
-    time.sleep(3)
+    wait_ok("创建 AUDIT_POS", lambda: _shot_by_name("AUDIT_POS") is not None, timeout=10)
     order = [s["name"] for s in api("GET", "/api/shots")["shots"]]
     src_idx = order.index("AUDIT_POS")
     shot = next(s for s in api("GET", "/api/shots")["shots"] if s["name"] == "AUDIT_POS")
     r = api("POST", f"/api/shot/{shot['id']}", {"action": "duplicate"})
-    time.sleep(4)
     copy_name = r.get("new_name")
+    wait_ok("复制 AUDIT_POS", lambda: bool(copy_name) and _shot_by_name(copy_name) is not None, timeout=10)
     order2 = [s["name"] for s in api("GET", "/api/shots")["shots"]]
     ok = bool(copy_name) and copy_name in order2 and order2.index(copy_name) == src_idx + 1
     record("web", "Duplicate inserts after source", ok,
            f"{copy_name} at {order2.index(copy_name) if copy_name in order2 else '?'}, src at {src_idx}")
     api("POST", "/api/undo", {})
-    time.sleep(4)
+    wait_ok("undo duplicate 执行", lambda: bool(copy_name) and _shot_by_name(copy_name) is None, timeout=10)
     order3 = [s["name"] for s in api("GET", "/api/shots")["shots"]]
     record("web", "Undo duplicate = purge copy", copy_name not in order3,
            f"{copy_name} gone: {copy_name not in order3}")
@@ -484,21 +531,21 @@ def s2i_body():
     # rename undo: AUDIT_REN2 -> AUDIT_REN3 -> undo -> AUDIT_REN2
     shot = next(s for s in api("GET", "/api/shots")["shots"] if s["name"] == "AUDIT_REN2")
     api("POST", f"/api/shot/{shot['id']}", {"action": "rename", "new_name": "AUDIT_REN3"})
-    time.sleep(3)
+    wait_ok("改名 AUDIT_REN3", lambda: _shot_by_name("AUDIT_REN3") is not None, timeout=10)
     names_now = [s["name"] for s in api("GET", "/api/shots")["shots"]]
     ok = "AUDIT_REN3" in names_now
     api("POST", "/api/undo", {})
-    time.sleep(3)
+    wait_ok("undo rename 执行", lambda: _shot_by_name("AUDIT_REN3") is None, timeout=10)
     names_now = [s["name"] for s in api("GET", "/api/shots")["shots"]]
     ok = ok and "AUDIT_REN2" in names_now and "AUDIT_REN3" not in names_now
     record("web", "Undo rename", ok, f"names={['AUDIT_REN2' in names_now, 'AUDIT_REN3' in names_now]}")
 
     # create undo: create then undo -> shot + scene purged
     api("POST", "/api/shots", {"name": "AUDIT_TMP", "duration": 2.0})
-    time.sleep(3)
+    wait_ok("创建 AUDIT_TMP", lambda: _shot_by_name("AUDIT_TMP") is not None, timeout=10)
     ok = "AUDIT_TMP" in [s["name"] for s in api("GET", "/api/shots")["shots"]]
     api("POST", "/api/undo", {})
-    time.sleep(4)
+    wait_ok("undo create 执行", lambda: _shot_by_name("AUDIT_TMP") is None, timeout=10)
     st = state()
     ok = ok and "AUDIT_TMP" not in names(st) and not any("AUDIT_TMP" in s for s in st["scenes"])
     record("web", "Undo create = purge new shot", ok, "")
@@ -506,14 +553,16 @@ def s2i_body():
     # Drain whatever is left on the undo stack; the final pop must report
     # "empty" without crashing. Inverses replayed here only touch AUDIT_*
     # shots (user order was already restored by the reorder-undo above).
+    drained = False
     for _ in range(25):
         r = api("POST", "/api/undo", {})
         if r.get("status") == "empty":
+            drained = True
             break
-        time.sleep(2)
-    record("web", "Undo stack drains to empty safely", r.get("status") == "empty",
-           f"last={r.get('status')}")
-    time.sleep(3)
+        time.sleep(0.5)
+    if not drained:
+        drained = wait_ok("撤销栈排空", lambda: api("POST", "/api/undo", {}).get("status") == "empty", timeout=30)
+    record("web", "Undo stack drains to empty safely", drained, f"last=empty")
 
     # ---- 2j. R4 features --------------------------------------------------
 
@@ -523,15 +572,15 @@ def s2j_body():
 
     # thumb_ver: only a real render bumps it; field edits & reorders never do
     api("POST", "/api/shots", {"name": "AUDIT_TV", "duration": 2.0})
-    time.sleep(4)  # create 自带一次拍屏
+    wait_ok("创建 AUDIT_TV(含自动拍屏)", lambda: bool((_shot_by_name("AUDIT_TV") or {}).get("frames")), timeout=15)  # create 自带一次拍屏
     shot = next(s for s in api("GET", "/api/shots")["shots"] if s["name"] == "AUDIT_TV")
     v0 = shot.get("thumb_ver") or 0
     api("POST", f"/api/shot/{shot['id']}", {"action": "update", "fields": {"content": "x"}})
-    time.sleep(1)
+    wait_ok("update content=x", lambda: (_get_shot(shot["id"]) or {}).get("content") == "x", timeout=8)
     shot = next(s for s in api("GET", "/api/shots")["shots"] if s["name"] == "AUDIT_TV")
     v1 = shot.get("thumb_ver") or 0
     api("POST", f"/api/shot/{shot['id']}", {"action": "rerender"})
-    time.sleep(8)
+    wait_ok("rerender 完成(thumb_ver bump)", lambda: (_get_shot(shot["id"]) or {}).get("thumb_ver", 0) > v1, timeout=15)
     shot = next(s for s in api("GET", "/api/shots")["shots"] if s["name"] == "AUDIT_TV")
     v2 = shot.get("thumb_ver") or 0
     ok = v1 == v0 and v2 == v1 + 1
@@ -542,42 +591,43 @@ def s2j_body():
     ua_before = {s["id"]: s["updated_at"] for s in shots}
     ver_before = api("GET", "/api/version")["version"]
     api("POST", "/api/reorder", {"shot_ids": list(reversed([s["id"] for s in shots]))})
-    time.sleep(1)
+    wait_ok("reorder 执行", lambda: api("GET", "/api/version").get("version") != ver_before, timeout=5)
     shots2 = api("GET", "/api/shots")["shots"]
     ua_same = all(ua_before.get(s["id"]) == s["updated_at"] for s in shots2)
     ver_changed = api("GET", "/api/version")["version"] != ver_before
     record("web", "Reorder bumps rev, leaves updated_at alone", ua_same and ver_changed,
            f"ua_same={ua_same}, version moved={ver_changed}")
+    _vr1 = api("GET", "/api/version").get("version")
     api("POST", "/api/undo", {})  # 恢复原顺序
-    time.sleep(1)
+    wait_ok("undo reorder 执行", lambda: api("GET", "/api/version").get("version") != _vr1, timeout=5)
 
     # batch restore: delete two, restore both in one call
     for nm in ("AUDIT_BR1", "AUDIT_BR2"):
         api("POST", "/api/shots", {"name": nm, "duration": 2.0})
-        time.sleep(3)
+        wait_ok(f"创建 {nm}", lambda: _shot_by_name(nm) is not None, timeout=10)
     ids = [s["id"] for s in api("GET", "/api/shots")["shots"] if s["name"].startswith("AUDIT_BR")]
     api("POST", "/api/batch", {"action": "delete", "shot_ids": ids})
-    time.sleep(4)
+    wait_ok("batch delete 执行", lambda: len([s for s in api("GET", "/api/trash").get("shots", []) if s["name"].startswith("AUDIT_BR")]) == 2, timeout=10)
     in_trash = len([s for s in api("GET", "/api/trash")["shots"] if s["name"].startswith("AUDIT_BR")])
     tids = [s["id"] for s in api("GET", "/api/trash")["shots"] if s["name"].startswith("AUDIT_BR")]
     r = api("POST", "/api/batch", {"action": "restore", "shot_ids": tids})
-    time.sleep(4)
+    wait_ok("batch restore 执行", lambda: len([s for s in _shots() if s["name"].startswith("AUDIT_BR")]) == 2, timeout=10)
     back = len([s for s in api("GET", "/api/shots")["shots"] if s["name"].startswith("AUDIT_BR")])
     ok = in_trash == 2 and r.get("done") == 2 and back == 2
     record("web", "Batch restore from trash", ok,
            f"trash={in_trash}, restored={r.get('done')}, back={back}")
     api("POST", "/api/undo", {})  # 撤销批量恢复 = 回到垃圾桶，cleanup 会彻底清
-    time.sleep(3)
+    wait_ok("undo batch restore 执行", lambda: len([s for s in api("GET", "/api/trash").get("shots", []) if s["name"].startswith("AUDIT_BR")]) == 2, timeout=10)
 
 
 
 def s2k_body():
     # ---- 2k. v0.7.1: frames cascade on purge (接手审计发现 delete_shot 不删 frames) ----
     api("POST", "/api/shots", {"name": "AUDIT_FRC", "duration": 2.0})
-    time.sleep(3)
+    wait_ok("创建 AUDIT_FRC", lambda: _shot_by_name("AUDIT_FRC") is not None, timeout=10)
     shot = next(s for s in api("GET", "/api/shots")["shots"] if s["name"] == "AUDIT_FRC")
     api("POST", f"/api/shot/{shot['id']}", {"action": "render_frame", "frame_no": 1})
-    time.sleep(6)
+    wait_ok("拍 f1(AUDIT_FRC)", lambda: any(f.get("frame_no") == 1 for f in (_get_shot(shot['id']) or {}).get("frames", [])), timeout=15)
     n_frames = blender(f'''import sqlite3
 from core.paths import get_project_dir
 from core.db import get_db_path
@@ -586,7 +636,7 @@ print(con.execute("SELECT COUNT(*) FROM frames WHERE shot_id='{shot['id']}'").fe
 con.close()
 ''').strip()
     api("POST", f"/api/shot/{shot['id']}", {"action": "purge"})
-    time.sleep(3)
+    wait_ok("purge AUDIT_FRC(级联删帧)", lambda: _get_shot(shot['id']) is None and not any(s["id"] == shot['id'] for s in api("GET", "/api/trash").get("shots", [])), timeout=10)
     n_after = blender(f'''import sqlite3
 from core.paths import get_project_dir
 from core.db import get_db_path
@@ -605,15 +655,15 @@ def s3_body(taken):
     # soft-delete every AUDIT / audit-created c shot still in the grid...
     for shot in api("GET", "/api/shots")["shots"]:
         nm = shot["name"]
-        if "AUDIT" in nm or (nm.startswith("c") and nm not in taken):
+        if "AUDIT" in nm or "__ren" in nm or (nm.startswith("c") and nm not in taken):
             api("POST", f"/api/shot/{shot['id']}", {"action": "delete"})
-            time.sleep(2)
+            wait_ok(f"清理删 {nm}", lambda: not any(s["id"] == shot["id"] for s in _shots()), timeout=10)
     # ...then purge them out of the trash bin for real
     for shot in api("GET", "/api/trash")["shots"]:
         nm = shot["name"]
-        if "AUDIT" in nm or (nm.startswith("c") and nm not in taken):
+        if "AUDIT" in nm or "__ren" in nm or (nm.startswith("c") and nm not in taken):
             api("POST", f"/api/shot/{shot['id']}", {"action": "purge"})
-            time.sleep(2)
+            wait_ok(f"清理 purge {nm}", lambda: not any(s["id"] == shot["id"] for s in api("GET", "/api/trash").get("shots", [])), timeout=10)
     api("POST", "/api/sync", {})
     time.sleep(2)
     after = state()

@@ -75,7 +75,8 @@ def key_press(key, code=None):
 
 def record(name, ok, detail=""):
     RESULTS.append((name, ok, detail))
-    print(f"  [{'PASS' if ok else 'FAIL'}] {name}" + (f" -- {detail}" if detail else ""))
+    ts = time.strftime('%H:%M:%S')
+    print(f"  [{ts}] [{'PASS' if ok else 'FAIL'}] {name}" + (f" -- {detail}" if detail else ""))
 
 # ---------------- 工具 ----------------
 
