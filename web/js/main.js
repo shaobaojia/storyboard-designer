@@ -20,9 +20,43 @@ import { isExpanded, expandAnimated, collapseAnimated, jumpToFrame, initStackHov
 // ---- 头部按钮 ----
 document.getElementById('viewToggle').addEventListener('click', toggleView);
 document.getElementById('btnCreate').addEventListener('click', openCreateModal);
-document.getElementById('btnSync').addEventListener('click', syncScenes);
-document.getElementById('btnRefresh').addEventListener('click', forceRefresh);
 document.getElementById('btnTimeline').addEventListener('click', openTimeline);
+
+// v0.9.18：右上角主菜单（三条横线图标）——Sync DB / Refresh 移入（原 header 按钮删除）
+const menuBtn = document.getElementById('menuBtn');
+const mainMenu = document.getElementById('mainMenu');
+const fillMainMenu = () => {
+    mainMenu.innerHTML = `
+        <div class="menu-title">主菜单</div>
+        <button data-action="sync">Sync DB</button>
+        <button data-action="refresh">Refresh</button>
+    `;
+};
+fillMainMenu();
+menuBtn.addEventListener('click', (e) => {
+    e.stopPropagation();  // 防 document click 立即关闭
+    const show = mainMenu.style.display !== 'block';
+    mainMenu.style.display = show ? 'block' : 'none';
+    if (show) {
+        const r = menuBtn.getBoundingClientRect();
+        mainMenu.style.left = Math.max(8, r.right - 160) + 'px';
+        mainMenu.style.top = (r.bottom + 6) + 'px';
+    }
+});
+mainMenu.addEventListener('click', (e) => {
+    const btn = e.target.closest('button[data-action]');
+    if (!btn) return;
+    mainMenu.style.display = 'none';
+    if (btn.dataset.action === 'sync') syncScenes();
+    else if (btn.dataset.action === 'refresh') forceRefresh();
+});
+document.addEventListener('click', (e) => {
+    // 容错：合成事件 dispatch 到 document 时 target 无 closest（AGENTS.md 坑列表）
+    const t = e.target;
+    if (t && t.closest && !t.closest('#mainMenu') && !t.closest('#menuBtn')) {
+        mainMenu.style.display = 'none';
+    }
+});
 
 // ---- 卡片交互（事件委托）----
 grid.addEventListener('click', (e) => {
@@ -146,21 +180,16 @@ function initDialogueToggle() {
         return { id, rel: r.top + r.height / 2 - window.innerHeight / 2,
                  gridDocTop: grid.getBoundingClientRect().top + window.scrollY };
     };
-    const restoreAnchorDlg = (a) => {
-        if (!a) return;
-        const sel = grid.querySelector(`.shot-card[data-id="${a.id}"]`);
-        if (!sel) return;
-        const target = a.gridDocTop + sel.offsetTop + sel.offsetHeight / 2
-                     - window.innerHeight / 2 - a.rel;
-        window.scrollTo(0, Math.max(0, Math.round(target)));
-    };
+    // v0.9.18：滚动逻辑已挪进 renderGrid（state.pendingAnchor，FLIP 前滚动）——
+    // 原来 renderGrid 返回后 scrollTo 与 FLIP transform 同帧叠加，起点帧焦点不在原位
+    // （页面末尾镜头开关台词上下抖，实测 ±476px）。见 render.js pendingAnchor 块。
     btn.addEventListener('click', () => {
         const a = anchorDlg();
         state.dialogueOn = !state.dialogueOn;
         localStorage.setItem('sb-dialogue-on', state.dialogueOn ? '1' : '0');
         syncBtn();
+        state.pendingAnchor = a;
         renderGrid();
-        restoreAnchorDlg(a);
     });
     syncBtn();
     // 双击台词框就地编辑（委托：父条/box 是动态 DOM，事件绑 document）

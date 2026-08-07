@@ -124,27 +124,35 @@ export function initZoom() {
         apply();
     });
 
+    // 步进一档（v0.9.18：Ctrl+滚轮与 Ctrl++/- 键盘共用）——dir: +1 放大 / -1 缩小
+    // 列表走 12 级档位序号（round 反推，消除累计取整漂移）；宫格列数少=卡片大
+    const stepZoom = (dir) => {
+        if (window.__sb && window.__sb.state.viewMode === 'list') {
+            const maxW = listMaxW();
+            const s = (maxW - LIST_MIN_W) / 12;
+            const idx = Math.round((listThumbW - LIST_MIN_W) / s);
+            const next = Math.min(12, Math.max(0, idx + dir));
+            listThumbW = Math.round(LIST_MIN_W + next * s);
+        } else {
+            cols -= dir;
+        }
+        apply();
+    };
+
     // Ctrl+滚轮
     let pending = 0;
     document.addEventListener('wheel', (e) => {
         if (!e.ctrlKey && !e.metaKey) return;
         e.preventDefault();
         if (window.__sb && window.__sb.state.viewMode === 'list') {
-            // v0.9.3：Ctrl+滚轮全程 12 级（用户拍板）——步距 = (maxW-minW)/12，40px→maxW 恰好 12 下；
-            // 按档位序号对齐（round 反推），消除累计取整漂移
-            const maxW = listMaxW();
-            const step = (maxW - LIST_MIN_W) / 12;
-            const idx = Math.round((listThumbW - LIST_MIN_W) / step);
-            const next = Math.min(12, Math.max(0, idx + (e.deltaY > 0 ? -1 : 1)));
-            listThumbW = Math.round(LIST_MIN_W + next * step);
-            apply();
+            // v0.9.3：Ctrl+滚轮全程 12 级（用户拍板），v0.9.18 起走 stepZoom 共用档位逻辑
+            stepZoom(e.deltaY > 0 ? -1 : 1);
             return;
         }
         pending += e.deltaY;
         if (Math.abs(pending) >= 60) {
-            cols += pending > 0 ? 1 : -1;
+            stepZoom(pending > 0 ? -1 : 1);
             pending = 0;
-            apply();
         }
     }, {passive: false});
 
@@ -156,4 +164,5 @@ export function initZoom() {
     });
 
     window.__zoomApply = apply;
+    window.__zoomStep = stepZoom;  // v0.9.18：Ctrl++/- 键盘快捷键入口
 }

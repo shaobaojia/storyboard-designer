@@ -7,6 +7,7 @@ import { focusFrame } from './frames.js';
 const input = document.getElementById('searchInput');
 const results = document.getElementById('searchResults');
 let debounceTimer = null;
+let selIdx = -1;  // v0.9.18：键盘预选索引（-1 = 无预选）
 
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({
     '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
@@ -24,6 +25,7 @@ function fieldHits(shot, q) {
 function renderResults(list) {
     if (!list.length) {
         results.style.display = 'none';
+        selIdx = -1;
         return;
     }
     const typeMap = { '3d': '3D', '2d': '2D', 'ref': '参考' };
@@ -36,6 +38,16 @@ function renderResults(list) {
         </div>`;
     }).join('');
     results.style.display = 'block';
+    selIdx = -1;  // 重渲染后预选清零
+}
+
+// v0.9.18：键盘预选高亮 + 滚动到可见
+function applySel() {
+    const items = [...results.querySelectorAll('.search-item')];
+    items.forEach((it, i) => it.classList.toggle('selected', i === selIdx));
+    if (selIdx >= 0 && items[selIdx]) {
+        items[selIdx].scrollIntoView({ block: 'nearest' });
+    }
 }
 
 function onInput() {
@@ -75,19 +87,31 @@ function locate(shotId) {
 
 export function initSearch() {
     input.addEventListener('input', onInput);
-    // 输入框内 Enter = 定位第一个匹配项
+    // 输入框内 Enter = 定位预选项（无预选则第一个匹配项）；↑↓ = 预选移动
     input.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter' && results.style.display !== 'none') {
-            const first = results.querySelector('.search-item');
-            if (first) {
+        if (results.style.display === 'none') return;
+        const items = results.querySelectorAll('.search-item');
+        if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            selIdx = Math.min(selIdx + 1, items.length - 1);
+            applySel();
+        } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            selIdx = Math.max(selIdx - 1, 0);
+            applySel();
+        } else if (e.key === 'Enter') {
+            const target = selIdx >= 0 ? items[selIdx] : items[0];
+            if (target) {
                 e.preventDefault();
-                locate(first.dataset.id);
+                locate(target.dataset.id);
                 input.value = '';
                 results.style.display = 'none';
+                selIdx = -1;
                 input.blur();
             }
         } else if (e.key === 'Escape') {
             results.style.display = 'none';
+            selIdx = -1;
             input.value = '';
         }
     });
@@ -97,10 +121,14 @@ export function initSearch() {
         locate(item.dataset.id);
         input.value = '';
         results.style.display = 'none';
+        selIdx = -1;
         input.blur();
     });
     // 点击页面其他处收起
     document.addEventListener('mousedown', (e) => {
-        if (!e.target.closest('.search-wrap')) results.style.display = 'none';
+        if (!e.target.closest('.search-wrap')) {
+            results.style.display = 'none';
+            selIdx = -1;
+        }
     });
 }

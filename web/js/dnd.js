@@ -62,6 +62,23 @@ function hideDropIndicator() {
     dropIndicator.style.display = 'none';
 }
 
+// v0.9.18：指针落在卡片间隙（宫格列 gap 12px / 列表条目间距）时 elementFromPoint 命中不了
+// 卡片 → 指示线消失（用户实测拖到两镜中间竖线/横线消失）。几何兜底：找指针最近的非源卡，
+// 距离 ≤ 阈值视为"间隙命中"，指示线照常显示（线位置本就设计在 gap 中央 rect.left-7/right+5）。
+const GAP_HIT_MAX = 24;  // 间隙场景距离 ~6px，空白区远超此值不误触发
+function nearestCard(x, y, exclude) {
+    let best = null, bestD = GAP_HIT_MAX * GAP_HIT_MAX;
+    document.querySelectorAll('.shot-card').forEach(c => {
+        if (exclude && c === exclude) return;
+        const r = c.getBoundingClientRect();
+        const dx = x < r.left ? r.left - x : (x > r.right ? x - r.right : 0);
+        const dy = y < r.top ? r.top - y : (y > r.bottom ? y - r.bottom : 0);
+        const d = dx * dx + dy * dy;
+        if (d < bestD) { bestD = d; best = c; }
+    });
+    return best;
+}
+
 function updateDropIndicator(card, e, cx, cy) {
     const rect = card.getBoundingClientRect();
     const isList = state.viewMode === 'list';
@@ -125,7 +142,9 @@ export function initCardDnd() {
         drag.srcEl.style.transform = `translate(${dx}px, ${dy}px)`;  // 源卡跟随（反馈）
         // 命中检测：鼠标下的卡片（源卡 transform 移开后原位置露出下层元素）
         const el = document.elementFromPoint(e.clientX, e.clientY);
-        const card = el && el.closest ? el.closest('.shot-card') : null;
+        let card = el && el.closest ? el.closest('.shot-card') : null;
+        // v0.9.18：间隙（gap）上命中不了卡片 → 几何兜底找最近卡（两镜中间指示线不消失）
+        if (!card || card === drag.srcEl) card = nearestCard(e.clientX, e.clientY, drag.srcEl);
         if (card && card !== drag.srcEl) updateDropIndicator(card, e);
         else hideDropIndicator();
     }, true);
@@ -152,7 +171,9 @@ export function initCardDnd() {
         const fx = (e.type === 'pointercancel' && lastMove) ? lastMove.x : e.clientX;
         const fy = (e.type === 'pointercancel' && lastMove) ? lastMove.y : e.clientY;
         const el = document.elementFromPoint(fx, fy);
-        const card = el && el.closest ? el.closest('.shot-card') : null;
+        let card = el && el.closest ? el.closest('.shot-card') : null;
+        // v0.9.18：间隙上释放同样兜底（拖到两镜中间松手 = 插到该间隙，指示线不再消失）
+        if (!card || card === st.srcEl) card = nearestCard(fx, fy, st.srcEl);
         if (card && card !== st.srcEl) {
             updateDropIndicator(card, e, fx, fy);
             const pos = card.dataset.dropPos === 'after' ? 'after' : 'before';

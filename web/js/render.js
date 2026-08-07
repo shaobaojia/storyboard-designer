@@ -865,7 +865,7 @@ export function renderGrid() {
     // v0.9.3：差分重建会经过"grid 短暂变空"的中间态（复用节点移入 fragment 再挂回），
     // 浏览器在渲染帧把 scrollY clamp 掉 = 页面跳顶。任务内保存并在末尾恢复滚动位置，
     // 恢复后渲染帧时内容已完整、scrollY 有效，浏览器不再调整。
-    const savedScrollY = window.scrollY;
+    let savedScrollY = window.scrollY;  // v0.9.18：let——锚定滚动（pendingAnchor）后更新，防末尾恢复逻辑滚回去
     const oldRects = captureRects();
     const isList = state.viewMode === 'list';
     // v0.9.4：增量维护 class——整体重设 className 会冲掉其它模块挂的 class
@@ -969,6 +969,24 @@ export function renderGrid() {
     // 增删引起的全页卡片位移要被同一轮 FLIP 吸收（原 v0.9.8 在 animateFrom
     // 之后调用，台词条消失时卡片会先按"父条还在"布局飞完再跳一下）
     updateDialogue();
+
+    // v0.9.18：锚定滚动提前到 FLIP 之前（台词开关以焦点镜头为中心，v0.9.17 的
+    // restoreAnchorDlg 原在 renderGrid 返回后滚动——FLIP transform 起点是文档 offset 差，
+    // 滚动与动画同帧叠加时起点帧焦点不在原位：页面末尾镜头（c0960）上方多排父条增删
+    // 布局位移 ±476px，开关台词实测焦点上跳 356px/下掉 476px 再飞回 = 上下抖）。
+    // 滚动先落定 → animateFrom 的 dy 补偿 (captureScrollY - 当前scrollY) → 起点=旧视口位置、
+    // 终点=新视口位置（=旧 rel）→ 焦点全程钉住，周围卡片围绕它垂直扩散。
+    if (state.pendingAnchor) {
+        const a = state.pendingAnchor;
+        state.pendingAnchor = null;
+        const sel = grid.querySelector(`.shot-card[data-id="${a.id}"]`);
+        if (sel) {
+            const target = a.gridDocTop + sel.offsetTop + sel.offsetHeight / 2
+                         - window.innerHeight / 2 - a.rel;
+            savedScrollY = Math.max(0, Math.round(target));
+            window.scrollTo(0, savedScrollY);
+        }
+    }
 
     // 首屏门控：首屏缩略图就位后波浪式揭幕 (#1)
     if (!state.firstLoadDone) {
@@ -1075,8 +1093,9 @@ function rectKeyOf(el) {
 
 function captureRects() {
     const map = new Map();
+    const sy = window.scrollY;  // v0.9.18：FLIP 起点补偿滚动差（锚定滚动提前后 animateFrom 需知道滚动量）
     document.querySelectorAll('.shot-card').forEach(c => {
-        map.set(rectKeyOf(c), { left: c.offsetLeft, top: c.offsetTop });
+        map.set(rectKeyOf(c), { left: c.offsetLeft, top: c.offsetTop, scrollY: sy });
     });
     return map;
 }
@@ -1094,7 +1113,10 @@ function animateFrom(oldRects, spreadCenter = null) {
             const old = oldRects.get(rectKeyOf(c));
             if (!old) return;
             dx = old.left - c.offsetLeft;
-            dy = old.top - c.offsetTop;
+            // v0.9.18：FLIP 起点补偿滚动差——锚定滚动（台词开关）提前到 animateFrom 之前后，
+            // transform 起点按"旧视口位置"算（旧布局位置 - 滚动量），滚动与 FLIP 同帧叠加时
+            // 焦点镜头不再飞走再飞回（c0960 页面末尾镜头开关台词实测抖 ±476px 的根因）
+            dy = old.top - c.offsetTop - (old.scrollY - window.scrollY);
         }
         if (!dx && !dy) return;
         c.style.transition = 'none';

@@ -15,9 +15,10 @@
         </div>
         <div class="actions">
             <button id="btnCreate">Create Shot</button>
-            <button id="btnSync">Sync DB</button>
-            <button id="btnRefresh">Refresh</button>
             <button id="btnTimeline">Timeline</button>
+            <button id="menuBtn" class="hamburger" title="主菜单" aria-label="主菜单">
+                <span class="h-line"></span><span class="h-line"></span><span class="h-line"></span>
+            </button>
         </div>
     </div>
 
@@ -34,6 +35,9 @@
     </div>
 
     <div id="contextMenu" class="context-menu" style="display:none;"></div>
+
+    <!-- v0.9.18：右上角主菜单（三条横线）——Sync DB / Refresh 从 header 移入 -->
+    <div id="mainMenu" class="context-menu main-menu" style="display:none;"></div>
 
     <div class="size-slider">
         <span class="slider-label">缩略图</span>

@@ -2,6 +2,16 @@
 
 > 给下一个 Agent（或下一个自己）的交接备忘录。**收工推送前必须更新「刚做完 / 正在做 / 下一步 / 坑」四个字段。**
 
+## 刚做完（v0.9.18：六项前端改动，2026-08-07/08 已部署+实测）
+
+- **台词开关 FLIP 锚定滚动补偿修复**：captureRects 记 scrollY，animateFrom 的 dy 减滚动差（transform 起点=旧视口位置），pendingAnchor 滚动提前到 FLIP 前——页面末尾镜头 c0960 开关台词不再上下抖（实测开：574 恒钉住；关：平滑过渡）
+- **Ctrl++/- 缩放快捷键**：zoom.js 抽 stepZoom(dir)（滚轮与键盘共用 12 级档位/列数逻辑），keyboard.js 加 Ctrl+=/+ 放大、Ctrl+-/_ 缩小（preventDefault 阻浏览器缩放）
+- **拖拽两镜中间指示线消失修复**：elementFromPoint 在 gap 上命中不了卡片 → dnd.js 加 nearestCard 几何兜底（阈值 24px），宫格竖线/列表横线在间隙正常显示，释放也能正确落位
+- **右上角主菜单**：header 三条横线图标（.hamburger CSS 三横线），Sync DB/Refresh 从 header 移入 #mainMenu 弹层（复用 .context-menu 样式），点外关闭+document target 容错
+- **标题栏垂直对齐**：h1 line-height 30px、搜索框 height 30px、.actions 改 flex+按钮 height 30px——四元素中心差 0
+- **搜索下拉键盘预选**：↑↓ 移动 selIdx 高亮（.selected）+scrollIntoView(nearest)，Enter 定位预选项（无预选回退首项）
+- 全量回归 40/42 + 12/12 + 23/23（2 FAIL 为 rename_seq 超时——幽灵场景 Shot_c0060 撞名，已改名 __ghost_c0060 修复，待重验）
+
 ## 刚做完（v0.9.16：台词条拖拽移动/互换）
 
 1. **台词条拖拽移动/互换**（render.js `initDialogueDrag` + `moveOrSwapDialogue`，纯前端无需重启 Blender）：拖台词框体（非 resize 手柄）到其他镜头——**目标无台词 = 移动**（源 dialogue 清空、目标获得；源框淡出目标框淡入，updateDialogue 对账自动处理）；**目标有台词 = 互换**（两 dialogue 对调）。落点命中 `.shot-card`（含展开态帧格）**或 `.dialogue-box`**（目标台词条）都算目标镜头；无效区释放 = 无操作。数据 = 两次 `POST /api/shot/{id} {action:'update', fields:{dialogue}}`（各入一条 undo「修改」记录），乐观更新 + 失败反序回滚已成功请求 + 本地 state/宽度 map 一并还原；**sb-dialogue-w-map 宽度自定义值跟台词走**（移动 src→dst、互换对调）。与 initDialogueResize 互斥（pointerdown 排除 `.dialogue-resize`）、marquee 已排除 `.dialogue-strip`（v0.9.8）、trashMode/editingDlg 禁拖；CSS `.dlg-dragging`（半透明跟随 + pointer-events:none + transition:none，同 v0.9.5 卡片拖拽坑）+ `.dlg-drop-target`（蓝光高亮同 .selected 风格）。验证：WebBridge 合成 PointerEvent 驱动，移动/互换/无效落点/手柄互斥四场景 15 断言 + 截图 PIL 采样高亮 + 卡片拖拽 before/after 回归全过
@@ -56,8 +66,9 @@
 
 ## 正在做
 
+- **【下个会话最高优先】rename 段审计触发 Blender 崩溃（C 档弹窗）定位**：全量回归 rename_seq 超时（幽灵场景 Shot_c0060 撞名——已改名 __ghost_c0060 并存盘固化，78 镜头场景全在位）；但随后 --only=rename 段连崩 2 次（进程活+端口监听+MCP refused=C 档弹窗，audit 日志因 stdout 缓冲为空看不到崩溃前操作）；重启后手动逐步复现（创建/set_background/rename/rename_seq 单步+MCP 探活脚本 ~/AppData/Local/hermes/tmp/repro_rename_crash.py）第一次跑因脚本 bug 中断，**未定位崩溃操作**；候选：create+自动拍屏（第一次崩前 AUDIT_BGREN 创建超时=主线程已卡）或 set_background；重启后 Blender 当前 PID 45120（81 场景，3 __ghost_ 正常）；复现脚本已修好 api() 签名待跑；**崩溃定位前不要整跑 rename 段审计**
 - **v0.9.14 审计体系重构已实测**：audit.py 12 段全量 41/41 + 段级（trash/undo/rerender/open）全过；ctx 4 段 12/12；web_audit 23/23（38s）；watchdog 前后端链路实测全过（web 23/23、back 41/41+12/12）。**watchdog 已退役常驻（2026-08-07 用户拍板：交付前全量回归替代自动触发，按需启动见 skill）**；--only 关键词全集（create/open/rerender/duplicate/reorder/trash/sync/rename/undo/thumb/frames/panel）待逐段实测
-- 幽灵场景：**正名幽灵 c0970-c1000 已删**（2026-08-07，rename_seq 改名失败 3 轮元凶）；**2026-08-07 审计处置再改 7 个为 __ghost_***（漏网正名幽灵 Shot_c0060/Shot_c0110 + 审计残留 AUDIT_TV/CTX_TEST/__ren_1f36814d/__un_25d46d9d/__un_5e24b41d，改名方案见坑列表 + skill pitfalls 146）；**现共 19 个 `__ghost_*`**（前缀不干扰改名）待用户确认是否彻底删除（含 .blend 存盘防复活）；**反复出现说明 sync 自动对账（稳健性待办 7）值得优先做**
+- 幽灵场景：**正名幽灵 c0970-c1000 已删**（2026-08-07，rename_seq 改名失败 3 轮元凶）；**2026-08-07 审计处置再改 7 个为 __ghost_***（漏网正名幽灵 Shot_c0060/Shot_c0110 + 审计残留 AUDIT_TV/CTX_TEST/__ren_1f36814d/__un_25d46d9d/__un_5e24b41d，改名方案见坑列表 + skill pitfalls 146）；**现共 22 个 `__ghost_*`**（前缀不干扰改名）待用户确认是否彻底删除（含 .blend 存盘防复活）；**反复出现说明 sync 自动对账（稳健性待办 7）值得优先做**
 - 测试现场：镜头数据已还原（78 个无残留，分辨率已回 1920×1080）；用户台词数据完整（c0020/c0130/c0250/c0330/c0120/c0380 + c0910，含用户手工调宽值 sb-dialogue-w-map）
 
 ## 下一步
@@ -273,3 +284,6 @@ CREATE INDEX IF NOT EXISTS idx_frames_shot ON frames(shot_id);
 - 前端模块地图（19 个 JS）：`web/index.html`（骨架+CSS）+ `web/js/`：state（共享状态）/ ui（toast+确认条）/ render（宫格+列表+FLIP+DOM差分+首屏门控）/ data（拉取+心跳+错误toast+undoLast）/ selection / dnd（卡片拖拽+拖图分区）/ rename（改名+字段就地编辑）/ menu（右键/中键滑动+回弹+菜单）/ create（弹框）/ marquee（框选）/ zoom（滑块+Ctrl滚轮连续缩放）/ keyboard（快捷键+方向键）/ trash（垃圾桶弹窗）/ search（搜索栏定位）/ preview（预览框：开关/贴边/调宽/详情）/ shortcuts（快捷键面板）/ aspect（画幅比：applyAspect 注入 + 对话框）/ main（入口接线）
 - 改名：`cmd_rename_shot`（queue.py）四层联动实现
 - 测试：改完跑 `python3 scripts/audit.py`（41 项，含 v0.2-v0.5 全部端点+垃圾桶/撤销链+多图保帧/rename 四层/时长对齐）+ `python3 scripts/audit_context_menu.py`（12 项：打开/重拍封面/复制/软删+purge）；网页 JS 改动另需 webbridge 全交互回归
+- 152. **rename_seq 撞 Blender scene 名而非 DB 名**：candidate 生成只查 DB name_exists，scene 层撞名查不到（幽灵场景 DB 无记录）→ `Scene Shot_cXXX0 already exists` → phase 2 卡死镜头停 `__ren_` 临时名 → audit 超时。清理：孤儿场景改名 `__ghost_` 前缀 + 存盘
+- 153. **MCP timer 回调 print 不回传**（只含 REGISTERED）；`print(chr(1).join(...))` 尾随 \n 让 split 最后一项带换行 → 场景名比对误判幽灵——strip 后再比
+- 154. **rename 段审计触发 Blender C 档崩溃（未定位）**：连崩 2 次（进程活+端口监听+MCP refused）；audit 输出块缓冲崩溃时日志空；候选 create+拍屏或 set_background；定位法=手动单步复现+MCP 探活（tmp/repro_rename_crash.py）；**定位前别整跑 rename 段**

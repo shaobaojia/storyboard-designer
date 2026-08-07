@@ -23,6 +23,7 @@ export const state = {
     dialogueOn: localStorage.getItem('sb-dialogue-on') !== '0',  // 宫格台词条全局开关（v0.9.8，默认开）
     aspect: 16 / 9,              // 项目画幅比（v0.9.7，/api/project 拉取；不写 localStorage 防多项目串味）
     resolution: null,            // {x, y} 项目分辨率（画幅对话框预填）
+    pendingAnchor: null,         // v0.9.18：台词开关锚定滚动请求（renderGrid 内部 FLIP 前消费，一次性）
 };
 
 // 已有帧图的基准画幅比（用户拍板：镜头里已有的图以 16:9 为基准，宽比裁上下、高比上下留空）

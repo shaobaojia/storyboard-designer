@@ -104,6 +104,14 @@ export function initKeyboard() {
         } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
             e.preventDefault();
             await undoLast();
+        } else if ((e.ctrlKey || e.metaKey) && (e.key === '=' || e.key === '+')) {
+            // v0.9.18：Ctrl++ 放大（主键盘 = / Shift+= / 数字键盘 +）——阻止浏览器页面缩放
+            e.preventDefault();
+            if (window.__zoomStep) window.__zoomStep(1);
+        } else if ((e.ctrlKey || e.metaKey) && (e.key === '-' || e.key === '_')) {
+            // v0.9.18：Ctrl+- 缩小（主键盘 - / Shift+- / 数字键盘 -）
+            e.preventDefault();
+            if (window.__zoomStep) window.__zoomStep(-1);
         } else if (e.key === 'Escape' && state.trashMode) {
             e.preventDefault();
             exitTrashMode();

@@ -30,7 +30,7 @@
             padding: 10px 0 28px;
             border-bottom: 1px solid #333;
         }
-        .header h1 { font-size: 18px; font-weight: 600; }
+        .header h1 { font-size: 18px; font-weight: 600; line-height: 30px; }
         /* v0.9.5：标题栏统计（总镜数/总时长）——紧贴标题，弱化小字 */
         .stats-bar {
             font-size: 12px;
@@ -43,7 +43,7 @@
         .search-wrap { position: relative; margin: 0 16px; flex: 0 1 300px; min-width: 160px; }
         .search-wrap input {
             width: 100%; background: #2a2a2a; border: 1px solid #444; color: #e0e0e0;
-            border-radius: 4px; padding: 5px 10px; font-size: 13px; outline: none;
+            border-radius: 4px; padding: 0 10px; height: 30px; font-size: 13px; outline: none;
         }
         .search-wrap input:focus { border-color: #4a9eff; }
         .search-results {
@@ -57,6 +57,7 @@
         }
         .search-item:last-child { border-bottom: none; }
         .search-item:hover { background: #333; }
+        .search-item.selected { background: #3a3a3a; }  /* v0.9.18：键盘预选高亮 */
         .search-item-name { font-weight: 600; color: #e8e8e8; white-space: nowrap; }
         .search-item-sub {
             color: #999; font-size: 12px; overflow: hidden;
@@ -66,11 +67,13 @@
             background: #3a3a3a; color: #aaa; border-radius: 3px;
             padding: 1px 6px; font-size: 11px; flex: none;
         }
+        .header .actions { display: flex; align-items: center; }
         .header .actions button {
             background: #333;
             border: none;
             color: #e0e0e0;
-            padding: 6px 12px;
+            padding: 0 12px;
+            height: 30px;
             border-radius: 4px;
             cursor: pointer;
             margin-left: 8px;
@@ -604,6 +607,31 @@
             border-bottom: 1px solid #3a3a3a;
             margin-bottom: 2px;
         }
+
+        /* v0.9.18：右上角主菜单（三条横线图标）+ 弹层 */
+        .hamburger {
+            background: #333;
+            border: none;
+            border-radius: 4px;
+            width: 34px;
+            height: 30px;
+            padding: 0;
+            display: inline-flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 4px;
+            cursor: pointer;
+        }
+        .hamburger:hover { background: #444; }
+        .hamburger .h-line {
+            display: block;
+            width: 16px;
+            height: 2px;
+            background: #e0e0e0;
+            border-radius: 1px;
+        }
+        .main-menu { min-width: 160px; }
 
         /* 左下角工具条：滑块 + 视图切换 + 垃圾桶 (#11) */
         .size-slider {
