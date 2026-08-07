@@ -87,13 +87,16 @@ export function initZoom() {
             sizeSlider.value = nMax - cols;
             localStorage.setItem('sb-cols', cols);
         }
-        restoreAnchor(a);  // v0.9.2：缩放后恢复选中项位置（锚定缩放中心）
         // v0.9.5：缩放/预览调宽后重算展开态帧图等大布局（--frame-w + margin-left），
         // 只改变量/内联样式不重建 DOM——丝滑原则（grid 列数变化时行分段类也顺带同步）
         if (window.__sb && window.__sb.state.viewMode === 'grid') {
             applyExpandedLayout();
             relocateDialogue();  // v0.9.8：列数变 → 台词镜头换排/列宽变，条位置+默认宽重算
         }
+        // v0.9.17 修复：restoreAnchor 必须挪到展开态布局 + 台词条重排之后——
+        // 原顺序在 relocateDialogue 前，父条合并/换排（列数变 → 行数变）会改变焦点镜头的
+        // 最终布局位置，旧布局算的滚动目标差一个父条行高（实测长台词父条场景偏移 206px）
+        restoreAnchor(a);  // v0.9.2：缩放后恢复选中项位置（锚定缩放中心）
     };
 
     // 初始

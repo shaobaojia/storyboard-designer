@@ -1,6 +1,15 @@
 # AGENTS.md
 
 > 给下一个 Agent（或下一个自己）的交接备忘录。**收工推送前必须更新「刚做完 / 正在做 / 下一步 / 坑」四个字段。**
+
+## 刚做完（v0.9.16：台词条拖拽移动/互换）
+
+1. **台词条拖拽移动/互换**（render.js `initDialogueDrag` + `moveOrSwapDialogue`，纯前端无需重启 Blender）：拖台词框体（非 resize 手柄）到其他镜头——**目标无台词 = 移动**（源 dialogue 清空、目标获得；源框淡出目标框淡入，updateDialogue 对账自动处理）；**目标有台词 = 互换**（两 dialogue 对调）。落点命中 `.shot-card`（含展开态帧格）**或 `.dialogue-box`**（目标台词条）都算目标镜头；无效区释放 = 无操作。数据 = 两次 `POST /api/shot/{id} {action:'update', fields:{dialogue}}`（各入一条 undo「修改」记录），乐观更新 + 失败反序回滚已成功请求 + 本地 state/宽度 map 一并还原；**sb-dialogue-w-map 宽度自定义值跟台词走**（移动 src→dst、互换对调）。与 initDialogueResize 互斥（pointerdown 排除 `.dialogue-resize`）、marquee 已排除 `.dialogue-strip`（v0.9.8）、trashMode/editingDlg 禁拖；CSS `.dlg-dragging`（半透明跟随 + pointer-events:none + transition:none，同 v0.9.5 卡片拖拽坑）+ `.dlg-drop-target`（蓝光高亮同 .selected 风格）。验证：WebBridge 合成 PointerEvent 驱动，移动/互换/无效落点/手柄互斥四场景 15 断言 + 截图 PIL 采样高亮 + 卡片拖拽 before/after 回归全过
+2. **审计 FAIL 处置：正名幽灵改名**（2026-08-07）：audit rename_seq 超时根因 = 漏网正名幽灵 `Shot_c0060/Shot_c0110`（DB 无记录）撞 rename_seq 编号生成（上午删 c0970-c1000 时没按差集全查）。**Blender 4.5 删场景 API 变化**：batch_remove/scenes.remove 的 use_global_undo 参数已移除（TypeError），无参数 remove 触发撤销快照卡死崩溃（C 档两次）——**最终方案 = 场景改名 `__ghost_` 前缀**（轻量秒完成，含 5 个审计残留场景 AUDIT_TV/CTX_TEST/__ren_/__un_×2）+ 存盘防复活（timer 包装 save_mainfile + 日志验证）。段级 --only=rename 11/11 → 全量 41/41+12/12+web 23/23 全过，78 镜头无残留。坑见坑列表 + skill pitfalls 146
+3. **skill 坑 143-146 固化**（transform 跟随拖拽 .dragging 标配 pointer-events:none+transition:none / 宫格拖拽落点=左右半区 / 台词条拖拽实现验证要点 / Blender 4.5 remove API 变化）
+4. **v0.9.17 台词开关锚定焦点镜头**（main.js initDialogueToggle）：开关台词前 anchorDlg 记录选中镜头中心相对视口中心偏移 + grid 文档 top，renderGrid 后 restoreAnchorDlg 用 **offsetTop（布局值免疫 FLIP transform）** 计算目标 scrollY 恢复——FLIP 起点=旧视口位置、终点=新视口位置（=旧 rel）→ 动画全程焦点镜头钉在原位、周围卡片围绕它 FLIP（同缩放锚定语义，zoom.js v0.9.2）。无选中不锚定（滚动保持，行为同旧版）。实测：关台词焦点偏移 0px + 滚动 -44px 补偿（父条高 32+gap 12）；开台词反向还原；打开台词时缩放锚定不受影响（-5~19px）。验证 7/7 + web_audit 23/23
+5. **v0.9.17 缩放锚定修复 + 拖宽持久化修复**（用户实测反馈）：①**缩放焦点跟不上**——zoom.js apply() 的 restoreAnchor 原在 relocateDialogue 前，列数变 → 台词父条合并/换排（行数变）→ 焦点镜头最终布局大改 → 锚定偏差实测 -206px（长台词父条场景）；修 = restoreAnchor 挪到 applyExpandedLayout + relocateDialogue 之后（最终布局再恢复），验证 0px。②**拖宽"存不上"真相**——map 其实存上了，但拖宽上限（gridW-16）≠ 渲染上限（capW 同排容量钳制）→ 拖宽 692 一重渲染（缩放/开关台词/心跳差分）缩回 542；修 = initDialogueResize onMove 上限对齐 capW（同排 box 数算容量），拖宽所见=渲染所得，验证 542→542 保留。回归 web_audit 23/23 + 拖拽 15/15（probe 断言改动态基准——用户台词数据是活的：14→16 个台词镜头，测试别硬编码）
+6. **v0.9.17 首屏台词条比卡片晚 500ms 入场**（用户拍板）：原问题=台词条 fade-in 在数据到就播、被骨架层盖住（用户看不到），揭幕时无入场动画与卡片波浪不协调（感知"先卡片后台词条"）。修 = fadeIn() 首屏（!state.firstLoadDone）挂起 opacity 0 + gateFirstReveal finish() 统一给父条/box 加 dialogue-in + animationDelay 500ms。**两个坑**：①不能提前设 opacity 1（delay 期间先闪出完整台词条再消失重播）；②动画无 fill-mode 播完会跳回内联 opacity 0（台词条消失）——定格 opacity 1 放 animationend 回调（to 态就是 1 无跳变）。实测时间线：首卡可见 t=324，台词条 t=825（晚 501ms，无闪烁）。验证 web_audit 23/23
 ## 刚做完（v0.9.14：审计体系重构——段级筛选 + 前端审计 + 自动触发）
 
 1. **audit.py 拆 12 段**（v0.9.13 的 6 段 → 12 段，每功能域一段）：s1 面板 / s2 create+时长 / s3 open / s4 重拍封面 / s5 duplicate(含多图保帧) / s6 reorder / s7 trash系 / s8 sync / s9 rename域 / s10 undo域(依赖s9) / s11 版本戳 / s12 frames级联。**正向依赖闭包**：--only=trash 自动前置 s5→s2（依赖段插到激活段前面，顺序保证）。拆分坑：拆函数后段内变量作用域（s4/s5 需自取 shot）；SEG_REG 依赖声明漏写 s3/s4 导致段级跑崩。全量 41/41 不受影响
@@ -48,7 +57,7 @@
 ## 正在做
 
 - **v0.9.14 审计体系重构已实测**：audit.py 12 段全量 41/41 + 段级（trash/undo/rerender/open）全过；ctx 4 段 12/12；web_audit 23/23（38s）；watchdog 前后端链路实测全过（web 23/23、back 41/41+12/12）。**watchdog 已退役常驻（2026-08-07 用户拍板：交付前全量回归替代自动触发，按需启动见 skill）**；--only 关键词全集（create/open/rerender/duplicate/reorder/trash/sync/rename/undo/thumb/frames/panel）待逐段实测
-- 幽灵场景：**正名幽灵 c0970-c1000 已删**（2026-08-07，rename_seq 改名失败 3 轮元凶）；剩余 12 个 `__ghost_*`（前缀不干扰改名）待用户确认是否彻底删除（含 .blend 存盘防复活）；**反复出现说明 sync 自动对账（稳健性待办 7）值得优先做**
+- 幽灵场景：**正名幽灵 c0970-c1000 已删**（2026-08-07，rename_seq 改名失败 3 轮元凶）；**2026-08-07 审计处置再改 7 个为 __ghost_***（漏网正名幽灵 Shot_c0060/Shot_c0110 + 审计残留 AUDIT_TV/CTX_TEST/__ren_1f36814d/__un_25d46d9d/__un_5e24b41d，改名方案见坑列表 + skill pitfalls 146）；**现共 19 个 `__ghost_*`**（前缀不干扰改名）待用户确认是否彻底删除（含 .blend 存盘防复活）；**反复出现说明 sync 自动对账（稳健性待办 7）值得优先做**
 - 测试现场：镜头数据已还原（78 个无残留，分辨率已回 1920×1080）；用户台词数据完整（c0020/c0130/c0250/c0330/c0120/c0380 + c0910，含用户手工调宽值 sb-dialogue-w-map）
 
 ## 下一步
@@ -255,6 +264,7 @@ CREATE INDEX IF NOT EXISTS idx_frames_shot ON frames(shot_id);
 - **"添加台词"临时编辑框定位**（v0.9.12 用户追问驱动）：absolute 无 left/top 的静态位置落在卡片内部左上角（盖卡片内容）——该排已有父条 → 进父条并排；无父条 → 显式 left=card.offsetLeft、top=排尾卡片.offsetTop+offsetHeight+rowGap（读 getComputedStyle(grid).rowGap 兜底 12）
 - **审计轮询化四坑**（v0.9.14 续，2026-08-07 实测）：audit.py 固定 sleep → wait_ok 轮询（完成即继续）后：①queue 命令分步执行（DB 先写场景后动）→ 轮询条件满足瞬间可能命中命令执行中途 → 假 FAIL（Soft delete scene parked=False）——wait_until 条件 True 后必须 0.3s 稳定确认再返回；②轮询间隔 0.25s，别用 50ms——高频 GET /api/shots 与 rename_seq 的 SQLite 连续写抢锁，拖到 60s 超时都不够；③rename_seq 两阶段（先全改 __ren_ 临时名再统一转正式名）超时给 60s（3 镜头×2 阶段×SMB 余量），20s 必炸；④cleanup 清理条件必须含 __ren 前缀（rename_seq 失败残留 __ren_xxx 不含 AUDIT 也不以 c 开头 → 漏网逐轮累积恶性循环）
 - **正名幽灵场景破坏 rename_seq**（v0.9.14 实测 3 轮 FAIL 元凶）：场景里有 Shot_c0970-c1000（DB 无记录，sync 遗留），rename_seq 阶段 2 生成编号 c0970+ 撞场景名冲突 → 改名抛错卡 __ren_ 临时名（部分转正部分卡住，位置随机）。__ghost_ 前缀不干扰改名。处置：MCP batch_remove 删正名幽灵必须 use_global_undo=False（否则 1.2GB 撤销快照卡死假死——进程活着端口监听但 MCP 拒绝/HTTP 空响应，重启才恢复）+ **删完存盘**（purge/删除场景不存盘，重启后场景复活继续撞名）
+- **Blender 4.5 删场景 API 变化（v0.9.16 实测，坑 257 方法已失效）**：`bpy.data.batch_remove(ids=..., use_global_undo=False)` 和 `bpy.data.scenes.remove(sc, use_global_undo=False)` 都报 TypeError（签名 batch_remove(ids) / remove(scene, do_unlink)）；**无参数 remove 触发全局撤销快照（1.2GB 文件卡死数分钟 → 崩溃弹窗 C 档：进程活着+端口监听+MCP/HTTP 全拒）**；`preferences.edit.use_global_undo=False` 临时关撤销后 remove 依然卡死崩溃（实测）。**正确处置 = 场景改名 `__ghost_` 前缀**（`sc.name = new` 轻量秒完成，MCP 线程稳定）：正名幽灵改名后 rename_seq 不再撞名，AUDIT/CTX 残留改名后不干扰 audit 创建（同名场景会 .001）；**改完必须存盘**（timer 包装 save_mainfile + 日志文件验证，防重启复活）。排查链：rename_seq 超时 → MCP 列场景 vs DB scene_name 差集查 orphans → 正名幽灵即元凶（本次 c0060/c0110 漏网教训：删幽灵要按差集全查，别只删已知编号）。另：MCP 传复杂代码用文件方式 `exec(open(path, encoding='utf-8').read())` 避免转义坑
 
 ## 细节指针
 

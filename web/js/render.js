@@ -90,6 +90,10 @@ function ghostOut(el, ms = 200) {
 
 // 入场淡入（新建节点专用；动画类播完即摘——类留着重插 DOM 会重播）
 function fadeIn(el) {
+    // v0.9.17 首屏：台词条入场挂起到揭幕时统一处理（gateFirstReveal 延迟 500ms）——
+    // 数据到就播的动画被骨架层盖住（用户看不到），揭开时类已摘 = 台词条无入场动画，
+    // 与卡片波浪入场不协调（用户感知"先卡片后台词条"）。首屏新建的父条/box 先 opacity 0。
+    if (!state.firstLoadDone) { el.style.opacity = '0'; return; }
     el.classList.add('dialogue-in');
     el.addEventListener('animationend', () => el.classList.remove('dialogue-in'), { once: true });
 }
@@ -236,13 +240,18 @@ export function initDialogueResize() {
         const box = handle.closest('.dialogue-box');
         const startX = e.clientX, startW = box.offsetWidth;
         const gridW = grid.clientWidth;
+        // v0.9.17 修复：上限用同排容量 capW 而非 gridW-16——updateDialogue 渲染按 capW
+        // 钳制（同排 N 条并排容量），拖宽上限不齐 = "拖完看是宽的，一重渲染（缩放/开关台词/
+        // 心跳差分）缩回窄的"（用户实测拖宽 692 缩放后 542，map 值其实存上了）
+        const n = box.parentElement ? box.parentElement.querySelectorAll('.dialogue-box:not(.dialogue-leave)').length : 1;
+        const capW = Math.max(120, Math.floor((gridW - 16 - (n - 1) * 9) / n));
         document.body.style.userSelect = 'none';
         let raf = 0;
         const onMove = (ev) => {
             if (raf) return;
             raf = requestAnimationFrame(() => {
                 raf = 0;
-                const w = Math.round(Math.min(Math.max(startW + ev.clientX - startX, 120), gridW - 16));
+                const w = Math.round(Math.min(Math.max(startW + ev.clientX - startX, 120), capW));
                 // v0.9.10：只改被拖的这条（每条独立宽度）——v0.9.9 曾同步应用全部 box
                 // 是全局共享宽度语义，现已废弃
                 box.style.width = w + 'px';
@@ -264,6 +273,147 @@ export function initDialogueResize() {
         document.addEventListener('mousemove', onMove, true);
         document.addEventListener('mouseup', onUp, true);
     }, true);
+}
+
+// 台词条拖拽移动/互换（v0.9.16）：拖台词框体（非 resize 手柄）到其他镜头——
+// 目标无台词 = 移动（台词+宽度自定义值跟走，源清空）；目标有台词 = 互换（台词与宽度对调）。
+// 与 initDialogueResize 互斥（手柄不启动拖拽）；与卡片拖拽互斥（台词条不是 .shot-card）；
+// marquee 已排除 .dialogue-strip（v0.9.8）。落点命中卡片（含展开态帧格）或台词条都算目标镜头。
+export function initDialogueDrag() {
+    let drag = null;          // {srcBox, srcId, startX, startY, active}
+    let lastMove = null;      // pointercancel 无坐标时用最后 move 位置
+    let targetEl = null;      // 当前高亮的目标元素（卡片或台词条）
+    let suppressClickUntil = 0;
+
+    const clearTarget = () => {
+        if (targetEl) { targetEl.classList.remove('dlg-drop-target'); targetEl = null; }
+    };
+
+    document.addEventListener('pointerdown', (e) => {
+        if (e.button !== 0) return;
+        const box = e.target.closest('.dialogue-box');
+        if (!box || e.target.closest('.dialogue-resize')) return;  // 手柄 = 调宽，不启动
+        if (state.trashMode || state.editingDlg) return;
+        drag = { srcBox: box, srcId: box.dataset.dlgId, startX: e.clientX, startY: e.clientY, active: false };
+    }, true);
+
+    document.addEventListener('pointermove', (e) => {
+        if (!drag) return;
+        const dx = e.clientX - drag.startX;
+        const dy = e.clientY - drag.startY;
+        if (!drag.active) {
+            if (Math.hypot(dx, dy) < 6) return;  // 阈值内 = 点击/选择，不启动拖拽
+            drag.active = true;
+            drag.srcBox.classList.add('dlg-dragging');
+            state.dragSrcEl = drag.srcBox;  // data.js 键盘保护：拖拽中忽略快捷键
+            document.body.style.userSelect = 'none';
+        }
+        e.preventDefault();
+        lastMove = { x: e.clientX, y: e.clientY };
+        drag.srcBox.style.transform = `translate(${dx}px, ${dy}px)`;  // 源条跟随（反馈）
+        // 命中检测：目标卡片（含展开态帧格）或目标台词条 → 高亮
+        const el = document.elementFromPoint(e.clientX, e.clientY);
+        const hit = el && el.closest ? (el.closest('.shot-card') || el.closest('.dialogue-box')) : null;
+        if (hit && hit !== drag.srcBox && (hit.dataset.id || hit.dataset.dlgId) !== drag.srcId) {
+            if (targetEl !== hit) { clearTarget(); targetEl = hit; hit.classList.add('dlg-drop-target'); }
+        } else {
+            clearTarget();
+        }
+    }, true);
+
+    const finishDrag = (e) => {
+        if (!drag) return;
+        const st = drag;
+        drag = null;
+        state.dragSrcEl = null;
+        document.body.style.userSelect = '';
+        // 同 dnd.js：先禁过渡把 transform 落定再恢复——否则 remove 恢复 transition 后
+        // 清 transform 被当作一次过渡（起点 = 旧位置），elementFromPoint 命中"还在旧位置的源条"
+        st.srcBox.style.transition = 'none';
+        st.srcBox.style.transform = '';
+        void st.srcBox.offsetWidth;   // 强制 reflow：transition none 下 transform 立即生效
+        st.srcBox.style.transition = '';
+        st.srcBox.classList.remove('dlg-dragging');
+        clearTarget();
+        if (!st.active) return;  // 未超阈值 = 点击，原生 dblclick 编辑照常
+        suppressClickUntil = Date.now() + 600;  // 拦截拖拽后浏览器补派的 click
+        const fx = (e.type === 'pointercancel' && lastMove) ? lastMove.x : e.clientX;
+        const fy = (e.type === 'pointercancel' && lastMove) ? lastMove.y : e.clientY;
+        const el = document.elementFromPoint(fx, fy);
+        const hit = el && el.closest ? (el.closest('.shot-card') || el.closest('.dialogue-box')) : null;
+        const dstId = hit ? (hit.dataset.id || hit.dataset.dlgId) : null;
+        if (dstId && dstId !== st.srcId) moveOrSwapDialogue(st.srcId, dstId);
+    };
+
+    document.addEventListener('pointerup', finishDrag, true);
+    document.addEventListener('pointercancel', finishDrag, true);
+
+    // 拖拽后抑制浏览器补派的 click（双击编辑等点击逻辑不被拖拽误触发）
+    document.addEventListener('click', (e) => {
+        if (Date.now() < suppressClickUntil) {
+            e.preventDefault();
+            e.stopPropagation();
+            suppressClickUntil = 0;
+        }
+    }, true);
+}
+
+// 台词移动/互换的数据操作：两次 update（乐观更新；失败回滚已成功的请求 + 本地 state/宽度 map）
+async function moveOrSwapDialogue(srcId, dstId) {
+    const src = state.shots.find(s => s.id === srcId);
+    const dst = state.shots.find(s => s.id === dstId);
+    if (!src || !dst) return;
+    const srcText = src.dialogue || '';
+    const dstText = dst.dialogue || '';
+    const swap = !!(dstText && dstText.trim());
+    // 目标无台词 = 移动（源清空）；有台词 = 互换
+    const updates = swap
+        ? [{ id: srcId, dialogue: dstText }, { id: dstId, dialogue: srcText }]
+        : [{ id: srcId, dialogue: '' }, { id: dstId, dialogue: srcText }];
+    // 宽度自定义值跟台词走（移动：src→dst；互换：对调），先备份旧 map 供失败回滚
+    const oldMap = { ...dlgWidthMap };
+    const srcW = dlgWidthMap[srcId], dstW = dlgWidthMap[dstId];
+    if (swap) {
+        if (srcW !== undefined) dlgWidthMap[dstId] = srcW; else delete dlgWidthMap[dstId];
+        if (dstW !== undefined) dlgWidthMap[srcId] = dstW; else delete dlgWidthMap[srcId];
+    } else {
+        if (srcW !== undefined) dlgWidthMap[dstId] = srcW; else delete dlgWidthMap[dstId];
+        delete dlgWidthMap[srcId];
+    }
+    const oldSrc = src.dialogue, oldDst = dst.dialogue;
+    src.dialogue = updates[0].dialogue;
+    dst.dialogue = updates[1].dialogue;
+    const done = [];
+    try {
+        for (const u of updates) {
+            const res = await fetch(`/api/shot/${u.id}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'update', fields: { dialogue: u.dialogue } })
+            });
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            done.push(u);
+        }
+    } catch (err) {
+        console.error('Dialogue move/swap failed:', err);
+        // 回滚已成功的请求（反序恢复旧值），本地 state 与宽度 map 一并还原
+        for (const u of done.reverse()) {
+            try {
+                await fetch(`/api/shot/${u.id}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'update', fields: { dialogue: u.id === srcId ? oldSrc : oldDst } })
+                });
+            } catch { /* 尽力而为 */ }
+        }
+        src.dialogue = oldSrc;
+        dst.dialogue = oldDst;
+        Object.keys(dlgWidthMap).forEach(k => delete dlgWidthMap[k]);
+        Object.assign(dlgWidthMap, oldMap);
+        localStorage.setItem(DLG_MAP_KEY, JSON.stringify(dlgWidthMap));
+        toast('台词移动失败，已还原');
+    }
+    renderGrid();  // 差分渲染 + updateDialogue 对账（源淡出/目标淡入自动）
 }
 
 // 缩放/视口变化后列数变 → 台词镜头可能换排，条位置/默认宽重算（zoom.js apply 注入调用）
@@ -876,6 +1026,21 @@ function gateFirstReveal() {
         cards.forEach((el, i) => {
             el.style.animationDelay = `${Math.min(i * 25, 700)}ms`;
             el.classList.add('fade-in');
+        });
+        // v0.9.17：台词条比卡片晚 500ms 入场（用户拍板）——首屏新建的父条/box 在
+        // fadeIn 挂起为 opacity 0（骨架下播动画用户看不到），揭幕时统一延迟淡入。
+        // 注意：不能提前设 opacity 1（delay 期间会先闪出完整台词条再消失重播）；
+        // 也不能不定格（动画播完无 fill-mode，内联 opacity 0 会跳回 = 台词条消失）——
+        // 定格放在 animationend 回调（动画 to 态就是 1，无视觉跳变）
+        const dlgEls = [...grid.querySelectorAll('.dialogue-strip:not(.dialogue-leave), .dialogue-box:not(.dialogue-leave)')];
+        dlgEls.forEach(el => {
+            el.style.animationDelay = '500ms';
+            el.classList.add('dialogue-in');
+            el.addEventListener('animationend', () => {
+                el.style.opacity = '1';
+                el.style.animationDelay = '';
+                el.classList.remove('dialogue-in');
+            }, { once: true });
         });
         // 播完清掉延迟和类：类不摘的话，卡片下次重排 DOM 会重播入场 = 全屏闪黑 (#R6-1)
         setTimeout(() => {

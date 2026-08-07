@@ -1140,3 +1140,15 @@
             background: #3a3f4a;
         }
         .dialogue-box:hover .dialogue-resize::after { background: #4a9eff; }
+        /* v0.9.16 台词条拖拽移动/互换：源条半透明跟随 + 目标高亮（风格同 .selected 蓝光）
+           pointer-events:none 同 v0.9.5 卡片拖拽坑：transform 跟随让源条盖在鼠标下，
+           elementFromPoint 永远命中源条自己 → 目标高亮永不显示 */
+        .dialogue-box.dlg-dragging {
+            opacity: .72;
+            transition: none;      /* transform 实时跟随必须禁过渡（否则拖不动） */
+            z-index: 60;
+            pointer-events: none;  /* 命中穿透源条到下方目标 */
+        }
+        .shot-card.dlg-drop-target, .dialogue-box.dlg-drop-target {
+            box-shadow: 0 0 0 2px rgba(74,158,255,0.65), 0 0 14px rgba(74,158,255,0.35);
+        }

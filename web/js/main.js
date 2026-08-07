@@ -1,6 +1,6 @@
 // 入口：接线所有模块，启动心跳与首次拉取
 import { grid, state } from './state.js';
-import { syncViewToggleButton, toggleView, showSkeleton, renderGrid, initDialogueResize, startDlgEdit } from './render.js';
+import { syncViewToggleButton, toggleView, showSkeleton, renderGrid, initDialogueResize, initDialogueDrag, startDlgEdit } from './render.js';
 import { fetchShots, heartbeat, loadProjectTitle, openShot, openTimeline, syncScenes, forceRefresh } from './data.js';
 import { cardClick } from './selection.js';
 import { initCardDnd, initFileDrop } from './dnd.js';
@@ -114,6 +114,7 @@ initShortcutsHelp();
 initPreview();
 initAspect();  // 画幅比：默认注入 + 对话框接线（v0.9.7）
 initDialogueResize();  // 宫格台词条拖拽调宽（v0.9.8）
+initDialogueDrag();    // 宫格台词条拖拽移动/互换（v0.9.16）
 initDialogueToggle();  // 全局台词开关按钮 + 双击就地编辑委托（v0.9.8）
 initStackHover();  // 多图镜头折叠态悬停扫视（v0.7.0）
 
@@ -131,11 +132,35 @@ window.__sb = { state, renderGrid, expandAnimated, collapseAnimated, isExpanded,
 function initDialogueToggle() {
     const btn = document.getElementById('dialogueBtn');
     const syncBtn = () => btn.classList.toggle('active-view', state.dialogueOn);
+    // v0.9.17：开关台词以选中镜头为中心锚定（同缩放语义，zoom.js v0.9.2）。
+    // FLIP 播放中 getBoundingClientRect 含 transform（起点补偿位移动画），恢复必须用
+    // offsetTop（布局值免疫 transform）：target = grid 文档 top + 镜头新 offsetTop + 半高
+    // - 视口半高 - 开关前相对偏移。FLIP 起点=旧视口位置、终点=新视口位置（=旧 rel）
+    // → 动画全程焦点镜头钉在原位，周围卡片围绕它 FLIP，正是"以焦点镜头为中心"。
+    const anchorDlg = () => {
+        if (!state.selectedIds || state.selectedIds.size === 0) return null;
+        const id = [...state.selectedIds][0];
+        const sel = grid.querySelector(`.shot-card[data-id="${id}"]`);
+        if (!sel) return null;
+        const r = sel.getBoundingClientRect();  // 开关前无 FLIP，视口坐标准确
+        return { id, rel: r.top + r.height / 2 - window.innerHeight / 2,
+                 gridDocTop: grid.getBoundingClientRect().top + window.scrollY };
+    };
+    const restoreAnchorDlg = (a) => {
+        if (!a) return;
+        const sel = grid.querySelector(`.shot-card[data-id="${a.id}"]`);
+        if (!sel) return;
+        const target = a.gridDocTop + sel.offsetTop + sel.offsetHeight / 2
+                     - window.innerHeight / 2 - a.rel;
+        window.scrollTo(0, Math.max(0, Math.round(target)));
+    };
     btn.addEventListener('click', () => {
+        const a = anchorDlg();
         state.dialogueOn = !state.dialogueOn;
         localStorage.setItem('sb-dialogue-on', state.dialogueOn ? '1' : '0');
         syncBtn();
-        renderGrid();  // cardKey 含开关标记 → 布局在开/关间切换
+        renderGrid();
+        restoreAnchorDlg(a);
     });
     syncBtn();
     // 双击台词框就地编辑（委托：父条/box 是动态 DOM，事件绑 document）
