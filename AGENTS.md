@@ -1,7 +1,16 @@
 # AGENTS.md
 
 > 给下一个 Agent（或下一个自己）的交接备忘录。**收工推送前必须更新「刚做完 / 正在做 / 下一步 / 坑」四个字段。**
-## 刚做完（v0.9.13：添加台词所见即所得 + 关预览父条高度修复 + 审计工具链降噪）
+## 刚做完（v0.9.14：审计体系重构——段级筛选 + 前端审计 + 自动触发）
+
+1. **audit.py 拆 12 段**（v0.9.13 的 6 段 → 12 段，每功能域一段）：s1 面板 / s2 create+时长 / s3 open / s4 重拍封面 / s5 duplicate(含多图保帧) / s6 reorder / s7 trash系 / s8 sync / s9 rename域 / s10 undo域(依赖s9) / s11 版本戳 / s12 frames级联。**正向依赖闭包**：--only=trash 自动前置 s5→s2（依赖段插到激活段前面，顺序保证）。拆分坑：拆函数后段内变量作用域（s4/s5 需自取 shot）；SEG_REG 依赖声明漏写 s3/s4 导致段级跑崩。全量 41/41 不受影响
+2. **audit_context_menu.py 拆 4 段**（open/rerender/duplicate/delete），每段自建 CTX_TEST 自清（cleanup_shot），无跨段依赖，断言保持 12 项（duplicate 段的 copy 清理顺带保留 2 项删除断言）
+3. **audit_run.py 透传 --only + 环境预检 + 审计互斥锁**：`audit_run.py --only=trash` 直接可用；**preflight()**（MCP 命令响应/HTTP 在线/单实例 8089+9876 同 PID/无测试残留）不过不跑审计（exit 2）；**sb_audit.lock 互斥锁**（watchdog 与手动审计禁并行，共享 DB 互清）；修了 Traceback 无 FAIL 记录时误报"全部通过"
+4. **web_audit.py 前端交互审计（23 项 9 段 ~38s）**：render/view/expand/menu/search/zoom/preview/dialogue/keyboard。WebBridge 驱动，每段自还原 + 收尾兜底还原。预检（WebBridge 在线 + HTTP + 无残留）+ 强制 reload + **JS 版本探针**（expandedShotIds.constructor==='Set'，防浏览器缓存旧 JS）。合成事件可达主世界（input/click dispatch 有效，CDP 真实输入不需要）；展开态帧格是独立卡片（.shot-card.frame-cell 兄弟节点）；搜索是下拉结果列表不过滤卡片；菜单项文本英文 Open Shot/Rename/Duplicate/Delete 混中文；__zoomApply 无参（滑块 sizeSlider 合成 input 才是驱动入口）；reload 后必须 bringToFront
+5. **watch_audit.py 审计 watchdog（后台常驻）**：监听源码 web//core//__init__.py 变化 → web 改动自动部署+跑 web_audit（38s 不碰 Blender）/ core 改动自动部署+攒批 30s+重启 Blender+全量 41+12（~5min）。日志 ~/AppData/Local/hermes/tmp/audit_watch.log。已实测全链路（web 23/23、back 41/41+12/12）。**常驻方式：Hermes background process（当前会话 proc_e225577f70cd），会话结束需手动重启**
+6. **全量实测**：41+12 完整 4m47s；段级 trash 13/13(1m05s) / undo 18/18(2m07s) / rerender 6/6；ctx open 1/1；web_audit 23/23(38s)
+
+### v0.9.13 明细（已推，压入历史前的存档）
 
 1. **添加台词所见即所得**（render.js startDlgEdit，用户拍板）：点击「添加台词」那一刻**立即建正式父条**（插该排最后格位后）+ 下一行 FLIP 让位（复用 captureRects/animateFrom）；提交后 renderGrid 对账直接复用父条+box = **台词固定原地零位移**；Esc 取消父条淡出、布局 FLIP 还原。**顺带修掉 v0.9.12 遗留 bug**：临时 box 无父条分支的 inline top 残留（提交后复用进父条不清 top → 台词条掉到 1545+1545=3090px）
 2. **关预览父条高度残留修复**（preview.js setPreview）：关预览 savedMin 还原 --card-min 路径绕过 zoom apply → updateDialogue 不重算 → 父条残留窄宽高度（158px 残留，下一排被多推 72px）；修 = savedMin 分支补 `relocateDialogue()`
@@ -37,9 +46,8 @@
 
 ## 正在做
 
-- v0.9.13 已推：audit.py 重构后全量 41/41 已过（重启干净环境）；`--only` 实测（trash/s2i 只跑对应段 + cleanup 不误删用户镜头）待补——转换脚本 split_audit.py 在 hermes/tmp（非幂等，重跑需从备份恢复原始 audit.py）
-- v0.9.9~0.9.12 台词条系列全回归通过：audit 41/41 + 右键菜单 12/12 + WebBridge 交互回归（缩放档位/开关动画/双击编辑/拖宽持久化/展开态/菜单链路）——**两 audit 仍禁并行跑**（共享 DB 互清）
-- 幽灵场景累计 12 个 `__ghost_*`（第五轮 5 个 + 第七轮 7 个：c0050/c0100/c0230/c0340/c0480/c0560/c0970 等）待用户确认是否彻底删除（含 .blend 存盘防复活）；**反复出现说明 sync 自动对账（稳健性待办 7）值得优先做**
+- **v0.9.14 审计体系重构已实测**：audit.py 12 段全量 41/41 + 段级（trash/undo/rerender/open）全过；ctx 4 段 12/12；web_audit 23/23（38s）；watchdog 前后端链路实测全过（web 23/23、back 41/41+12/12）。**watchdog 常驻中（Hermes background proc_e225577f70cd），会话结束后需手动重启 `python scripts/watch_audit.py`**；--only 关键词全集（create/open/rerender/duplicate/reorder/trash/sync/rename/undo/thumb/frames/panel）待逐段实测
+- 幽灵场景累计 12 个 `__ghost_*`（c0050/c0100/c0230/c0340/c0480/c0560/c0970 等）待用户确认是否彻底删除（含 .blend 存盘防复活）；**反复出现说明 sync 自动对账（稳健性待办 7）值得优先做**
 - 测试现场：镜头数据已还原（78 个无残留，分辨率已回 1920×1080）；用户台词数据完整（c0020/c0130/c0250/c0330/c0120/c0380 + c0910，含用户手工调宽值 sb-dialogue-w-map）
 
 ## 下一步
@@ -143,6 +151,9 @@ CREATE INDEX IF NOT EXISTS idx_frames_shot ON frames(shot_id);
 
 ## 坑（已踩过的雷）
 
+- **v0.9.14：web_audit 开发六坑**：①**restore_all/重置把 Set 赋值成 [] = 页面运行时 state 污染**（expandedShotIds/selectedIds 是 Set，必须 .clear()——曾导致全页面 .has 炸、误判"跑旧 JS"）；②**浏览器无 ETag/Last-Modified 时 no-cache 也启发式缓存旧 JS**——web_audit 强制 clearBrowserCache+reload+版本探针；③**reload 后必须 bringToFront**（setTimeout/rAF 冻结 → 搜索 debounce 不跑/事件不触发）；④**合成事件可达主世界**（input/click dispatch 有效，CDP 真实输入非必需——但合成 mousedown/up 目标必须在视口内，elementFromPoint 视口外返回 null）；⑤**展开态帧格是独立卡片**（.shot-card.frame-cell 兄弟节点，不在折叠卡内部）；⑥**__zoomApply 无参**（读闭包 cols，滑块 sizeSlider 合成 input 才是驱动入口）
+- **v0.9.14：审计段拆分的两个坑**：拆函数后段内变量作用域独立（s4/s5 需自取 shot，原 s2 单函数共享变量）；SEG_REG 依赖声明漏写（s3/s4 依赖 s2，漏了段级 --only=open/rerender 会 StopIteration——全量不受影响因顺序天然对）
+- **v0.9.14：搜索是下拉结果列表，不过滤卡片**（search.js onInput → #searchResults 最多 12 条 search-item，点击 locate 定位）；**菜单项文本英文混中文**（Open Shot/Rename/Duplicate/Delete + 重拍封面/编辑台词/自动台词大小）
 - **v0.9.13：关预览父条高度残留**：setPreview(false) 的 savedMin 还原路径**绕过 zoom apply → relocateDialogue 漏调** → 父条残留窄宽时的高度（158px 残留，下一排被多推 72px）。修 = savedMin 分支补 relocateDialogue()。凡"绕过 zoom 直接改 CSS 变量"的路径都要检查父条重算
 - **v0.9.13：添加台词 inline top 残留**（v0.9.12 遗留）：临时 box 无父条分支设 `style.top=排尾+gap`（相对 grid 的 absolute 坐标），提交后 updateDialogue 复用 box 进父条（relative containing block）**不清 inline top** → 台词条掉到 1545+1545=3090px。修 = 立即建正式父条（box 直接 top:0 进父条，所见即所得）
 - **v0.9.13：audit.py 段拆分重构四坑**：①三引号字符串内部的行不能加缩进（blender() 代码原样传给 Blender 执行）；②s3 段必须剥掉原 main 的 `return summary()`（否则 SUMMARY 打两次）；③s0 段保持 main 顶层缩进（别掉进 `if only:` 块——无 --only 时 connectivity 静默不跑）；④**--only 的 taken 快照必须在段执行前取**（跳过 s2h 时为空 set，cleanup 会把用户 c00xx 镜头当测试残留误删）。转换脚本非幂等（重跑需从备份恢复原始 audit.py）

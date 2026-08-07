@@ -1,11 +1,19 @@
 #!/usr/bin/env python3
-"""右键菜单专项审计
+"""右键菜单专项审计（v0.9.14 拆 4 段，每段自建自清）
 
 逐项验证网页端右键菜单的 4 个功能（Open/Re-render/Duplicate/Delete）
 都真实作用到 Blender 端。与 scripts/audit.py 的区别：专注右键菜单
 路径（/api/shot/{id} 的 4 个 action），用真实 shot 而非一次性 AUDIT shot。
 
-用法: python3 scripts/audit_context_menu.py
+用法:
+    python3 scripts/audit_context_menu.py             # 全跑（4 段串行）
+    python3 scripts/audit_context_menu.py --only=open       # 只跑 open 段
+    python3 scripts/audit_context_menu.py --only=rerender   # 只跑重拍封面段
+    python3 scripts/audit_context_menu.py --only=duplicate  # 只跑 duplicate 段
+    python3 scripts/audit_context_menu.py --only=delete     # 只跑 delete 段
+    python3 scripts/audit_context_menu.py --only=open,delete  # 多段逗号分隔
+
+每段独立建 CTX_TEST 镜头 → 测 → 清理（软删+purge），无跨段数据依赖。
 """
 import socket, json, urllib.request, time, os, sys
 
@@ -62,37 +70,38 @@ print(json.dumps({
             return json.loads(line)
     return {"db": [], "scenes": [], "current": "?"}
 
-
-def main():
-    print("=" * 56)
-    print("右键菜单专项审计 (Open / Re-render / Duplicate / Delete)")
-    print("=" * 56)
-
-    # connectivity
-    try:
-        blender('import bpy\nprint(1)')
-        api("GET", "/api/shots")
-    except Exception as e:
-        print(f"FATAL: connectivity -- {e}")
-        return 1
-
-    # Create a dedicated test shot via API so we have a known entity
-    print("\n[setup] create CTX_TEST shot")
+def setup_shot():
+    """建一个专用测试镜头，返回 (tid, name)"""
     r = api("POST", "/api/shots", {"name": "CTX_TEST", "duration": 2.0, "type": "3d"})
     tid = r["id"]
     time.sleep(3)
-    st = state()
-    print(f"  DB: {st['db']}, scene present: {'Shot_CTX_TEST' in st['scenes']}")
+    return tid, "CTX_TEST"
 
-    # ---- 1. Open Shot (right-click -> Open Shot) ----
+def cleanup_shot(tid, name="CTX_TEST"):
+    """软删 + purge，彻底清掉测试镜头（含垃圾桶）"""
+    try:
+        api("POST", f"/api/shot/{tid}", {"action": "delete"})
+        time.sleep(2)
+        trash = api("GET", "/api/trash").get("shots", [])
+        tid2 = next((s["id"] for s in trash if s["name"] == name), None)
+        if tid2:
+            api("POST", f"/api/shot/{tid2}", {"action": "purge"})
+            time.sleep(2)
+    except Exception as e:
+        print(f"  [cleanup warn] {e}")
+
+def seg_open():
     print("\n[1] right-click Open Shot")
+    tid, name = setup_shot()
     api("POST", f"/api/shot/{tid}", {"action": "open"})
     time.sleep(2)
     cur = state()["current"]
     record("Open Shot -> Blender 切换到该场景", cur == "Shot_CTX_TEST", f"current={cur}")
+    cleanup_shot(tid)
 
-    # ---- 2. Re-render = 重拍封面帧（v0.8.4 后语义，菜单文案「重拍封面」）----
+def seg_rerender():
     print("\n[2] right-click 重拍封面 (rerender)")
+    tid, name = setup_shot()
     api("POST", f"/api/shot/{tid}", {"action": "rerender"})
     time.sleep(8)
     out = blender(f'''import bpy, os
@@ -112,9 +121,11 @@ print(os.listdir(d) if os.path.exists(d) else "MISSING")
         record("重拍封面 -> 封面帧网页可见", resp.status == 200, f"{resp.status} {url}")
     except Exception as e:
         record("重拍封面 -> 封面帧网页可见", False, str(e)[:60])
+    cleanup_shot(tid)
 
-    # ---- 3. Duplicate (right-click -> Duplicate) ----
+def seg_duplicate():
     print("\n[3] right-click Duplicate")
+    tid, name = setup_shot()
     api("POST", f"/api/shot/{tid}", {"action": "duplicate", "new_name": "CTX_TEST_COPY"})
     time.sleep(3)
     st = state()
@@ -123,10 +134,7 @@ print(os.listdir(d) if os.path.exists(d) else "MISSING")
     record("Duplicate -> DB 新增记录", db_ok, f"DB={st['db']}")
     record("Duplicate -> Blender 新建场景", sc_ok,
            f"scenes={[s for s in st['scenes'] if 'CTX' in s]}")
-
-    # ---- 4. Delete (right-click -> Delete) ----
-    print("\n[4] right-click Delete")
-    # delete the copy first（软删进垃圾桶；purge 清目录防占名 409）
+    # 清理 copy：软删进垃圾桶（顺带断言 copy 的删除链路）
     shots = api("GET", "/api/shots")["shots"]
     copy_shot = next((s for s in shots if s["name"] == "CTX_TEST_COPY"), None)
     if copy_shot:
@@ -137,7 +145,12 @@ print(os.listdir(d) if os.path.exists(d) else "MISSING")
         record("Delete(copy) -> Blender 场景移除", "Shot_CTX_TEST_COPY" not in st["scenes"])
         api("POST", f"/api/shot/{copy_shot['id']}", {"action": "purge"})
         time.sleep(2)
-    # delete the original test shot（软删语义 v0.8.2 用户拍板：目录保留供垃圾桶恢复）
+    cleanup_shot(tid)
+
+def seg_delete():
+    print("\n[4] right-click Delete")
+    tid, name = setup_shot()
+    # 软删语义 v0.8.2 用户拍板：目录保留供垃圾桶恢复
     api("POST", f"/api/shot/{tid}", {"action": "delete"})
     time.sleep(3)
     st = state()
@@ -163,10 +176,45 @@ print("EXISTS" if os.path.exists(d) else "GONE")
     trash = api("GET", "/api/trash")
     record("Purge -> 垃圾桶清空", len(trash.get("shots", [])) == 0,
            f"trash={[s['name'] for s in trash.get('shots', [])]}")
-
-    # final sync to be safe
+    # 最终 sync 兜底
     api("POST", "/api/sync", {})
     time.sleep(2)
+
+
+SEGS = {
+    "open":      (["open"], seg_open),
+    "rerender":  (["rerender", "重拍"], seg_rerender),
+    "duplicate": (["duplicate", "copy"], seg_duplicate),
+    "delete":    (["delete", "purge"], seg_delete),
+}
+
+def main():
+    print("=" * 56)
+    print("右键菜单专项审计 (Open / Re-render / Duplicate / Delete)")
+    print("=" * 56)
+
+    # connectivity
+    try:
+        blender('import bpy\nprint(1)')
+        api("GET", "/api/shots")
+    except Exception as e:
+        print(f"FATAL: connectivity -- {e}")
+        return 1
+
+    only = None
+    for a in sys.argv[1:]:
+        if a.startswith("--only="):
+            only = [k.strip().lower() for k in a[7:].split(",") if k.strip()]
+    active = [sid for sid in SEGS if not only or
+              any(k == sid or any(k in n for n in SEGS[sid][0]) for k in only)]
+    if only and not active:
+        print(f"--only 未命中任何段。可用：{', '.join(SEGS)}")
+        return 1
+    if only:
+        print(f"[--only] 激活段: {active}")
+
+    for sid in active:
+        SEGS[sid][1]()
 
     print("\n" + "=" * 56)
     passed = sum(1 for r in RESULTS if r[1])

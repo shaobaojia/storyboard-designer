@@ -154,7 +154,7 @@ print(os.listdir(d) if os.path.exists(d) else "MISSING")
 
 
 def s2_body():
-    print("\n[2] Web buttons (API -> Blender effect)")
+    print("\n[2] Create + 时长对齐")
 
     # 2a. Create
     before = state()
@@ -175,6 +175,8 @@ print(s.frame_start, s.frame_end, s.render.fps) if s else print("MISSING")
           and int(parts[1]) == max(1, int(2.0 * float(parts[2]))))
     record("web", "Create 时长对齐 (frame_end=duration*fps)", ok, f"start/end/fps={out}")
 
+def s3_open_body():
+    print("\n[3] Open (switch scene)")
     # 2b. Open (switch scene)
     shot = next(s for s in api("GET", "/api/shots")["shots"] if s["name"] == "AUDIT_WEB")
     api("POST", f"/api/shot/{shot['id']}", {"action": "open"})
@@ -182,7 +184,10 @@ print(s.frame_start, s.frame_end, s.render.fps) if s else print("MISSING")
     cur = state()["current"]
     record("web", "Open (switch scene)", cur == "Shot_AUDIT_WEB", f"current={cur}")
 
+def s4_rerender_body():
+    print("\n[4] 重拍封面 (cover frame)")
     # 2c. Rerender = 重拍封面帧（v0.8.4: 统一 frames 模型，等价旧 RenderShot）
+    shot = next(s for s in api("GET", "/api/shots")["shots"] if s["name"] == "AUDIT_WEB")
     api("POST", f"/api/shot/{shot['id']}", {"action": "rerender"})
     time.sleep(8)
     sid = shot["id"]
@@ -194,7 +199,10 @@ print(os.listdir(d) if os.path.exists(d) else "MISSING")
 ''')
     record("web", "重拍封面 (cover frame)", "f00000_still.jpg" in out and "f00000_thumb.jpg" in out, out.strip()[:60])
 
+def s5_duplicate_body():
+    print("\n[5] Duplicate (含多图保帧)")
     # 2d. Duplicate
+    shot = next(s for s in api("GET", "/api/shots")["shots"] if s["name"] == "AUDIT_WEB")
     api("POST", f"/api/shot/{shot['id']}", {"action": "duplicate", "new_name": "AUDIT_WEB_COPY"})
     time.sleep(3)
     after = state()
@@ -232,6 +240,8 @@ print(sorted(os.listdir(d)) if os.path.exists(d) else "MISSING")
     record("web", "Duplicate 多图保帧 (frames+文件+封面)", ok,
            f"src={len(src_frames)}帧 cover={src_cover}, copy={len(copy_frames)}帧 cover={copy_cover}, files={files_ok}")
 
+def s6_reorder_body():
+    print("\n[6] Reorder + Undo")
     # 2e. Reorder (then undo it so the user's custom order survives the audit)
     shots = api("GET", "/api/shots")["shots"]
     ids = [s["id"] for s in shots]
@@ -248,6 +258,8 @@ print(sorted(os.listdir(d)) if os.path.exists(d) else "MISSING")
     record("web", "Undo reorder", r.get("status") == "ok" and back_order == orig_order,
            f"undo={r.get('label')}, order restored: {back_order == orig_order}")
 
+def s7_trash_body():
+    print("\n[7] Soft delete/restore/undo/purge")
     # 2f. Soft delete -> trash -> restore -> undo dance -> purge (R3 #6)
     trash_baseline = api("GET", "/api/version").get("trash_count", 0)
     shot = next(s for s in api("GET", "/api/shots")["shots"] if s["name"] == "AUDIT_WEB_COPY")
@@ -299,13 +311,12 @@ print(sorted(os.listdir(d)) if os.path.exists(d) else "MISSING")
             and not any("AUDIT_WEB_COPY" in s for s in after["scenes"]))
     record("web", "Purge (hard delete)", gone, "")
 
+def s8_sync_body():
+    print("\n[8] Sync")
     # 2g. Sync
     r = api("POST", "/api/sync", {})
     time.sleep(2)
     record("web", "Sync", r.get("status") == "ok", r.get("message", ""))
-
-    # ---- 2h. v0.4 endpoints ----------------------------------------------
-
 
 def s2h_body():
     print("\n[2h] v0.4 endpoints")
@@ -625,13 +636,18 @@ def main():
     # 段注册表：id -> (record 名子串, 依赖段)  s2i 用 AUDIT_REN2（s2h 建）
     SEG_REG = {
         's1':  (['create shot', 'auto-render', 'sync scenes'], ()),
-        's2':  (['时长对齐', 'open (switch', '重拍封面', 'duplicate', 'reorder',
-                 'soft delete', 'restore', 'purge', 'sync'], ()),
-        's2h': (['next_name', 'project title', 'version payload', 'rename',
+        's2':  (['create', '时长对齐', 'duration'], ()),
+        's3':  (['open (switch'], ('s2',)),
+        's4':  (['重拍封面', 'rerender'], ('s2',)),
+        's5':  (['duplicate'], ('s2',)),
+        's6':  (['reorder'], ()),
+        's7':  (['soft delete', 'trash', 'restore', 'purge', 'trash_count'], ('s5',)),
+        's8':  (['sync'], ()),
+        's9':  (['next_name', 'project title', 'version payload', 'rename',
                  'set_background', 'duplicate unique'], ()),
-        's2i': (['update fields', 'undo', 'duplicate inserts'], ('s2h',)),
-        's2j': (['thumb_ver', 'reorder bumps', 'batch restore'], ()),
-        's2k': (['frames cascade'], ()),
+        's10': (['update fields', 'undo', 'duplicate inserts'], ('s9',)),
+        's11': (['thumb_ver', 'reorder bumps', 'batch restore'], ()),
+        's12': (['frames cascade'], ()),
     }
     def _matches(sid):
         if not only:
@@ -639,11 +655,20 @@ def main():
         names = SEG_REG[sid][0]
         return any(k == sid or any(k in n for n in names) for k in only)
     active = []
-    for sid in ('s1', 's2', 's2h', 's2i', 's2j', 's2k'):
-        if _matches(sid) or any(d in active for d in SEG_REG[sid][1]):
+    for sid in ('s1', 's2', 's3', 's4', 's5', 's6', 's7', 's8', 's9', 's10', 's11', 's12'):
+        if _matches(sid):
             active.append(sid)
+    # 正向依赖闭包：被激活段的依赖段（数据前置）插到其前面，递归直到稳定
+    # （例：--only=trash 命中 s7 → 前置 s5(duplicate)→s2(create)，顺序 s2→s5→s7）
+    i = 0
+    while i < len(active):
+        deps = [d for d in SEG_REG[active[i]][1] if d not in active]
+        if deps:
+            active[i:i] = deps
+            i -= 1
+        i += 1
     if only and not active:
-        print('--only 未命中任何段。可用：段 id s1/s2/s2h/s2i/s2j/s2k 或关键词（rename/undo/trash/duplicate/reorder/thumb/frames/...）')
+        print('--only 未命中任何段。可用：段 id s1..s12 或关键词（create/open/rerender/duplicate/reorder/trash/sync/rename/undo/thumb/frames/...）')
         return summary()
     if only:
         print(f'[--only] 激活段: {active}')
@@ -670,10 +695,16 @@ def main():
     for _sid in active:
         if _sid == 's1': s1_body()
         elif _sid == 's2': s2_body()
-        elif _sid == 's2h': s2h_body()
-        elif _sid == 's2i': s2i_body()
-        elif _sid == 's2j': s2j_body()
-        elif _sid == 's2k': s2k_body()
+        elif _sid == 's3': s3_open_body()
+        elif _sid == 's4': s4_rerender_body()
+        elif _sid == 's5': s5_duplicate_body()
+        elif _sid == 's6': s6_reorder_body()
+        elif _sid == 's7': s7_trash_body()
+        elif _sid == 's8': s8_sync_body()
+        elif _sid == 's9': s2h_body()
+        elif _sid == 's10': s2i_body()
+        elif _sid == 's11': s2j_body()
+        elif _sid == 's12': s2k_body()
 
     # ---- 3. cleanup（永远跑，保证无残留） ----
     s3_body(taken)
