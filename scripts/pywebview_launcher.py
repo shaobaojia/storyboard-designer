@@ -185,6 +185,17 @@ def apply_dark_titlebar(window):
         # DWMWA_WINDOW_CORNER_PREFERENCE = 38，2 = 圆角
         ctypes.windll.dwmapi.DwmSetWindowAttribute(
             hwnd, 38, ctypes.byref(corner), ctypes.sizeof(corner))
+        # v0.9.26：DWM 深色标题栏重绘不重读 WM_SETICON 图标（实测：浅色阶段带图标，
+        # 深色切换后图标消失只剩文字）——重新回设图标强制 DWM 重绘标题栏图标
+        try:
+            u32 = ctypes.windll.user32
+            for ic in (0, 2, 1):  # ICON_SMALL / ICON_SMALL2 / ICON_BIG
+                h = u32.SendMessageW(hwnd, 0x7F, ic, 0)  # WM_GETICON
+                if h:
+                    u32.SendMessageW(hwnd, 0x80, ic, h)  # WM_SETICON
+            log(f'titlebar icon re-applied after dark mode (hwnd={hwnd})')
+        except Exception as e:
+            log(f'titlebar icon re-apply failed: {e}')
         log(f'dark titlebar applied (hwnd={hwnd})')
     except Exception as e:
         log(f'dark titlebar failed: {e}')

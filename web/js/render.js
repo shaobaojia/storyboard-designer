@@ -1,6 +1,7 @@
 // 渲染：宫格/列表两种视图 + FLIP 动效 + DOM 差分 + 骨架屏首屏门控
 import { state, grid } from './state.js';
 import { toast } from './ui.js';  // v0.9.8：台词就地编辑的保存反馈
+import { ICONS } from './icons.js';  // v0.9.26：动态图标（收起箭头/列表角标）
 
 // v0.9.6：XSS 防护——所有用户数据插 innerHTML 前统一过 esc（search.js 已有同款，此处补主渲染路径）
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
@@ -669,7 +670,7 @@ function buildExpandedCards(shot, eager) {
             <div class="${cls.join(' ')}" draggable="false" data-id="${shot.id}" data-frame-id="${f.id}">
                 ${frameImgHtml(f, shot, eager, imgCls)}
                 ${f.isCover ? `<div class="cover-chip">封面</div>` : ''}${first ? `<button class="stack-badge expanded-badge" onclick="window.__sb.toggleListMulti('${shot.id}');event.stopPropagation();" data-tip="折叠">${frames.length}</button>` : ''}
-                ${last ? '<button class="collapse-btn" data-tip="折叠" data-action="collapse">◀</button>' : ''}
+                ${last ? `<button class="collapse-btn" data-tip="折叠" data-action="collapse">${ICONS.collapse}</button>` : ''}
                 <div class="shot-info">
                     ${first ? `<div class="shot-name" data-field="name">${esc(shot.name)}</div>` : `<div class="frame-no">f${f.frame_no}</div>`}
                     ${first ? `<div class="shot-meta cell-edit" data-field="duration">${shot.duration.toFixed(1)}s</div>` : ''}
@@ -784,7 +785,7 @@ function buildCard(shot, eager) {
         const isMulti = frames.length > 1;
         const expanded = isMulti && state.expandedShotIds.has(shot.id);
         const toggleId = shot.id.replace(/[^a-zA-Z0-9]/g,'');
-        const multiBadge = isMulti ? `<button class="multi-badge${expanded ? ' expanded' : ''}" onclick="window.__sb.toggleListMulti('${shot.id}');event.stopPropagation();">${frames.length}帧${expanded ? ' ◀' : ' ▶'}</button>` : '';
+        const multiBadge = isMulti ? `<button class="multi-badge${expanded ? ' expanded' : ''}" onclick="window.__sb.toggleListMulti('${shot.id}');event.stopPropagation();">${frames.length}帧${expanded ? ICONS.collapse : ICONS.expand}</button>` : '';
         // v0.8.4: 所有镜头折叠态缩略图 = 封面帧图（统一 frames 模型，单图=1 帧镜头；
         // 封面变更立即跟随；thumb.jpg 仅作 legacy 兜底）
         const coverFrame = frames.find(f => f.isCover) || frames[0];

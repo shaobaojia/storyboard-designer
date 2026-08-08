@@ -2,6 +2,17 @@
 
 > 给下一个 Agent（或下一个自己）的交接备忘录。**收工推送前必须更新「刚做完 / 正在做 / 下一步 / 坑」四个字段。**
 
+## 刚做完（v0.9.26：收起按钮 9px + 滑块去文字 + 标题栏居中 + 图标全 SVG 化 + 窗口图标修复，2026-08-08 已部署，推前干净空库全量 42/42+12/12+23/23 全 PASS）
+
+- **展开态收起按钮收窄到 9px**（= 图右沿↔衬底右沿间隔，FRAME_EDGE=9 实测 9.0px）：button.collapse-btn right:0 + width:9px + padding:4px 0 + ◀ 8px SVG，整个按钮落在间隔内不盖图（btnLeftVsImgRight=0 实测）；CDP 点击收起 PASS
+- **修 v0.9.24 回归**：`[data-tip] { position: relative }`（style.css 801 行，0,1,0）覆盖定义更靠前的 `.collapse-btn`/`.stack-badge`（同为 0,1,0）→ 收起按钮被拉出 absolute 掉到帧格下方流内、折叠角标掉到图下方。修 = 选择器加 button 前缀提特异性（button.collapse-btn / button.stack-badge）
+- **缩放滑块去掉列数/px 文字**：index.html 删 #sizeValue + zoom.js 删 3 处引用 + style.css 清 slider-label 规则（web_audit 只用 sizeSlider 不受影响）
+- **标题栏垂直居中**：.header padding 10px/28px → 15px/15px 对称（总高 61px border-box 不变，sticky 防跳保持）；实测 h1/搜索框/按钮中心 30 vs 标题栏中心 30.5（偏差 0.5px）
+- **图标全 SVG 化（方案 B，用户拍板）**：新建 `web/js/icons.js` 集中管理 17 个图标——11 个原 iconfont path（从用户 `~/Downloads/iconfont_pkg/font_mlk0fu81ebm/iconfont.js` 的 symbol 提取，零转换）+ 主菜单三横线/剪刀收编 + 用户新给「其它」四宫格（替换占位 icon-lujing）+ 自画 ◀▶✕（stroke 128 线条）；index.html 14 处 `<span data-icon="名称">` 占位 + main.js mountIcons 统一注入（data-icon-class 附加特殊尺寸）；render.js 动态图标（collapse/multi-badge）走 ICONS；**删 iconfont.ttf + @font-face + 11 字体类（style.css -15KB）**；`.ic` = 1em 跟随 font-size + fill/stroke currentColor（按钮 color/hover 变色即图标变色，实测 active 蓝底白图标自动跟随）；尺寸实测：工具条 16px/菜单 16px/收起 8px/角标 11px/剪刀 56px
+- **PyWebView 窗口标题栏图标消失修复**（用户实测报告）：DWM 深色标题栏（DWMWA_USE_IMMERSIVE_DARK_MODE）应用后重绘不重读 WM_SETICON 图标 → 打开瞬间浅色带图标、变深色后图标消失只剩文字（图标句柄其实一直在，WM_GETICON 有值，是深色重绘不绘制）。修 = apply_dark_titlebar 深色应用后回设 WM_SETICON（ICON_SMALL/SMALL2/BIG 三尺寸）；验证：重启窗口深色后 t+0/2/5/10s 连续采样图标全程在
+- **版本号 0.9.25 → 0.9.26**（bl_info + 关于徽章）
+- 推前验证：干净空库（C:/Users/54718/AppData/Local/hermes/tmp/audit_v0926/audit_clean.blend + make_std_shots STD 10 镜头）全量 42/42+12/12+23/23 全 PASS，无残留，切回正式工程（storyboard_test.blend 77 镜头完好）
+
 ## 刚做完（v0.9.25：其它场景页 + 心跳自动对账，2026-08-08 已部署，推前全量 42/42+12/12+23/23 全 PASS 干净文件）
 
 - **「其它」场景页**（用户拍板 A1/B1/C1/D1）：网页底部工具条新增「其它」按钮（垃圾桶旁，图标 icon-lujing 占位等用户新图标）——Blender 中所有非分镜系统创建的场景（手动创建/幽灵/正名幽灵）自动归入此页，卡片 = 场景名+相机（无帧图），右键「转为镜头」（统一分配 c 编号 + 场景改名 Shot_cXXXX + 相机改名/无相机自动补默认 + 建目录 + 自动拍封面帧；undo 可还原为其它场景）/「删除」（确认条 + 硬删不可恢复 + 最后场景保护）/+ 批量版本
@@ -129,7 +140,7 @@
 
 ## 正在做
 
-- 无进行中任务（v0.9.25 已交付，2026-08-08 推 GitHub）
+- 无进行中任务（v0.9.26 已交付，2026-08-08 推 GitHub）
 
 ## 下一步
 
@@ -231,6 +242,11 @@ CREATE INDEX IF NOT EXISTS idx_frames_shot ON frames(shot_id);
 
 ## 坑（已踩过的雷）
 
+- **v0.9.26：`[data-tip] { position: relative }` 会覆盖同特异性（0,1,0）且定义更靠前的 absolute 元素**（.collapse-btn/.stack-badge 实测被拉回流内）：带 data-tip 的 absolute 定位元素选择器必须提特异性（button 前缀），新增此类元素时先查 style.css 801 行 data-tip 规则
+- **v0.9.26：DWM 深色标题栏应用后标题栏图标消失**（pywebview 窗口）：DWMWA_USE_IMMERSIVE_DARK_MODE 重绘不重读 WM_SETICON（图标句柄在，只是不绘制）——深色应用后回设 WM_SETICON（SMALL/SMALL2/BIG）强制重绘
+- **v0.9.26：SVG 图标 1em 跟随 font-size，按钮 font-size 被通用规则覆盖时图标尺寸错**：.ic 在 .header .actions button（font-size:13px, 0,1,2）内的 hamburger（0,1,0）图标变 13px——需同级特异性补回（.header .actions button.hamburger）
+- **v0.9.26：icons.js 对象键名含连字符（td-tp-ylt/a-chuangjian1）必须加引号**——ESM 对象字面量裸键带连字符 SyntaxError，node --check 能抓到
+- **v0.9.26：--background --python 造库脚本 quit_blender 后进程仍残留**（180s 超时）：造完手动 tasklist 对比杀残留（无端口占用未注册插件，仅占内存）；下次脚本改用 save + sys.exit 或延迟退出
 - **v0.9.25：ESM 函数体内引用未 import 符号 = 模块加载不报错，运行时点击才 ReferenceError**（trash.js 漏 `import { exitOtherMode }`，症状"点了没反应"且 handler 后续代码中断——enterTrashMode 没跑）。加跨模块调用后 grep 确认 import 行存在；node --check 测不出（语法合法）（skill pitfall 176）
 - **v0.9.25：空库跑 web_audit 必 4 FAIL**（无镜头可测：展开/右键/搜索/台词）——web_audit 不造数据，空库隔离验证前先跑 make_std_shots.py（STD_ 前缀 10 镜头），造完别重启（.blend 不存盘重启即清）
 - **v0.9.25：adopt（转镜头）undo 后镜头目录残留磁盘**——undo 只改场景名+DB 还原，目录由下次启动完整 sync 的目录清理自愈

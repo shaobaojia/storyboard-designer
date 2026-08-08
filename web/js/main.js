@@ -17,6 +17,23 @@ import { initShortcutsHelp } from './shortcuts.js';
 import { initPreview, updatePreview, setPreview, setPreviewW, togglePreviewSide } from './preview.js';
 import { initAspect, applyAspect } from './aspect.js';
 import { isExpanded, expandAnimated, collapseAnimated, jumpToFrame, initStackHover, focusFrame } from './frames.js';
+import { ICONS } from './icons.js';
+
+// v0.9.26：图标统一注入——所有 SVG 集中在 icons.js 管理（改颜色 = CSS color/currentColor，
+// 改样式 = 改 icons.js 一处）。HTML 里用 <span data-icon="名称"> 占位，这里统一换成 SVG。
+// 特殊尺寸：data-icon-class 附加到 svg（如 about-logo 56px）；trash.js 已不重写按钮 innerHTML，注入一次即可。
+function mountIcons() {
+    document.querySelectorAll('[data-icon]').forEach(el => {
+        const body = ICONS[el.dataset.icon];
+        if (!body) return;
+        el.innerHTML = body;
+        if (el.dataset.iconClass) {
+            const s = el.querySelector('svg');
+            if (s) s.classList.add(el.dataset.iconClass);
+        }
+    });
+}
+mountIcons();
 
 // ---- 头部按钮 ----
 // v0.9.22：宫格/列表拆成两个独立按钮（幂等直切），toggleView 保留给 Tab 快捷键

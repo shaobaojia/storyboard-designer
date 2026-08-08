@@ -16,7 +16,6 @@ const LIST_FRAME_DELTA = 7.11;          // listThumbW → 帧缩略图实际宽�
 
 export function initZoom() {
     const sizeSlider = document.getElementById('sizeSlider');
-    const sizeValue = document.getElementById('sizeValue');
     const grid = document.getElementById('grid');
 
     const availWidth = () => grid.clientWidth || (window.innerWidth - 32);
@@ -67,7 +66,6 @@ export function initZoom() {
             const maxW = listMaxW();
             listThumbW = Math.min(maxW, Math.max(LIST_MIN_W, listThumbW));
             document.documentElement.style.setProperty('--list-thumb-w', listThumbW + 'px');
-            sizeValue.textContent = Math.round(listThumbW) + 'px';
             sizeSlider.min = LIST_MIN_W;
             sizeSlider.max = maxW;
             sizeSlider.step = 1;
@@ -80,7 +78,6 @@ export function initZoom() {
             const w = widthFor(cols);
             document.documentElement.style.setProperty('--card-min', w.toFixed(2) + 'px');
             document.documentElement.style.setProperty('--list-thumb-w', Math.round(w * 0.4) + 'px');
-            sizeValue.textContent = cols + ' 列';
             sizeSlider.min = 0;
             sizeSlider.max = nMax - nMin;
             sizeSlider.step = 1;
