@@ -881,6 +881,8 @@ function removeSkeleton() {
     setTimeout(() => layer.remove(), 420);
 }
 export function renderGrid() {
+    // v0.9.25：其它模式渲染由 renderOtherGrid 负责（镜头渲染逻辑不适用无帧场景）
+    if (state.otherMode) { renderOtherGrid(); return; }
     // v0.9.3：差分重建会经过"grid 短暂变空"的中间态（复用节点移入 fragment 再挂回），
     // 浏览器在渲染帧把 scrollY clamp 掉 = 页面跳顶。任务内保存并在末尾恢复滚动位置，
     // 恢复后渲染帧时内容已完整、scrollY 有效，浏览器不再调整。
@@ -1156,18 +1158,52 @@ function animateFrom(oldRects, spreadCenter = null) {
 
 // 右下角统计 (#8) + 垃圾桶模式标题同步 (#3) + 标题栏总镜数/总时长 (v0.9.5)
 // 标题统一在此渲染：避免各处 innerText/textContent 赋值清掉 statsBar 子节点
+// v0.9.25：其它模式标题 = 其它 · N，statsBar 显示非镜头场景数（无总时长语义）
 export function updateStats() {
     document.getElementById('statTotal').textContent = state.shots.length;
     document.getElementById('statSel').textContent = state.selectedIds.size;
     const pt = document.getElementById('pageTitle');
     if (!pt) return;
-    const title = state.trashMode ? `垃圾桶 · ${state.shots.length}` : (state.projectTitle || 'Storyboard Grid');
+    const title = state.otherMode ? `其它 · ${state.shots.length}`
+        : (state.trashMode ? `垃圾桶 · ${state.shots.length}` : (state.projectTitle || 'Storyboard Grid'));
     const esc = s => String(s).replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
     pt.innerHTML = esc(title) + '<span id="statsBar" class="stats-bar"></span>';
+    if (state.otherMode) {
+        pt.querySelector('#statsBar').textContent = `非镜头场景 ${state.shots.length} 个`;
+        return;
+    }
     const totalSec = state.shots.reduce((a, s) => a + (Number(s.duration) || 0), 0);
     const mm = Math.floor(totalSec / 60);
     const ss = Math.round(totalSec % 60);
     pt.querySelector('#statsBar').textContent = `总镜数 ${state.shots.length} 总时长 ${mm}′${String(ss).padStart(2, '0')}″`;
+}
+
+// ---- 「其它」页面渲染（v0.9.25）：非镜头场景简化卡片 ----
+// 其它场景没有帧图，卡片 = 场景名（大）+ 相机（小）；右键菜单只剩转为镜头/删除。
+// 复用 grid 容器与 --card-min 网格（缩放滑块天然生效），不重建 DOM 结构。
+export function renderOtherGrid() {
+    removeSkeleton();
+    if (state.shots.length === 0) {
+        grid.innerHTML = '<div class="empty-state"><p>没有其它场景——手动在 Blender 创建的场景会出现在这里</p></div>';
+        updateStats();
+        return;
+    }
+    const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
+    const frag = document.createDocumentFragment();
+    for (const s of state.shots) {
+        const card = document.createElement('div');
+        card.className = 'shot-card other-card';
+        card.dataset.id = s.id;
+        card.dataset.scene = s.scene_name || '';
+        card.innerHTML = `
+            <div class="other-name">${esc(s.name || s.scene_name)}</div>
+            <div class="other-meta">相机：${esc(s.camera || '无')}</div>
+        `;
+        frag.appendChild(card);
+    }
+    grid.innerHTML = '';
+    grid.appendChild(frag);
+    updateStats();
 }
 
 // 视图切换（v0.9.2 丝滑过渡）：先定位到选中项，再以选中项为中心向外扩散 FLIP

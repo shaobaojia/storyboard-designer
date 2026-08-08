@@ -14,8 +14,8 @@ import uuid
 from core import undo
 from core.db import (
     get_db_version, create_shot, update_shot, delete_shot, get_shot,
-    get_all_shots, get_trash, reorder_shots, name_exists, next_c_name, next_c_number,
-    get_all_frames, get_frames, set_cover_frame,
+    get_all_shots, get_trash, get_other_scenes, reorder_shots, name_exists,
+    next_c_name, next_c_number, get_all_frames, get_frames, set_cover_frame,
 )
 from core.paths import shot_dir
 
@@ -94,8 +94,70 @@ def _attach_frames(shots, db_path, project_dir):
 
 
 def list_shots(db_path, project_dir):
-    shots = get_all_shots(db_path)
+    """主宫格数据源：只返回分镜系统创建的镜头（origin='storyboard'）。
+    手动/幽灵等其它场景走 /api/other_scenes（「其它」页，v0.9.25）。"""
+    shots = [s for s in get_all_shots(db_path)
+             if (s.get("origin") or "storyboard") == "storyboard"]
     return {"status": "ok", "shots": _attach_frames(shots, db_path, project_dir)}, 200
+
+
+def list_other_scenes(db_path):
+    """「其它」页面数据源：所有 origin='other' 的非镜头场景
+    （手动在 Blender 创建 / 幽灵场景 / 其它非插件途径）。"""
+    return {"status": "ok", "scenes": get_other_scenes(db_path)}, 200
+
+
+def other_scene_action(project_dir, db_path, data):
+    """「其它」场景操作：
+    - adopt：转为正式镜头（决策 A1：统一 c 编号；无相机自动补默认）
+    - delete：硬删场景（决策 B1：直接删不进垃圾桶，不可撤销，前端需确认）
+    body: {action, scene_name, duration?}"""
+    action = data.get("action", "")
+    scene_name = data.get("scene_name") or ""
+    if not scene_name or not isinstance(scene_name, str) or len(scene_name) > 128:
+        return {"status": "error", "message": "scene_name required"}, 400
+    if "/" in scene_name or "\\" in scene_name or ".." in scene_name:
+        return {"status": "error", "message": "invalid scene_name"}, 400
+
+    shot = next((s for s in get_other_scenes(db_path)
+                 if s["scene_name"] == scene_name), None)
+    if not shot:
+        return {"status": "error", "message": f"scene not found: {scene_name}"}, 404
+
+    if action == "adopt":
+        # 编号：next_c_name 基于 DB（含垃圾桶）；场景层撞名（正名幽灵/手动 Shot_cXXXX）
+        # 由 queue 命令主线程兜底 +10 重试
+        new_name = next_c_name(db_path)
+        _queue("adopt_other_scene", {
+            "scene_name": scene_name,
+            "shot_id": shot["id"],
+            "new_name": new_name,
+            "project_dir": project_dir,
+            "duration": data.get("duration", 2.0),
+        })
+        # undo：还原为其它场景（场景名改回原名 + DB 还原 origin/name/scene_name/camera）
+        undo.push(f"转为镜头 {shot['name']}", {
+            "db": [(shot["id"], {"name": shot["name"], "scene_name": shot["scene_name"],
+                                 "camera": shot.get("camera") or "", "origin": "other"})],
+            "queue": [("rename_scene", {"scene_name": f"Shot_{new_name}",
+                                        "new_name": shot["scene_name"]})],
+        })
+        return {"status": "ok", "message": "queued", "new_name": new_name}, 200
+
+    if action == "delete":
+        # 硬删：DB 先删（queue 失败回滚重建记录，场景还在），再 queue 删场景
+        delete_shot(db_path, shot["id"])
+        try:
+            _queue("delete_other_scene", {"scene_name": scene_name})
+        except Exception:
+            from core.db import create_shot as _re_create
+            _re_create(db_path, shot["name"], shot["scene_name"],
+                       camera=shot.get("camera") or "", origin="other",
+                       shot_id=shot["id"])
+            raise
+        return {"status": "ok", "message": "queued"}, 200
+
+    return {"status": "error", "message": "unknown action"}, 400
 
 
 def get_version(db_path):

@@ -601,13 +601,148 @@ def cmd_set_camera_background(params):
 
 def cmd_sync_scenes(params):
     """Sync Blender scenes with DB. Blender file is authority.
-    Single implementation lives in core.sync (shared with the panel operator)."""
+    Single implementation lives in core.sync (shared with the panel operator).
+    v0.9.25: 完整版返回 7 元组（末位 registered = 新登记其它场景数）。"""
     from core.sync import sync_scenes_with_db
 
-    removed, orphans, deduped, dirs_removed, dirs_migrated, frames_removed = sync_scenes_with_db()
+    removed, orphans, deduped, dirs_removed, dirs_migrated, frames_removed, registered = sync_scenes_with_db()
     return {"removed": removed, "orphans": len(orphans), "deduped": deduped,
             "dirs_removed": dirs_removed, "dirs_migrated": dirs_migrated,
-            "frames_removed": frames_removed}
+            "frames_removed": frames_removed, "registered": registered}
+
+
+def cmd_adopt_other_scene(params):
+    """把「其它」场景转为正式镜头（决策 A1：统一 c 编号；D1：无相机自动补默认相机）。
+
+    流程：场景改名 Shot_cXXXX + 相机改名 Cam_cXXXX（无相机则补默认）
+    → DB 记录转 origin='storyboard'（name/scene_name/camera 联动）
+    → 建镜头目录 → 自动拍封面帧。undo 逆操作 = rename_scene 改回原名 + DB 还原。"""
+    import os
+    from core.db import get_db_path, update_shot, next_c_number
+
+    scene_name = params.get("scene_name")
+    shot_id = params.get("shot_id")
+    project_dir = params.get("project_dir")
+    if not (scene_name and shot_id and project_dir):
+        raise ValueError("scene_name, shot_id, project_dir required")
+
+    scene = bpy.data.scenes.get(scene_name)
+    if not scene:
+        raise ValueError(f"Scene not found: {scene_name}")
+
+    # 编号分配：调用方指定（next_c_name 算过 DB 空闲）；场景层撞名（正名幽灵/
+    # 手动建 Shot_cXXXX）自动 +10 重试——next_c_number 只认 name 全匹配 c 编号，
+    # 幽灵场景 name='Shot_cXXXX' 不在编号池里，必须场景层兜底
+    db_path = get_db_path(project_dir)
+    new_name = params.get("new_name") or ""
+    if not new_name or f"Shot_{new_name}" in bpy.data.scenes:
+        n = next_c_number(db_path)
+        while f"Shot_c{n:04d}" in bpy.data.scenes:
+            n += 10
+        new_name = f"c{n:04d}"
+
+    new_scene_name = f"Shot_{new_name}"
+    new_cam_name = f"Cam_{new_name}"
+
+    # 1) 场景改名
+    scene.name = new_scene_name
+
+    # 2) 相机：有则改名，无则补默认（D1——手动场景常无相机，补了才能自动拍封面）
+    cam_obj = scene.camera
+    if cam_obj:
+        cam_obj.name = new_cam_name
+        if cam_obj.data:
+            cam_obj.data.name = new_cam_name
+    else:
+        from core.scenes import DEFAULT_CAM_LOCATION, DEFAULT_CAM_ROTATION
+        cam_data = bpy.data.cameras.new(name=new_cam_name)
+        cam_obj = bpy.data.objects.new(name=new_cam_name, object_data=cam_data)
+        scene.collection.objects.link(cam_obj)
+        scene.camera = cam_obj
+        cam_obj.location = DEFAULT_CAM_LOCATION
+        cam_obj.rotation_euler = DEFAULT_CAM_ROTATION
+
+    # 场景时长（同创建路径）
+    duration = params.get("duration", 2.0)
+    scene.frame_start = 1
+    scene.frame_end = max(1, int(duration * scene.render.fps))
+
+    # 3) DB：现有 other 记录转 storyboard（四层联动同 rename 语义）
+    update_shot(db_path, shot_id,
+                name=new_name,
+                scene_name=new_scene_name,
+                camera=new_cam_name,
+                origin="storyboard")
+
+    # 4) 建镜头目录 + 自动拍封面帧（cmd_render_frame 按 shot_id 找记录 ✓）
+    shot_dir = os.path.join(project_dir, "shots", f"{new_name}_{shot_id}")
+    os.makedirs(shot_dir, exist_ok=True)
+    try:
+        cmd_render_frame({
+            "scene_name": new_scene_name,
+            "shot_id": shot_id,
+            "project_dir": project_dir,
+            "frame_no": 0,
+        })
+    except Exception as e:
+        print(f"[Storyboard] Auto-render after adopt failed: {e}")
+
+    return {"new_name": new_name, "new_scene": new_scene_name, "shot_id": shot_id}
+
+
+def cmd_delete_other_scene(params):
+    """硬删「其它」场景（决策 B1：直接删，不进垃圾桶；不可撤销）。
+    复用 cmd_delete_shot 的切走激活场景 + 关全局撤销瞬删保护；
+    最后场景保护：Blender 不允许删光场景，只剩一个时拒绝。"""
+    scene_name = params.get("scene_name")
+    if not scene_name:
+        raise ValueError("scene_name required")
+
+    scene = bpy.data.scenes.get(scene_name)
+    if not scene:
+        return {"deleted": scene_name, "note": "scene already gone"}
+
+    if len(bpy.data.scenes) <= 1:
+        raise ValueError("Cannot delete the last scene")
+
+    # 删激活场景必须先切走（同 cmd_delete_shot 保护）
+    try:
+        if bpy.context.window and bpy.context.window.scene == scene:
+            fallback = next((s for s in bpy.data.scenes if s != scene), None)
+            if fallback:
+                bpy.context.window.scene = fallback
+    except Exception:
+        pass  # No window context (timer/headless) - proceed anyway
+
+    # 重场景 + 全局撤销：batch_remove + 临时关全局撤销 = 瞬删（同 cmd_delete_shot）
+    prefs = bpy.context.preferences.edit
+    undo_was = prefs.use_global_undo
+    prefs.use_global_undo = False
+    try:
+        bpy.data.batch_remove(ids=(scene,))
+    finally:
+        prefs.use_global_undo = undo_was
+
+    return {"deleted": scene_name}
+
+
+def cmd_rename_scene(params):
+    """纯场景改名（adopt 的 undo 逆操作用：镜头场景改回原名）。不碰 DB。"""
+    scene_name = params.get("scene_name")
+    new_name = params.get("new_name")
+    if not (scene_name and new_name):
+        raise ValueError("scene_name, new_name required")
+    if new_name in bpy.data.scenes:
+        raise ValueError(f"Scene {new_name} already exists")
+    scene = bpy.data.scenes.get(scene_name)
+    if scene:
+        scene.name = new_name
+    return {"renamed": f"{scene_name} -> {new_name}"}
+
+
+def queue_idle():
+    """队列空闲？（sync 心跳用：有命令排队时跳过对账，防创建竞态）"""
+    return _command_queue.empty()
 
 
 # Command registry: name -> (handler, [required params]).
@@ -778,6 +913,9 @@ COMMANDS = {
     "create_image_shot_scene": (cmd_create_image_shot_scene, ["shot_name", "scene_name"]),
     "set_camera_background": (cmd_set_camera_background, ["scene_name", "image_path"]),
     "sync_scenes": (cmd_sync_scenes, []),
+    "adopt_other_scene": (cmd_adopt_other_scene, ["scene_name", "shot_id", "project_dir"]),
+    "delete_other_scene": (cmd_delete_other_scene, ["scene_name"]),
+    "rename_scene": (cmd_rename_scene, ["scene_name", "new_name"]),
     "render_frame": (cmd_render_frame, ["scene_name", "shot_id", "project_dir", "frame_no"]),
     "set_cover_frame": (cmd_set_cover_frame, ["shot_id", "frame_id", "project_dir"]),
     "set_project_resolution": (cmd_set_project_resolution, ["width", "height"]),

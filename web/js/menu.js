@@ -2,7 +2,7 @@
 import { state } from './state.js';
 import { toast, askConfirm } from './ui.js';
 import { isExpanded, expandAnimated, collapseAnimated } from './frames.js';
-import { fetchShots, postShotAction, postBatch, openShot } from './data.js';
+import { fetchShots, postShotAction, postBatch, postOtherScene, openShot } from './data.js';
 import { updateSelectionUI, clearSelection } from './selection.js';
 import { startRename } from './rename.js';
 import { startDlgEdit, setDialogueAuto, isDialogueAuto } from './render.js';  // v0.9.11：台词框右键菜单
@@ -37,7 +37,20 @@ export function showContextMenu(x, y, shotId, frameId = null) {
     const shot = state.shots.find(s => s.id === shotId);
     const isMulti = shot && (shot.frames || []).length > 1;
 
-    if (state.trashMode) {
+    if (state.otherMode) {
+        // 「其它」页（v0.9.25）：只剩转为镜头/删除（决策 A1 统一 c 编号 / B1 硬删）
+        menu.innerHTML = state.selectedIds.size > 1
+            ? `
+            <div class="menu-title">已选 ${state.selectedIds.size} 个场景</div>
+            <button data-action="other-batch-adopt">批量转为镜头</button>
+            <button class="danger" data-action="other-batch-delete">批量删除</button>
+        `
+            : `
+            <div class="menu-title">其它场景</div>
+            <button data-action="other-adopt">转为镜头</button>
+            <button class="danger" data-action="other-delete">删除场景</button>
+        `;
+    } else if (state.trashMode) {
         // 垃圾桶模式 (#3)：只剩恢复/彻底删除
         menu.innerHTML = state.selectedIds.size > 1
             ? `
@@ -267,6 +280,46 @@ async function menuAction(action) {
                 else toast(r && r.message || '删除失败', true);
             }
             break;
+        // ---- 「其它」页操作（v0.9.25）：转为镜头 / 删除 ----
+        case 'other-adopt': {
+            const r = await postOtherScene(shot.scene_name, {action: 'adopt'});
+            if (r && r.status === 'ok') {
+                toast(`已转为镜头 ${r.new_name || ''}`);
+                state.selectedIds.delete(shotId);
+                setTimeout(() => fetchShots(true), 1500);  // 等拍屏队列落地
+            } else toast(r && r.message || '操作失败', true);
+            break;
+        }
+        case 'other-delete': {
+            if (await askConfirm(`删除场景「${shot.name}」？不可恢复。`)) {
+                const r = await postOtherScene(shot.scene_name, {action: 'delete'});
+                if (r && r.status === 'ok') { toast('已删除'); state.selectedIds.delete(shotId); fetchShots(true); }
+                else toast(r && r.message || '删除失败', true);
+            }
+            break;
+        }
+        case 'other-batch-adopt': {
+            const scenes = [...state.selectedIds].map(id => state.shots.find(s => s.id === id)).filter(Boolean);
+            let ok = 0;
+            for (const s of scenes) {
+                const r = await postOtherScene(s.scene_name, {action: 'adopt'});
+                if (r && r.status === 'ok') ok++;
+            }
+            toast(`已排队转为镜头 ${ok}/${scenes.length}`);
+            clearSelection();
+            setTimeout(() => fetchShots(true), 2000);
+            break;
+        }
+        case 'other-batch-delete': {
+            if (await askConfirm(`删除 ${batchIds.length} 个场景？不可恢复。`)) {
+                const scenes = [...state.selectedIds].map(id => state.shots.find(s => s.id === id)).filter(Boolean);
+                for (const s of scenes) await postOtherScene(s.scene_name, {action: 'delete'});
+                toast('已排队删除');
+                clearSelection();
+                fetchShots(true);
+            }
+            break;
+        }
     }
 }
 

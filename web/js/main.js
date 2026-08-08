@@ -1,6 +1,6 @@
 // 入口：接线所有模块，启动心跳与首次拉取
 import { grid, state } from './state.js';
-import { syncViewToggleButton, setView, toggleView, showSkeleton, renderGrid, initDialogueResize, initDialogueDrag, startDlgEdit } from './render.js';
+import { syncViewToggleButton, setView, toggleView, showSkeleton, renderGrid, updateStats, initDialogueResize, initDialogueDrag, startDlgEdit } from './render.js';
 import { fetchShots, heartbeat, loadProjectTitle, openShot, openTimeline, syncScenes } from './data.js';
 import { cardClick } from './selection.js';
 import { initCardDnd, initFileDrop } from './dnd.js';
@@ -10,7 +10,8 @@ import { initCreateModal, openCreateModal } from './create.js';
 import { initMarquee } from './marquee.js';
 import { initZoom } from './zoom.js';
 import { initKeyboard } from './keyboard.js';
-import { initTrash } from './trash.js';
+import { initTrash, exitTrashMode } from './trash.js';
+import { initOther } from './other.js';
 import { initSearch } from './search.js';
 import { initShortcutsHelp } from './shortcuts.js';
 import { initPreview, updatePreview, setPreview, setPreviewW, togglePreviewSide } from './preview.js';
@@ -86,6 +87,19 @@ document.addEventListener('keydown', (e) => {
 grid.addEventListener('click', (e) => {
     const card = e.target.closest('.shot-card');
     if (!card) return;
+    // v0.9.25：「其它」页点击 = 选中切换（无 frames/预览/展开语义，走自己的逻辑）
+    if (state.otherMode) {
+        const sid = card.dataset.id;
+        if (state.selectedIds.has(sid)) {
+            state.selectedIds.delete(sid);
+            card.classList.remove('selected');
+        } else {
+            state.selectedIds.add(sid);
+            card.classList.add('selected');
+        }
+        updateStats();
+        return;
+    }
     cardClick(e, card.dataset.id);
     // 折叠按钮（展开态左上角）
     const collapseBtn = e.target.closest('.collapse-btn');
@@ -167,6 +181,11 @@ initMarquee();
 initZoom();
 initKeyboard();
 initTrash();
+initOther();  // 「其它」页（v0.9.25）
+// v0.9.25：进「其它」先退垃圾桶（反向互斥在 trash.js initTrash）——先注册先执行
+document.getElementById('otherBtn').addEventListener('click', () => {
+    if (state.trashMode) exitTrashMode();
+});
 initSearch();
 initShortcutsHelp();
 initPreview();

@@ -46,6 +46,8 @@ CONTENT_TYPES = {
 ROUTES = {
     ("GET", "/api/shots"): lambda c: actions.list_shots(c["db_path"], c["project_dir"]),
     ("GET", "/api/trash"): lambda c: actions.list_trash(c["db_path"]),
+    ("GET", "/api/other_scenes"): lambda c: actions.list_other_scenes(c["db_path"]),
+    ("POST", "/api/other_scenes"): lambda c: actions.other_scene_action(c["project_dir"], c["db_path"], c["data"]),
     ("GET", "/api/version"): lambda c: actions.get_version(c["db_path"]),
     ("GET", "/api/next_name"): lambda c: actions.get_next_name(c["db_path"]),
     ("GET", "/api/project"): lambda c: actions.get_project(c["project_dir"]),

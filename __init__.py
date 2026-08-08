@@ -1,7 +1,7 @@
 bl_info = {
     "name": "Storyboard Designer",
     "author": "邵保家",
-    "version": (0, 9, 24),
+    "version": (0, 9, 25),
     "blender": (4, 5, 0),
     "location": "View3D > Sidebar > Storyboard",
     "description": "Quick previs/storyboard design system",
@@ -537,25 +537,44 @@ def _auto_start_server():
         start_server(project_dir, port=8089)
         ensure_timer()
         print(f"[Storyboard] auto-started on port {get_server().port}")
+        # 启动完整 sync 一次：目录清理/迁移（心跳对账不碰磁盘，rmtree 只在这跑）
+        try:
+            from core.sync import sync_scenes_with_db
+            sync_scenes_with_db()
+        except Exception:
+            pass
     except Exception as e:
         print(f"[Storyboard] auto-start failed: {e}")
     return None  # timer 只跑一次
 
 
-# --- Auto-sync: 定期同步场景→DB，防止意外退出丢数据 ---
+# --- Auto-sync: 心跳对账（v0.9.25）——每 5s 场景 ↔ DB 双向收敛，全自动无需手动 Sync ---
+# DB 孤儿记录直接删；Blender 新场景（手动/幽灵/正名幽灵）自动登记 origin='other'
+# 进「其它」页；__trash__ 垃圾桶场景跳过。磁盘目录清理只留在启动完整 sync。
+_auto_sync_registered = False
+
+
 def _auto_sync():
+    """轻量对账心跳：5s 一轮。queue 非空时跳过本轮（创建竞态保护——
+    DB 记录先行、场景后建，队列里还有 create/rename 命令时不能删记录）。"""
     try:
-        from core.sync import sync_scenes_with_db
-        sync_scenes_with_db()
+        from core.queue import queue_idle
+        if queue_idle():
+            from core.sync import sync_scenes_light
+            sync_scenes_light()
     except Exception:
-        pass  # 静默失败，不打扰用户
-    return 30.0  # 每 30 秒同步一次
+        pass  # 静默失败，不打扰用户（timer 抛异常会被 Blender 取消注册）
+    return 5.0  # 每 5 秒对账一次
 
 
 @bpy.app.handlers.persistent
 def _on_file_loaded(*_args):
+    global _auto_sync_registered
     bpy.app.timers.register(_auto_start_server, first_interval=0.5)
-    bpy.app.timers.register(_auto_sync, first_interval=5.0)  # 5秒后首次，之后每30秒
+    # persistent=True + 标志防重复：save_post 也触发本 handler，重复注册会跑双份
+    if not _auto_sync_registered:
+        bpy.app.timers.register(_auto_sync, first_interval=5.0, persistent=True)
+        _auto_sync_registered = True
 
 
 def register():
@@ -569,6 +588,12 @@ def register():
 
 def unregister():
     stop_server()
+    global _auto_sync_registered
+    try:
+        bpy.app.timers.unregister(_auto_sync)
+    except Exception:
+        pass
+    _auto_sync_registered = False
     for h in (bpy.app.handlers.load_post, bpy.app.handlers.save_post):
         if _on_file_loaded in h:
             h.remove(_on_file_loaded)

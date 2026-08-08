@@ -22,7 +22,8 @@ CREATE TABLE IF NOT EXISTS shots (
     still_path  TEXT,
     thumb_path  TEXT,
     thumb_ver   INTEGER DEFAULT 0,
-    updated_at  TEXT
+    updated_at  TEXT,
+    origin      TEXT DEFAULT 'storyboard'  -- 场景来源：storyboard=分镜系统创建 / other=其它途径（手动/幽灵）
 );
 
 CREATE INDEX IF NOT EXISTS idx_shots_seq ON shots(seq);
@@ -82,7 +83,8 @@ def init_db(db_path):
         for col, ddl in (("content", "TEXT DEFAULT ''"),
                          ("dialogue", "TEXT DEFAULT ''"),
                          ("deleted", "INTEGER DEFAULT 0"),
-                         ("thumb_ver", "INTEGER DEFAULT 0")):
+                         ("thumb_ver", "INTEGER DEFAULT 0"),
+                         ("origin", "TEXT DEFAULT 'storyboard'")):
             if col not in cols:
                 conn.execute(f"ALTER TABLE shots ADD COLUMN {col} {ddl}")
                 print(f"[Storyboard] Migrated DB: added '{col}' column")
@@ -176,8 +178,9 @@ def get_db_version(db_path):
     return value
 
 
-def create_shot(db_path, name, scene_name, camera="", duration=2.0, shot_id=None):
-    """Create a new shot record. Returns shot id (pre-generatable for undo wiring)."""
+def create_shot(db_path, name, scene_name, camera="", duration=2.0, shot_id=None, origin="storyboard"):
+    """Create a new shot record. Returns shot id (pre-generatable for undo wiring).
+    origin: 'storyboard'（分镜系统创建）/ 'other'（其它途径场景登记）"""
     shot_id = shot_id or str(uuid.uuid4())[:8]
     now = datetime.now().isoformat()
 
@@ -187,8 +190,8 @@ def create_shot(db_path, name, scene_name, camera="", duration=2.0, shot_id=None
         seq = cursor.fetchone()[0]
 
         conn.execute(
-            "INSERT INTO shots (id, seq, name, scene_name, camera, duration, notes, still_path, thumb_path, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (shot_id, seq, name, scene_name, camera, duration, "", "", "", now)
+            "INSERT INTO shots (id, seq, name, scene_name, camera, duration, notes, still_path, thumb_path, updated_at, origin) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (shot_id, seq, name, scene_name, camera, duration, "", "", "", now, origin)
         )
         _bump_rev(conn)
         conn.commit()
@@ -202,7 +205,8 @@ def update_shot(db_path, shot_id, **kwargs):
     auto-increments so the web side refreshes exactly that one image.
     Anything else (rename/reorder/text edits) leaves thumb_ver alone."""
     allowed = {"seq", "name", "scene_name", "camera", "duration", "notes",
-               "content", "dialogue", "deleted", "still_path", "thumb_path"}
+               "content", "dialogue", "deleted", "still_path", "thumb_path",
+               "origin"}
     updates = {k: v for k, v in kwargs.items() if k in allowed}
     if not updates:
         return False
@@ -259,6 +263,18 @@ def get_trash(db_path):
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     cursor = conn.execute("SELECT * FROM shots WHERE deleted = 1 ORDER BY updated_at DESC")
+    rows = [dict(r) for r in cursor.fetchall()]
+    conn.close()
+    return rows
+
+
+def get_other_scenes(db_path):
+    """Get non-storyboard scenes (origin='other'): 手动/幽灵/其它途径场景，
+    网页「其它」页面的数据源。按 updated_at 倒序（新出现的在前）。"""
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.execute(
+        "SELECT * FROM shots WHERE origin = 'other' AND deleted = 0 ORDER BY updated_at DESC")
     rows = [dict(r) for r in cursor.fetchall()]
     conn.close()
     return rows

@@ -3,6 +3,7 @@ import { state } from './state.js';
 import { selectAll, deleteSelection, updateSelectionUI } from './selection.js';
 import { openShot, undoLast, fetchShots, postShotAction, postBatch } from './data.js';
 import { exitTrashMode } from './trash.js';
+import { exitOtherMode } from './other.js';
 import { toast } from './ui.js';
 import { isExpanded, expandAnimated, collapseAnimated, focusFrame } from './frames.js';
 import { renderGrid, toggleView } from './render.js';
@@ -22,7 +23,7 @@ export const SHORTCUTS = [
     { keys: 'Ctrl.+ / Ctrl.-', desc: '放大/缩小（与滚轮/滑块同效）' },
     { keys: '↑↓←→', desc: '移动选择（展开态逐帧格移动）' },
     { keys: 'Shift+方向键', desc: '扩展多选范围' },
-    { keys: 'Esc', desc: '退出垃圾桶模式' },
+    { keys: 'Esc', desc: '退出垃圾桶/其它模式' },
 ];
 
 function gridColumns() {
@@ -114,9 +115,9 @@ export function initKeyboard() {
             const si = document.getElementById('searchInput');
             if (si) { si.focus(); si.select(); }
         } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'd') {
-            // v0.9.23：Ctrl+D 创建副本（阻止浏览器收藏书签）；单选复制 / 多选批量复制；垃圾桶模式禁用
+            // v0.9.23：Ctrl+D 创建副本（阻止浏览器收藏书签）；单选复制 / 多选批量复制；垃圾桶/其它模式禁用
             e.preventDefault();
-            if (state.trashMode || state.selectedIds.size === 0) return;
+            if (state.otherMode || state.trashMode || state.selectedIds.size === 0) return;
             const ids = [...state.selectedIds];
             if (ids.length === 1) {
                 const r = await postShotAction(ids[0], {action: 'duplicate'});
@@ -135,14 +136,15 @@ export function initKeyboard() {
             // v0.9.18：Ctrl+- 缩小（主键盘 - / Shift+- / 数字键盘 -）
             e.preventDefault();
             if (window.__zoomStep) window.__zoomStep(-1);
-        } else if (e.key === 'Escape' && state.trashMode) {
+        } else if (e.key === 'Escape' && (state.trashMode || state.otherMode)) {
             e.preventDefault();
-            exitTrashMode();
+            if (state.otherMode) exitOtherMode();
+            else exitTrashMode();
         } else if (e.key === 'Tab' && !e.ctrlKey && !e.metaKey && !e.altKey) {
             // v0.9.3：Tab 切换视图（与 #viewToggle 按钮同效；垃圾桶模式也生效——按钮在垃圾桶页同样可用）
             e.preventDefault();  // 阻止浏览器焦点循环默认行为
             toggleView();
-        } else if (e.key === 'Delete' && state.selectedIds.size > 0) {
+        } else if (e.key === 'Delete' && state.selectedIds.size > 0 && !state.otherMode) {
             e.preventDefault();
             // v0.8.2：帧级焦点优先——Delete 删焦点帧而非镜头（蓝框所在的帧）
             // v0.9.22：宫格 .frame-img 与列表 .frame-thumb 双 class 都匹配——原只查
@@ -167,11 +169,11 @@ export function initKeyboard() {
                 }
             }
             await deleteSelection();
-        } else if (e.key === 'Enter' && state.selectedIds.size === 1 && !state.trashMode) {
+        } else if (e.key === 'Enter' && state.selectedIds.size === 1 && !state.trashMode && !state.otherMode) {
             e.preventDefault();
             const id = [...state.selectedIds][0];
             openShot(id);
-        } else if (e.key === ' ' && state.selectedIds.size >= 1 && !state.trashMode) {
+        } else if (e.key === ' ' && state.selectedIds.size >= 1 && !state.trashMode && !state.otherMode) {
             // 空格 = 展开/折叠多图镜头（单选 v0.7.0，与双击同效；v0.8.0 弹簧动效；
             // v0.9.0 多选批量：全部已展开→全部折叠，否则→全部展开；单图镜头跳过）
             e.preventDefault();  // 阻止页面滚动
@@ -184,11 +186,11 @@ export function initKeyboard() {
                 if (allExpanded) collapseAnimated(s.id);
                 else expandAnimated(s.id);
             }
-        } else if (e.key.toLowerCase() === 'v' && !e.ctrlKey && !e.metaKey && !e.altKey && !state.trashMode) {
-            // v0.9.23：v 开关预览窗口（垃圾桶模式禁用，预览框不参与垃圾桶页）
+        } else if (e.key.toLowerCase() === 'v' && !e.ctrlKey && !e.metaKey && !e.altKey && !state.trashMode && !state.otherMode) {
+            // v0.9.23：v 开关预览窗口（垃圾桶/其它模式禁用——预览框只服务镜头页）
             e.preventDefault();
             setPreview(!state.previewOn);
-        } else if (e.key.startsWith('Arrow')) {
+        } else if (e.key.startsWith('Arrow') && !state.otherMode) {
             arrowMove(e);
         }
     });

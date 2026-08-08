@@ -4,6 +4,7 @@ import { state } from './state.js';
 import { fetchShots } from './data.js';
 import { clearSelection } from './selection.js';
 import { loadProjectTitle } from './data.js';
+import { exitOtherMode } from './other.js';  // v0.9.25：与「其它」页互斥
 
 export async function enterTrashMode() {
     if (state.trashMode) return;
@@ -31,6 +32,8 @@ export async function exitTrashMode() {
 
 export function initTrash() {
     document.getElementById('trashBtn').addEventListener('click', () => {
+        // v0.9.25：进垃圾桶先退「其它」页（两模式互斥）
+        if (state.otherMode) exitOtherMode();
         state.trashMode ? exitTrashMode() : enterTrashMode();
     });
 }

@@ -2,6 +2,15 @@
 
 > 给下一个 Agent（或下一个自己）的交接备忘录。**收工推送前必须更新「刚做完 / 正在做 / 下一步 / 坑」四个字段。**
 
+## 刚做完（v0.9.25：其它场景页 + 心跳自动对账，2026-08-08 已部署，推前全量 42/42+12/12+23/23 全 PASS 干净文件）
+
+- **「其它」场景页**（用户拍板 A1/B1/C1/D1）：网页底部工具条新增「其它」按钮（垃圾桶旁，图标 icon-lujing 占位等用户新图标）——Blender 中所有非分镜系统创建的场景（手动创建/幽灵/正名幽灵）自动归入此页，卡片 = 场景名+相机（无帧图），右键「转为镜头」（统一分配 c 编号 + 场景改名 Shot_cXXXX + 相机改名/无相机自动补默认 + 建目录 + 自动拍封面帧；undo 可还原为其它场景）/「删除」（确认条 + 硬删不可恢复 + 最后场景保护）/+ 批量版本
+- **shots.origin 字段**：'storyboard'=插件创建 / 'other'=其它途径；init_db 幂等迁移（历史行默认 storyboard）；主宫格 list_shots 过滤 origin='storyboard'；get_other_scenes 供其它页
+- **心跳自动对账**（取代手动 Sync——Sync 按钮 v0.9.21 已删）：`_auto_sync` 5s timer（persistent + 防重复注册 + unregister 清理）→ `sync_scenes_light()`：DB 孤儿记录直删 + Blender 新场景自动登记 origin='other' + 去重 + orphan frames，**不碰磁盘**（rmtree 目录清理只留启动完整 sync 与 /api/sync）；竞态双保险 = queue 非空跳过本轮（queue_idle）+ 孤儿删除 5s 时间窗（_recently_created）；链路 = 场景变 → 5s 对账 bump rev → 前端 1.5s 心跳自动刷新（其它页实测 12s 内自动出现新场景）
+- **API**：GET /api/other_scenes + POST /api/other_scenes {action: adopt|delete, scene_name}；queue 新命令 adopt_other_scene/delete_other_scene/rename_scene（undo 逆操作）
+- **版本号 0.9.24 → 0.9.25**（bl_info + 关于徽章）
+- 验证：后端全链路（登记/adopt/undo/清孤儿/硬删/最后场景保护）+ WebBridge（进页/右键/转镜头/删除确认/心跳自动刷新/Esc/与垃圾桶互斥）+ 截图 PIL 采样 + 回归 18/18
+
 ## 刚做完（v0.9.24：工具条重构+图标化+tooltip+抖动修复，2026-08-08 已部署，推前全量 42/42+12/12+23/23 全 PASS）
 
 - **底部工具条重构**：缩放滑块从中心横条摘出 → 左下角独立容器（高度 35px 与右下角统计块/快捷键一致）；中心横条 = 视图控制组（宫格/列表/预览窗口）+ 功能组（新建/台词/画幅/垃圾桶）两组分隔线；新建按钮从 header 移入横条（文字改「新建」）；视图按钮文字缩短
@@ -120,7 +129,7 @@
 
 ## 正在做
 
-- 无进行中任务（v0.9.24 已交付，2026-08-08 推 GitHub）
+- 无进行中任务（v0.9.25 已交付，2026-08-08 推 GitHub）
 
 ## 下一步
 
@@ -222,6 +231,10 @@ CREATE INDEX IF NOT EXISTS idx_frames_shot ON frames(shot_id);
 
 ## 坑（已踩过的雷）
 
+- **v0.9.25：ESM 函数体内引用未 import 符号 = 模块加载不报错，运行时点击才 ReferenceError**（trash.js 漏 `import { exitOtherMode }`，症状"点了没反应"且 handler 后续代码中断——enterTrashMode 没跑）。加跨模块调用后 grep 确认 import 行存在；node --check 测不出（语法合法）（skill pitfall 176）
+- **v0.9.25：空库跑 web_audit 必 4 FAIL**（无镜头可测：展开/右键/搜索/台词）——web_audit 不造数据，空库隔离验证前先跑 make_std_shots.py（STD_ 前缀 10 镜头），造完别重启（.blend 不存盘重启即清）
+- **v0.9.25：adopt（转镜头）undo 后镜头目录残留磁盘**——undo 只改场景名+DB 还原，目录由下次启动完整 sync 的目录清理自愈
+- **v0.9.25：cp -r 部署 web/ 尾斜杠被 MSYS 吞 → web/web 嵌套 + 旧文件不更新（白部署）**——必须 `cp -rf 源/. 目标/`（skill 部署模板已改）
 - **v0.9.24：FLIP 动画中间态横向溢出 → 水平滚动条闪现 → fixed 底部工具条上下抖**（宫格/列表切换实测 scrollWidth 冲到 1976px、sliderTop 967→957）：根因 = 切换 FLIP 动画中间态内容横向溢出，水平滚动条出现/消失吃掉视口底 10px，fixed bottom 元素跳。修 = animateFrom（所有 FLIP 统一入口）开头 body.no-hscroll（overflow-x:hidden）+ 320ms 后自动移除（0.28s 过渡+余量）。**凡 fixed 底部组件垂直跳动，先查水平滚动条出没**（v0.9.21 缩放抖动同根因）
 - **v0.9.24：锁定长宽比比例必须在勾选时记录**（aspect.js）：用当前 W/H 实时算比例会自锁——改 W 瞬间 H 还是旧值，比例=新W/旧H，H 算回来恒等。勾选 change 时固定 lockRatio，取消清空
 - **v0.9.24：.aspect-lock 的 display:flex 被 .modal label 覆盖**（优先级 0,1,1 > 0,1,0）：子选择器必须写 .modal label.aspect-lock

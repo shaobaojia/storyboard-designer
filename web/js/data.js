@@ -1,16 +1,18 @@
 // 数据层：拉取、心跳（含 Blender 端错误回传）、通用 POST
 import { state, grid } from './state.js';
-import { renderGrid, updateStats } from './render.js';
+import { renderGrid, renderOtherGrid, updateStats } from './render.js';
 import { toast } from './ui.js';
 
 export async function fetchShots(force) {
-    const url = state.trashMode ? '/api/trash' : '/api/shots';
+    // v0.9.25：其它模式拉 /api/other_scenes（非镜头场景），数据进 state.shots 复用渲染
+    const url = state.otherMode ? '/api/other_scenes' : (state.trashMode ? '/api/trash' : '/api/shots');
     try {
         const res = await fetch(url, force ? {cache: 'no-store'} : {});
         const data = await res.json();
         if (data.status === 'ok') {
-            state.shots = data.shots;
-            renderGrid();  // 内部调 updateStats（右下角统计 + 标题栏总镜数/总时长）
+            state.shots = state.otherMode ? (data.scenes || []) : (data.shots || []);
+            if (state.otherMode) renderOtherGrid();
+            else renderGrid();  // 内部调 updateStats（右下角统计 + 标题栏总镜数/总时长）
             // 数据到位后重算缩放上限（列表 maxW 依赖最大帧数，v0.8.2）
             if (window.__zoomApply) window.__zoomApply();
             // v0.9.4：数据刷新（删除/撤销/垃圾桶切换/重拍）后预览框跟随
@@ -111,6 +113,18 @@ export async function postShotAction(shotId, body) {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify(body)
+        });
+        return await res.json();
+    } catch (e) { console.error(e); return null; }
+}
+
+// v0.9.25：其它场景操作（adopt 转为镜头 / delete 硬删）
+export async function postOtherScene(sceneName, body) {
+    try {
+        const res = await fetch('/api/other_scenes', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({scene_name: sceneName, ...body})
         });
         return await res.json();
     } catch (e) { console.error(e); return null; }
