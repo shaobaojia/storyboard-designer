@@ -14,12 +14,14 @@ export async function enterOtherMode() {
     const btn = document.getElementById('otherBtn');
     btn.classList.add('active-view');
     btn.dataset.tip = '返回宫格/列表';
-    // 先触发一次完整 sync（立即对账，不用等 5s 心跳），再拉数据
-    try {
-        await fetch('/api/sync', {method: 'POST'});
-    } catch (e) { /* server down, keep quiet */ }
-    await new Promise(r => setTimeout(r, 1500));
+    // v0.9.27：其它页没有"创建镜头"语义——隐藏新建按钮（退出时恢复）
+    document.getElementById('btnCreate').style.display = 'none';
+    // v0.9.27：先立即拉数据渲染（秒开，不再硬等 1.5s）——sync 后台触发不等待，
+    // 对账完成后 bump rev，1.5s 心跳检测到变化自动刷新（新场景照样自动出现）
     await fetchShots(true);
+    try {
+        fetch('/api/sync', {method: 'POST'});
+    } catch (e) { /* server down, keep quiet */ }
 }
 
 export async function exitOtherMode() {
@@ -30,6 +32,8 @@ export async function exitOtherMode() {
     const btn = document.getElementById('otherBtn');
     btn.classList.remove('active-view');
     btn.dataset.tip = '其它：非镜头场景（手动创建/幽灵）';
+    // v0.9.27：恢复新建按钮（其它页隐藏的）
+    document.getElementById('btnCreate').style.display = '';
     updateStats();
     await fetchShots(true);
 }

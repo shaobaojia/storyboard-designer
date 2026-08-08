@@ -142,12 +142,18 @@ def find_blender_hwnd(blender_pid):
 
 
 def attach_to_blender(window, blender_pid):
-    """悬浮化：owner=Blender 主窗口 + 工具窗口样式（纯 ctypes）。
+    """悬浮化：owner=Blender 主窗口（纯 ctypes）。
 
     效果与 Blender 自带悬浮窗口一致：不进任务栏/Alt+Tab、永远在 Blender 之上、
     Blender 最小化时窗口自动隐藏、恢复时自动显示。
     ⚠️ 不能用 pythonnet 控件属性（native.ShowInTaskbar=False 与 WebView2 初始化
     竞争 → UI 线程死锁 → 窗口假死且拖死 Blender 的最小化，2026-08-08 实测）。
+
+    v0.9.27 修正：**不再加 WS_EX_TOOLWINDOW(0x80)**——实测 toolwindow 样式会让
+    DWM 标题栏不绘制窗口图标（深色/浅色都不画，v0.9.26 的回设 WM_SETICON 无效），
+    用户看到"深色后图标消失"实为 attach 后变 toolwindow 所致。悬浮化由
+    owner 关系（owned 窗口默认不进任务栏/Alt+Tab）+ 去 WS_EX_APPWINDOW 保证；
+    仅当 Blender 窗口找不到（无 owner 保底）时才退回落 toolwindow 防进任务栏。
     """
     try:
         hwnd = window.native.Handle.ToInt32()
@@ -158,14 +164,17 @@ def attach_to_blender(window, blender_pid):
             log(f'attached to blender hwnd={parent}')
         else:
             log('blender hwnd not found, window stays standalone')
-        # 工具窗口样式：去 WS_EX_APPWINDOW(0x40000) 加 WS_EX_TOOLWINDOW(0x80)
+        # exstyle：去 WS_EX_APPWINDOW(0x40000)（owned 窗口默认不进任务栏；
+        # 无 owner 时加 WS_EX_TOOLWINDOW(0x80) 保底，代价是标题栏无图标）
         ex = ctypes.windll.user32.GetWindowLongW(hwnd, -20)
-        new_ex = (ex | 0x80) & ~0x40000
+        new_ex = ex & ~0x40000
+        if not parent:
+            new_ex |= 0x80
         ctypes.windll.user32.SetWindowLongW(hwnd, -20, new_ex)
         # 应用样式：SWP_FRAMECHANGED(0x20) + NOMOVE|NOSIZE|NOZORDER|NOACTIVATE
         ctypes.windll.user32.SetWindowPos(
             hwnd, 0, 0, 0, 0, 0, 0x20 | 0x2 | 0x1 | 0x4 | 0x10)
-        log('toolwindow style applied')
+        log('exstyle applied (appwindow off, toolwindow off when owned)')
         return hwnd, parent
     except Exception as e:
         log(f'attach_to_blender failed: {e}')
@@ -185,17 +194,9 @@ def apply_dark_titlebar(window):
         # DWMWA_WINDOW_CORNER_PREFERENCE = 38，2 = 圆角
         ctypes.windll.dwmapi.DwmSetWindowAttribute(
             hwnd, 38, ctypes.byref(corner), ctypes.sizeof(corner))
-        # v0.9.26：DWM 深色标题栏重绘不重读 WM_SETICON 图标（实测：浅色阶段带图标，
-        # 深色切换后图标消失只剩文字）——重新回设图标强制 DWM 重绘标题栏图标
-        try:
-            u32 = ctypes.windll.user32
-            for ic in (0, 2, 1):  # ICON_SMALL / ICON_SMALL2 / ICON_BIG
-                h = u32.SendMessageW(hwnd, 0x7F, ic, 0)  # WM_GETICON
-                if h:
-                    u32.SendMessageW(hwnd, 0x80, ic, h)  # WM_SETICON
-            log(f'titlebar icon re-applied after dark mode (hwnd={hwnd})')
-        except Exception as e:
-            log(f'titlebar icon re-apply failed: {e}')
+        # 注：v0.9.26 曾在此回设 WM_SETICON 治"深色后图标消失"——无效。
+        # 真实根因 = WS_EX_TOOLWINDOW（attach_to_blender 加的），DWM 对工具窗口
+        # 标题栏不绘制图标，深浅色无关。v0.9.27 已在 attach_to_blender 去掉该样式。
         log(f'dark titlebar applied (hwnd={hwnd})')
     except Exception as e:
         log(f'dark titlebar failed: {e}')

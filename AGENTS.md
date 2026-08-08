@@ -2,6 +2,17 @@
 
 > 给下一个 Agent（或下一个自己）的交接备忘录。**收工推送前必须更新「刚做完 / 正在做 / 下一步 / 坑」四个字段。**
 
+## 刚做完（v0.9.27：窗口图标真修复 + 其它页提速 + 面板三分区 + 折叠按钮翻倍 + 其它页隐藏创建 + 皮肤系统，2026-08-08 已部署，推前干净空库全量 42/42+12/12+23/23 全 PASS）
+
+- **PyWebView 窗口标题栏图标——真正根因（v0.9.26 的 WM_SETICON 回设被证伪）**：真实根因 = **WS_EX_TOOLWINDOW（工具窗口样式）**，DWM 对 toolwindow 标题栏不绘制窗口图标（深浅色无关，v0.9.26 结论"深色重绘不重读图标"是错的）。用户线索"创建瞬间闪白标题栏有图标"= on_started 里 sleep 1.0 期间还是普通窗口样式，attach_to_blender 加 TOOLWINDOW 后图标消失。修 = attach_to_blender **不再加 WS_EX_TOOLWINDOW**——悬浮化（不进任务栏/Alt+Tab）由 owner 关系（owned 窗口默认不进任务栏）+ 去 WS_EX_APPWINDOW 保证；仅 Blender 窗口找不到（无 owner 保底）才退回落 toolwindow。验证：真实窗口去 tool 后图标区 #cdcdcd 像素 2→13、恢复 tool 又 13→2；裸 Win32 窗口实验证非 tool 浅色/深色都画图标。**诊断坑：PrintWindow(PW_RENDERFULLCONTENT) 拿不到 DWM 标题栏图标层（恒输出白色占位块），必须用 ImageGrab 屏幕真实像素采样**
+- **「其它」页切换提速（1602ms→153ms）**：enterOtherMode 原实现 POST /api/sync（异步入队立即返回）后**硬等 1500ms** 再 fetchShots → 用户感知 3s。改 = 先立即 fetchShots(true) 渲染（秒开）→ sync 改 fire-and-forget（对账完成 bump rev → 1.5s 心跳检测自动刷新，新场景照样自动出现）。回归：MCP 建临时场景 → 其它页自动出现 → API 安全删除 → 自动移除无残留
+- **Blender 面板三分区（方案 A 用户拍板）**：draw 改三个 box——①插件信息（INFO 标题 + 项目/服务并一行 + 未初始化才显示初始化按钮）②面板开关（WINDOW 标题 + 分镜管理器/网页版 scale_y 1.5 大按钮）③镜头操作（TOOL_SETTINGS 标题 + 创建/删除并排 + 镜头/相机一行 + 拍当前帧 scale_y 1.3 全宽 + 帧号组 + ◀▶导航）；标题行作者+邮箱压小两行（USER/URL 图标）；Scene/Camera 信息中文化
+- **多图镜头折叠按钮高度翻倍（17→34px）**：button.collapse-btn height:34px + flex 居中（width 9px 不变不盖图）；点击折叠功能回归 PASS
+- **其它页隐藏创建按钮**：enterOtherMode `#btnCreate` display:none、exitOtherMode 恢复（创建无快捷键路径，隐藏即彻底）；垃圾桶模式不隐藏（维持原样）
+- **皮肤系统（方案 A 用户拍板）**：①254 处硬编码颜色 → **45 个语义 CSS 变量**（:root 定义：bg 24 级/text 7 级/border 7/强调/危险/警告/滚动条/拖图区/叠加；强调色用 RGB 通道变量 `--accent-rgb: 74,158,255` 配合 `rgba(var(--accent-rgb), 0.08)`——换肤一处改色全站跟随；同值不同义按行号拆分，如 #333 → --border/--bg-btn/--bg-hover/--bg-thumb/--bg-toast）；阴影 rgba(0,0,0,*) 保留字面量（浅色下阴影仍黑）；**视觉零变化像素验证**（改前 vs 改后截图 0.1% 差异=字体亚像素噪声）②`[data-theme="light"]` 浅色覆盖块：浅底深字、白卡片、--bg-toast/tooltip/kbd 保持深底白字、原生控件 `color-scheme: var(--scheme)` 跟随 ③主菜单「皮肤」小节（深色/浅色 + 当前项 ✓ 勾选 `.context-menu button.checked::before`）④localStorage('sb-theme') 持久化（Edge/PyWebView 各自记忆）⑤新皮肤 = 复制 data-theme 块改变量值，几分钟一套
+- **版本号 0.9.26 → 0.9.27**（bl_info + 关于徽章）
+- 推前验证：干净空库（C:/Users/54718/AppData/Local/hermes/tmp/audit_v0927/audit_clean.blend）全量 42/42+12/12+23/23 全 PASS（2026-08-08 实测）
+
 ## 刚做完（v0.9.26：收起按钮 9px + 滑块去文字 + 标题栏居中 + 图标全 SVG 化 + 窗口图标修复，2026-08-08 已部署，推前干净空库全量 42/42+12/12+23/23 全 PASS）
 
 - **展开态收起按钮收窄到 9px**（= 图右沿↔衬底右沿间隔，FRAME_EDGE=9 实测 9.0px）：button.collapse-btn right:0 + width:9px + padding:4px 0 + ◀ 8px SVG，整个按钮落在间隔内不盖图（btnLeftVsImgRight=0 实测）；CDP 点击收起 PASS
@@ -242,6 +253,11 @@ CREATE INDEX IF NOT EXISTS idx_frames_shot ON frames(shot_id);
 
 ## 坑（已踩过的雷）
 
+- **v0.9.27：WS_EX_TOOLWINDOW 的窗口标题栏 DWM 不绘制图标**（pywebview 窗口实测，深浅色无关）——悬浮化别用 TOOLWINDOW，owner 关系（owned 窗口默认不进任务栏/Alt+Tab）+ 去 WS_EX_APPWINDOW 已足够；仅无 owner 时才退回落 toolwindow。v0.9.26 的"深色重绘不重读 WM_SETICON"结论是错的（回设无效），真正的用户线索 = 创建瞬间（on_started sleep 1.0 期间）还是普通窗口所以有图标
+- **v0.9.27：PrintWindow(PW_RENDERFULLCONTENT) 拿不到 DWM 标题栏图标层**（恒输出白色占位块）——诊断"图标画没画"必须 ImageGrab 屏幕真实像素（PrintWindow 只适用于客户区内容）
+- **v0.9.27：批量行号替换脚本的行号偏移会算错**——文件插入/删除后旧行号→新行号偏移必须用**锚点行动态反推**（找文件中唯一标志串定位），别手算插入行数（两次踩坑：差 3、差 1）。且"同值不同义"的颜色必须行级映射拆分，值级默认映射会混语义
+- **v0.9.27：CSS rgba(var(--accent-rgb), 0.08) 里正则 `rgba?\([^)]*\)` 只匹配到第一个 `)`（嵌套 var）**——替换验证脚本的"剩余色值"统计会出现假 miss（实际已替换），别误判
+- **v0.9.27：其它页 enterOtherMode 的 1500ms 硬等是切换慢根因**——sync 是异步入队（/api/sync 立即返回 queued），前端等 sync 完成不该用固定 sleep；正确姿势 = 先渲染当前数据 + sync fire-and-forget + 心跳（rev 变化自动刷新）
 - **v0.9.26：`[data-tip] { position: relative }` 会覆盖同特异性（0,1,0）且定义更靠前的 absolute 元素**（.collapse-btn/.stack-badge 实测被拉回流内）：带 data-tip 的 absolute 定位元素选择器必须提特异性（button 前缀），新增此类元素时先查 style.css 801 行 data-tip 规则
 - **v0.9.26：DWM 深色标题栏应用后标题栏图标消失**（pywebview 窗口）：DWMWA_USE_IMMERSIVE_DARK_MODE 重绘不重读 WM_SETICON（图标句柄在，只是不绘制）——深色应用后回设 WM_SETICON（SMALL/SMALL2/BIG）强制重绘
 - **v0.9.26：SVG 图标 1em 跟随 font-size，按钮 font-size 被通用规则覆盖时图标尺寸错**：.ic 在 .header .actions button（font-size:13px, 0,1,2）内的 hamburger（0,1,0）图标变 13px——需同级特异性补回（.header .actions button.hamburger）

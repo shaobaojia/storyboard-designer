@@ -33,6 +33,21 @@ function mountIcons() {
         }
     });
 }
+// ═══ v0.9.27 皮肤系统：主题切换（localStorage 持久化）═══
+// 深色 = 默认（:root 变量值），浅色 = [data-theme="light"] 覆盖变量块
+const THEME_KEY = 'sb-theme';
+function applyTheme(t) {
+    document.documentElement.dataset.theme = t;
+    try { localStorage.setItem(THEME_KEY, t); } catch (e) { /* private mode */ }
+    fillMainMenu();  // 刷新菜单勾选
+}
+function initTheme() {
+    let t = 'dark';
+    try { t = localStorage.getItem(THEME_KEY) || 'dark'; } catch (e) { /* private mode */ }
+    document.documentElement.dataset.theme = t;
+}
+initTheme();
+
 mountIcons();
 
 // ---- 头部按钮 ----
@@ -45,12 +60,17 @@ document.getElementById('btnTimeline').addEventListener('click', openTimeline);
 // v0.9.18：右上角主菜单（三条横线图标）——Refresh 移入（原 header 按钮删除）
 // v0.9.21：Sync DB 按钮已移除（sync 由自动对账/启动时执行覆盖）
 // v0.9.22：Refresh 移除（forceRefresh 函数保留），主菜单只剩「关于」
+// v0.9.27：主菜单加「皮肤」小节（深色/浅色，当前项勾选）
 const menuBtn = document.getElementById('menuBtn');
 const mainMenu = document.getElementById('mainMenu');
 const fillMainMenu = () => {
+    const cur = document.documentElement.dataset.theme || 'dark';
     mainMenu.innerHTML = `
         <div class="menu-title">主菜单</div>
         <button data-action="about" data-tip="版本与项目信息">关于</button>
+        <div class="menu-title">皮肤</div>
+        <button data-action="theme-dark" class="${cur === 'dark' ? 'checked' : ''}">深色</button>
+        <button data-action="theme-light" class="${cur === 'light' ? 'checked' : ''}">浅色</button>
     `;
 };
 fillMainMenu();
@@ -69,6 +89,8 @@ mainMenu.addEventListener('click', (e) => {
     if (!btn) return;
     mainMenu.style.display = 'none';
     if (btn.dataset.action === 'about') openAbout();
+    else if (btn.dataset.action === 'theme-dark') applyTheme('dark');
+    else if (btn.dataset.action === 'theme-light') applyTheme('light');
 });
 document.addEventListener('click', (e) => {
     // 容错：合成事件 dispatch 到 document 时 target 无 closest（AGENTS.md 坑列表）

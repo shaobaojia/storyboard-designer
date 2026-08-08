@@ -1,7 +1,7 @@
 bl_info = {
     "name": "Storyboard Designer",
     "author": "邵保家",
-    "version": (0, 9, 26),
+    "version": (0, 9, 27),
     "blender": (4, 5, 0),
     "location": "View3D > Sidebar > Storyboard",
     "description": "Quick previs/storyboard design system",
@@ -437,62 +437,71 @@ class STORYBOARD_PT_panel(bpy.types.Panel):
         layout = self.layout
         scene = context.scene
 
-        # 版本与作品信息（v0.9.21：作者/邮箱/版本号，bl_info 同源）
-        ver = '.'.join(str(x) for x in bl_info.get('version', ()))
-        layout.label(text=f"v{ver} · {bl_info.get('author', '')}", icon='INFO')
-        if bl_info.get('email'):
-            layout.label(text=bl_info['email'], icon='URL')
-        layout.separator()
+        # ── 标题行：作品署名（v0.9.27 布局改版：三分区，署名压小）──
+        author = bl_info.get('author', '')
+        email = bl_info.get('email', '')
+        layout.label(text=f"作者：{author}", icon='USER')
+        if email:
+            layout.label(text=email, icon='URL')
 
-        # Project status
+        # ── 插件信息 ──
+        box = layout.box()
+        row = box.row()
+        row.label(text="插件信息", icon='INFO')
+        box.separator()
         project_dir = _get_project_dir()
         if project_dir and os.path.exists(project_dir):
-            layout.label(text=f"Project: {os.path.basename(project_dir)}", icon='FILE_FOLDER')
-        elif project_dir:
-            layout.label(text="Project not initialized", icon='ERROR')
+            row = box.row(align=True)
+            row.label(text=f"项目：{os.path.basename(project_dir)}", icon='FILE_FOLDER')
+            server = get_server()
+            if server and server.running:
+                row.label(text=f"服务：{server.port}", icon='URL')
+            else:
+                row.label(text="服务：启动中…", icon='TIME')
         else:
-            layout.label(text="Save blend file first", icon='ERROR')
+            row = box.row(align=True)
+            row.label(text="请先保存 .blend 文件", icon='ERROR')
+            row.operator("storyboard.init_project", text="初始化", icon='FILE_NEW')
 
-        row = layout.row(align=True)
-        row.operator("storyboard.init_project", icon='FILE_NEW')
-
-        # Server status (插件加载即自动服务，无需手动开关)
-        server = get_server()
-        if server and server.running:
-            layout.label(text=f"Server: 0.0.0.0:{server.port} (LAN)", icon='URL')
-        else:
-            layout.label(text="Server: starting...", icon='TIME')
+        # ── 面板开关 ──
+        box = layout.box()
+        row = box.row()
+        row.label(text="面板开关", icon='WINDOW')
+        box.separator()
         # 双端打开：桌面窗口「分镜管理器」（主）/ 浏览器「网页版」（次），tooltip 区分
-        # v0.9.21：分镜管理器（PyWebView 桌面窗口）图标 WINDOW，网页版保持 URL
-        row = layout.row(align=True)
+        row = box.row(align=True)
+        row.scale_y = 1.5
         row.operator("storyboard.open_manager_webview", text="分镜管理器", icon='WINDOW')
         row.operator("storyboard.open_manager", text="网页版", icon='URL')
 
-        layout.separator()
-
-        # Shot management
-        layout.operator("storyboard.create_shot", icon='ADD')
-        layout.operator("storyboard.delete_shot", icon='TRASH')
-        # v0.9.21：Sync Scenes 按钮已移除（sync 由自动对账/启动时执行覆盖）
-
-        layout.separator()
+        # ── 镜头操作 ──
+        box = layout.box()
+        row = box.row()
+        row.label(text="镜头操作", icon='TOOL_SETTINGS')
+        box.separator()
+        row = box.row(align=True)
+        row.operator("storyboard.create_shot", text="创建镜头", icon='ADD')
+        row.operator("storyboard.delete_shot", text="删除", icon='TRASH')
 
         # Current scene info
         if scene.camera:
-            layout.label(text=f"Scene: {scene.name}", icon='SCENE_DATA')
-            layout.label(text=f"Camera: {scene.camera.name}", icon='CAMERA_DATA')
+            row = box.row(align=True)
+            row.label(text=f"镜头：{scene.name}", icon='SCENE_DATA')
+            row.label(text=f"相机：{scene.camera.name}", icon='CAMERA_DATA')
         else:
-            layout.label(text="No camera", icon='ERROR')
+            row = box.row()
+            row.label(text="无相机", icon='ERROR')
 
         # 多图镜头（v0.8.0）：拍当前帧 + 已拍帧号列表（点帧号跳转查看/重拍）
         if project_dir and os.path.exists(project_dir) and scene.camera:
             shot, frames = _panel_db_read(project_dir, scene.name)
             if shot:
-                layout.separator()
-                layout.operator("storyboard.snap_frame", icon='RENDER_STILL')
+                row = box.row()
+                row.scale_y = 1.3
+                row.operator("storyboard.snap_frame", text="拍当前帧", icon='RENDER_STILL')
                 if frames:
                     from core.db import MAX_FRAMES_PER_SHOT
-                    col = layout.column(align=True)
+                    col = box.column(align=True)
                     col.label(text=f"已拍帧 ({len(frames)}/{MAX_FRAMES_PER_SHOT}):", icon='SEQUENCE')
                     row = col.row(align=True)
                     for f in frames:
