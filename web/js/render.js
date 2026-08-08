@@ -75,7 +75,7 @@ function makeDialogueBox(shotId) {
     const el = document.createElement('div');
     el.className = 'dialogue-box';
     el.dataset.dlgId = shotId;
-    el.innerHTML = `<span class="dialogue-text"></span><div class="dialogue-resize" title="拖拽调整台词框宽度"></div>`;
+    el.innerHTML = `<span class="dialogue-text"></span><div class="dialogue-resize" data-tip="拖拽调整台词框宽度"></div>`;
     return el;
 }
 
@@ -582,7 +582,7 @@ function frameImgHtml(frame, shot, eager, extraClass = '') {
         return `<img class="frame-img ${extraClass}" draggable="false" data-frame-id="${frame.id}" data-frame-no="${frame.frame_no}" src="${frame.imageUrl}" loading="${load}" onerror="this.src='${SVG_NOIMG}'">`;
     }
     // 红格子：数据在但图片缺失/加载失败
-    return `<div class="frame-img frame-missing ${extraClass}" data-frame-id="${frame.id}" data-frame-no="${frame.frame_no}" title="帧 ${frame.frame_no} 缺图，右键重拍"><span class="missing-no">f${frame.frame_no}</span></div>`;
+    return `<div class="frame-img frame-missing ${extraClass}" data-frame-id="${frame.id}" data-frame-no="${frame.frame_no}" data-tip="帧 ${frame.frame_no} 缺图，右键重拍"><span class="missing-no">f${frame.frame_no}</span></div>`;
 }
 
 // 折叠态一叠牌：N 张图叠放，封面在顶，后续图错位露边（最多露 3 层）
@@ -598,7 +598,7 @@ function stackHtml(shot, eager) {
     });
     // 封面在顶
     if (cover) html += frameImgHtml(cover, shot, eager, 'cover');
-    html += `<button class="stack-badge" onclick="window.__sb.toggleListMulti('${shot.id}');event.stopPropagation();" title="展开/折叠">${frames.length}</button>`;
+    html += `<button class="stack-badge" onclick="window.__sb.toggleListMulti('${shot.id}');event.stopPropagation();" data-tip="展开/折叠">${frames.length}</button>`;
     html += '</div>';
     return html;
 }
@@ -668,8 +668,8 @@ function buildExpandedCards(shot, eager) {
         wrap.innerHTML = `
             <div class="${cls.join(' ')}" draggable="false" data-id="${shot.id}" data-frame-id="${f.id}">
                 ${frameImgHtml(f, shot, eager, imgCls)}
-                ${f.isCover ? `<div class="cover-chip">封面</div>` : ''}${first ? `<button class="stack-badge expanded-badge" onclick="window.__sb.toggleListMulti('${shot.id}');event.stopPropagation();" title="折叠">${frames.length}</button>` : ''}
-                ${last ? '<button class="collapse-btn" title="折叠" data-action="collapse">◀</button>' : ''}
+                ${f.isCover ? `<div class="cover-chip">封面</div>` : ''}${first ? `<button class="stack-badge expanded-badge" onclick="window.__sb.toggleListMulti('${shot.id}');event.stopPropagation();" data-tip="折叠">${frames.length}</button>` : ''}
+                ${last ? '<button class="collapse-btn" data-tip="折叠" data-action="collapse">◀</button>' : ''}
                 <div class="shot-info">
                     ${first ? `<div class="shot-name" data-field="name">${esc(shot.name)}</div>` : `<div class="frame-no">f${f.frame_no}</div>`}
                     ${first ? `<div class="shot-meta cell-edit" data-field="duration">${shot.duration.toFixed(1)}s</div>` : ''}
@@ -1121,6 +1121,13 @@ function captureRects() {
 
 function animateFrom(oldRects, spreadCenter = null) {
     if (!oldRects || !oldRects.size) return;
+    // v0.9.24：FLIP 动画中间态横向溢出（视图切换实测 scrollWidth 冲到 1976px）→
+    // 水平滚动条闪现吃视口高 10px → fixed 底部工具条上下抖一下。
+    // 动画期间 body 禁横向滚动条（溢出裁掉即可，本来就在视口外），过渡 0.28s 后恢复。
+    const body = document.body;
+    body.classList.add('no-hscroll');
+    clearTimeout(body._hscrollT);
+    body._hscrollT = setTimeout(() => body.classList.remove('no-hscroll'), 320);
     document.querySelectorAll('.shot-card').forEach(c => {
         if (state.animatingShots.has(c.dataset.id)) return;  // 弹簧编排接管中，FLIP 让位
         let dx, dy;

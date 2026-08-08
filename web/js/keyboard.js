@@ -1,22 +1,25 @@
 // 键盘快捷键：Ctrl+A 全选 / Delete 删除 / Enter 打开 / 空格 展开折叠 / Tab 切换视图 / Ctrl+Z 撤销 / 方向键跳格 / Esc 出垃圾桶
 import { state } from './state.js';
 import { selectAll, deleteSelection, updateSelectionUI } from './selection.js';
-import { openShot, undoLast, fetchShots, postShotAction } from './data.js';
+import { openShot, undoLast, fetchShots, postShotAction, postBatch } from './data.js';
 import { exitTrashMode } from './trash.js';
 import { toast } from './ui.js';
 import { isExpanded, expandAnimated, collapseAnimated, focusFrame } from './frames.js';
 import { renderGrid, toggleView } from './render.js';
-import { updatePreview } from './preview.js';
+import { updatePreview, setPreview } from './preview.js';
 
 // 快捷键清单（唯一事实源：改快捷键必须同步这里——右下角「快捷键」面板用它渲染）
 export const SHORTCUTS = [
     { keys: 'Ctrl+A', desc: '全选镜头' },
     { keys: 'Ctrl+Z', desc: '撤销上一步' },
+    { keys: 'Ctrl+D', desc: '创建副本（多选时批量复制）' },
+    { keys: 'Ctrl+F', desc: '聚焦搜索镜头' },
     { keys: 'Delete', desc: '删除选中镜头（帧蓝框聚焦时删除该帧）' },
     { keys: 'Enter', desc: '打开镜头（选中单个时）' },
     { keys: 'Space', desc: '展开/折叠多图镜头（多选时批量）' },
     { keys: 'Tab', desc: '切换宫格/列表视图' },
-    { keys: 'Ctrl++ / Ctrl+-', desc: '放大/缩小（与滚轮/滑块同效）' },
+    { keys: 'V', desc: '开关预览窗口' },
+    { keys: 'Ctrl.+ / Ctrl.-', desc: '放大/缩小（与滚轮/滑块同效）' },
     { keys: '↑↓←→', desc: '移动选择（展开态逐帧格移动）' },
     { keys: 'Shift+方向键', desc: '扩展多选范围' },
     { keys: 'Esc', desc: '退出垃圾桶模式' },
@@ -105,6 +108,25 @@ export function initKeyboard() {
         } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
             e.preventDefault();
             await undoLast();
+        } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') {
+            // v0.9.23：Ctrl+F 聚焦搜索栏（阻止浏览器页面查找）
+            e.preventDefault();
+            const si = document.getElementById('searchInput');
+            if (si) { si.focus(); si.select(); }
+        } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'd') {
+            // v0.9.23：Ctrl+D 创建副本（阻止浏览器收藏书签）；单选复制 / 多选批量复制；垃圾桶模式禁用
+            e.preventDefault();
+            if (state.trashMode || state.selectedIds.size === 0) return;
+            const ids = [...state.selectedIds];
+            if (ids.length === 1) {
+                const r = await postShotAction(ids[0], {action: 'duplicate'});
+                if (r && r.status === 'ok') { toast('已排队复制'); setTimeout(fetchShots, 1200); }
+                else toast(r && r.message || '操作失败', true);
+            } else {
+                const r = await postBatch('duplicate', ids);
+                if (r && r.status === 'ok') toast(`已排队复制 ${ids.length} 个镜头`);
+                else toast(r && r.message || '操作失败', true);
+            }
         } else if ((e.ctrlKey || e.metaKey) && (e.key === '=' || e.key === '+')) {
             // v0.9.18：Ctrl++ 放大（主键盘 = / Shift+= / 数字键盘 +）——阻止浏览器页面缩放
             e.preventDefault();
@@ -162,6 +184,10 @@ export function initKeyboard() {
                 if (allExpanded) collapseAnimated(s.id);
                 else expandAnimated(s.id);
             }
+        } else if (e.key.toLowerCase() === 'v' && !e.ctrlKey && !e.metaKey && !e.altKey && !state.trashMode) {
+            // v0.9.23：v 开关预览窗口（垃圾桶模式禁用，预览框不参与垃圾桶页）
+            e.preventDefault();
+            setPreview(!state.previewOn);
         } else if (e.key.startsWith('Arrow')) {
             arrowMove(e);
         }

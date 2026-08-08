@@ -11,7 +11,9 @@ export async function enterTrashMode() {
     clearSelection();
     document.body.classList.add('trash-mode');
     const btn = document.getElementById('trashBtn');
-    btn.innerHTML = '← 返回<span id="trashCount"></span>';
+    // v0.9.24：按钮图标化后不再重写 innerHTML——高亮 + tooltip(data-tip) 区分模式
+    btn.classList.add('active-view');
+    btn.dataset.tip = '返回宫格/列表';
     await fetchShots(true);  // renderGrid -> updateStats 会同步标题为 垃圾桶 · N
 }
 
@@ -21,7 +23,8 @@ export async function exitTrashMode() {
     clearSelection();
     document.body.classList.remove('trash-mode');
     const btn = document.getElementById('trashBtn');
-    btn.innerHTML = '垃圾桶<span id="trashCount"></span>';
+    btn.classList.remove('active-view');
+    btn.dataset.tip = '垃圾桶：查看/恢复已删除的镜头';
     loadProjectTitle();  // 恢复项目名标题
     await fetchShots(true);
 }

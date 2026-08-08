@@ -14,10 +14,9 @@
             <div id="searchResults" class="search-results" style="display:none;"></div>
         </div>
         <div class="actions">
-            <button id="btnCreate" title="创建新镜头">Create Shot</button>
-            <button id="btnTimeline" title="时间线视图（开发中）">Timeline</button>
-            <button id="menuBtn" class="hamburger" title="主菜单" aria-label="主菜单">
-                <span class="h-line"></span><span class="h-line"></span><span class="h-line"></span>
+            <button id="btnTimeline" data-tip="时间线视图（开发中）">Timeline</button>
+            <button id="menuBtn" class="hamburger" data-tip="主菜单" aria-label="主菜单">
+                <svg viewBox="0 0 1024 1024" class="menu-svg" aria-hidden="true"><path d="M957.607 126.049c0 31.933-25.888 57.822-57.822 57.822H124.218c-31.934 0-57.822-25.888-57.822-57.822s25.887-57.822 57.822-57.822h775.566c31.935 0 57.823 25.887 57.823 57.822z m0 385.953c0 31.935-25.888 57.82-57.822 57.82H124.218c-31.934 0-57.822-25.885-57.822-57.82 0-31.934 25.887-57.82 57.822-57.82h775.566c31.935-0.001 57.823 25.886 57.823 57.82z m0 385.951c0 31.935-25.888 57.822-57.822 57.822H124.218c-31.934 0-57.822-25.887-57.822-57.822 0-31.933 25.887-57.82 57.822-57.82h775.566c31.935 0 57.823 25.887 57.823 57.82z"/></svg>
             </button>
         </div>
     </div>
@@ -42,7 +41,7 @@
     <!-- v0.9.22：关于面板（主菜单 → 关于） -->
     <div id="aboutModal" class="modal-overlay about-overlay" style="display:none;">
         <div class="about-modal" role="dialog" aria-label="关于">
-            <button id="aboutClose" class="about-close" title="关闭">✕</button>
+            <button id="aboutClose" class="about-close" data-tip="关闭">✕</button>
             <div class="about-brand">
                 <svg class="about-logo" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
                     <path d="M170.666667 853.333333c-23.466667 0-43.52-8.362667-60.288-25.045333A82.176 82.176 0 0 1 85.333333 768V256c0-23.466667 8.362667-43.52 25.045334-60.245333A82.176 82.176 0 0 1 170.666667 170.666667l85.333333 170.666666h128L298.666667 170.666667h85.333333l85.333333 170.666666h128l-85.333333-170.666666h85.333333l85.333334 170.666666h128l-85.333334-170.666666h128c23.466667 0 43.52 8.362667 60.288 25.088 16.682667 16.682667 25.045333 36.778667 25.045334 60.245333v182.4a148.650667 148.650667 0 0 0-86.4-10.666667A143.445333 143.445333 0 0 0 772.266667 469.333333L512 729.6V853.333333H170.666667z m426.666666 42.666667v-131.2l235.733334-234.666667c6.4-6.4 13.525333-11.008 21.333333-13.866666a68.266667 68.266667 0 0 1 23.466667-4.266667 64.170667 64.170667 0 0 1 45.866666 19.2l39.466667 39.466667c5.674667 6.4 10.154667 13.525333 13.354667 21.333333 3.157333 7.808 4.778667 15.658667 4.778666 23.466667 0 7.808-1.408 15.786667-4.266666 24.021333a57.258667 57.258667 0 0 1-13.866667 21.845333l-234.666667 234.666667H597.333333z m280.533334-238.933333l39.466666-41.6-39.466666-39.466667-40.533334 40.533333 40.533334 40.533334z" fill="currentColor"/>
@@ -51,7 +50,7 @@
                 <div class="about-sub">Storyboard Designer · 宫格分镜工作台</div>
             </div>
             <div class="about-body">
-                <div class="about-row"><span class="about-k">版本</span><code class="about-v" id="aboutVersion">v0.9.21</code></div>
+                <div class="about-row"><span class="about-k">版本</span><code class="about-v" id="aboutVersion">v0.9.24</code></div>
                 <div class="about-row"><span class="about-k">数据版本</span><code class="about-v" id="aboutRev">—</code></div>
                 <div class="about-row"><span class="about-k">作者</span><span class="about-v">邵保家</span></div>
                 <div class="about-row"><span class="about-k">邮箱</span><a class="about-v" href="mailto:shaobaojia_313@163.com">shaobaojia_313@163.com</a></div>
@@ -63,36 +62,45 @@
         </div>
     </div>
 
-    <div class="size-slider">
-        <span class="slider-label">缩略图</span>
-        <button id="zoomOut" class="bar-btn zoom-step" title="缩小">−</button>
+    <!-- v0.9.24：左下角缩放滑块（独立容器，高度与右下角统计块/快捷键一致） -->
+    <div class="zoom-bar">
+        <button id="zoomOut" class="bar-btn zoom-step" data-tip="缩小"><span class="iconfont icon-jianhao"></span></button>
         <input type="range" id="sizeSlider" min="0" max="7" step="1" value="2">
-        <button id="zoomIn" class="bar-btn zoom-step" title="放大">+</button>
+        <button id="zoomIn" class="bar-btn zoom-step" data-tip="放大"><span class="iconfont icon-jia"></span></button>
         <span class="slider-label" id="sizeValue">200px</span>
-        <button id="viewGridBtn" class="bar-btn" title="宫格视图">宫格视图</button>
-        <button id="viewListBtn" class="bar-btn" title="列表视图">列表视图</button>
-        <button id="trashBtn" class="bar-btn" title="垃圾桶：查看/恢复已删除的镜头">垃圾桶<span id="trashCount"></span></button>
-        <button id="previewBtn" class="bar-btn" title="预览框：显示选中镜头大图">预览</button>
-        <button id="aspectBtn" class="bar-btn" title="画幅比/分辨率：应用到全部场景与显示">画幅</button>
-        <button id="dialogueBtn" class="bar-btn" title="全局台词显示开关">台词</button>
+    </div>
+
+    <div class="size-slider">
+        <div class="tool-group">
+            <button id="viewGridBtn" class="bar-btn" data-tip="宫格视图"><span class="iconfont icon-ic_mode_block"></span></button>
+            <button id="viewListBtn" class="bar-btn" data-tip="列表视图"><span class="iconfont icon-liebiao"></span></button>
+            <button id="previewBtn" class="bar-btn" data-tip="预览窗口：显示选中镜头大图（快捷键 V）"><span class="iconfont icon-td-tp-ylt"></span></button>
+        </div>
+        <div class="tool-divider"></div>
+        <div class="tool-group">
+            <button id="btnCreate" class="bar-btn" data-tip="创建新镜头"><span class="iconfont icon-a-chuangjian1"></span></button>
+            <button id="dialogueBtn" class="bar-btn" data-tip="全局台词显示开关"><span class="iconfont icon-taici"></span></button>
+            <button id="aspectBtn" class="bar-btn" data-tip="画幅比/分辨率：应用到全部场景与显示"><span class="iconfont icon-huafu"></span></button>
+            <button id="trashBtn" class="bar-btn" data-tip="垃圾桶：查看/恢复已删除的镜头"><span class="iconfont icon-shanchu"></span><span id="trashCount"></span></button>
+        </div>
     </div>
 
     <!-- v0.9.21：右下角容器——统计块（左）+ 快捷键按钮（右）并排 -->
     <div id="cornerRight" class="corner-right">
         <div id="statsBadge">共 <b id="statTotal">0</b> · 已选 <b id="statSel">0</b></div>
-        <button id="shortcutsBtn" class="shortcuts-btn" title="查看快捷键">快捷键</button>
+        <button id="shortcutsBtn" class="shortcuts-btn" data-tip="查看快捷键">快捷键</button>
     </div>
 
     <div id="previewPanel" class="preview-panel side-right" style="display:none;">
-        <div class="preview-resize" id="previewResize" title="拖拽调整宽度"></div>
+        <div class="preview-resize" id="previewResize" data-tip="拖拽调整宽度"></div>
         <div class="preview-head">
             <div class="preview-head-main">
                 <div class="preview-name" id="previewName">预览</div>
                 <div class="preview-sub" id="previewSub"></div>
             </div>
             <div class="preview-head-btns">
-                <button id="previewFlip" class="preview-flip" title="切换贴边方向">⇄ 贴到左侧</button>
-                <button id="previewClose" class="preview-close" title="关闭预览框">✕</button>
+                <button id="previewFlip" class="preview-flip" data-tip="切换贴边方向">⇄ 贴到左侧</button>
+                <button id="previewClose" class="preview-close" data-tip="关闭预览框">✕</button>
             </div>
         </div>
         <div class="preview-body">
@@ -138,7 +146,13 @@
             </div>
             <div class="field">
                 <label>预设比例</label>
-                <div id="aspectPresets" class="aspect-presets"></div>
+                <select id="aspectPresets"></select>
+            </div>
+            <div class="field">
+                <label class="aspect-lock">
+                    <input type="checkbox" id="aspectLock">
+                    <span>锁定长宽比（改宽/高时另一项自动跟随）</span>
+                </label>
             </div>
             <div class="modal-actions">
                 <button class="btn-cancel">取消</button>

@@ -182,7 +182,8 @@ def seg_menu():
     time.sleep(0.5)
     menu = ev(r"(() => { const m = document.getElementById('contextMenu'); if (!m) return null; const cs = getComputedStyle(m); return cs.display === 'none' ? null : m.innerText; })()")
     # v0.9.14 实测菜单项文本：英文 Open Shot/Rename/Duplicate/Delete + 中文 重拍封面/编辑台词/自动台词大小
-    expect = ['Open Shot', '重拍封面', 'Rename', 'Duplicate', 'Delete']
+    # v0.9.24 菜单全部中文化（打开镜头/重命名/复制/删除 + 快捷键淡色标注）——断言同步中文
+    expect = ['打开镜头', '重拍封面', '重命名', '复制', '删除']
     if menu:
         missing = [e for e in expect if e not in menu]
         record("右键菜单弹出 + 菜单项完整", not missing, f"missing={missing or '无'}")

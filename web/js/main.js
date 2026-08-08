@@ -32,7 +32,7 @@ const mainMenu = document.getElementById('mainMenu');
 const fillMainMenu = () => {
     mainMenu.innerHTML = `
         <div class="menu-title">主菜单</div>
-        <button data-action="about" title="版本与项目信息">关于</button>
+        <button data-action="about" data-tip="版本与项目信息">关于</button>
     `;
 };
 fillMainMenu();

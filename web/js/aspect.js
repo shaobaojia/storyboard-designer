@@ -139,20 +139,55 @@ export async function submitAspect() {
 export function initAspect() {
     applyAspect();  // 默认 16:9 注入（API 拉到真实值后 loadProjectTitle 会再调）
     document.getElementById('aspectBtn').addEventListener('click', openAspectModal);
-    // v0.9.22：预设比例 chips —— 点击只填 W/H（保持当前 H），不自动提交
+    // v0.9.23：预设比例下拉列表（点一下展开，optgroup 分组）——选择只填 W/H（保持当前 H），不自动提交
     const presetsEl = document.getElementById('aspectPresets');
-    presetsEl.innerHTML = ASPECT_PRESETS.map(p =>
-        `<button type="button" class="preset-chip" data-ratio="${p.ratio}" title="填充 ${p.label}">${p.label}</button>`
+    const groups = [
+        { name: '屏幕', start: 0, end: 7 },        // 1:1 ~ 21:9
+        { name: '电影工业', start: 7, end: 16 },   // 1.37:1 ~ 2.76:1
+        { name: '竖屏', start: 16, end: 19 },      // 4:5 ~ 9:16
+    ];
+    presetsEl.innerHTML = groups.map(g =>
+        `<optgroup label="${g.name}">` +
+        ASPECT_PRESETS.slice(g.start, g.end).map(p =>
+            `<option value="${p.ratio}">${p.label}</option>`).join('') +
+        '</optgroup>'
     ).join('');
-    presetsEl.addEventListener('click', (e) => {
-        const chip = e.target.closest('.preset-chip');
-        if (!chip) return;
-        const ratio = parseFloat(chip.dataset.ratio);
+    presetsEl.addEventListener('change', () => {
+        const ratio = parseFloat(presetsEl.value);
+        if (!ratio) return;
         const h = parseInt(document.getElementById('aspectH').value, 10);
         const baseH = Number.isInteger(h) && h >= 16 ? h : 1080;
         document.getElementById('aspectW').value = Math.round(baseH * ratio);
         document.getElementById('aspectH').value = baseH;
     });
+    // v0.9.23：锁定长宽比——勾选时固定当前 W/H 比例，之后 W/H 任一输入，另一项按该比例自动跟随
+    const lockEl = document.getElementById('aspectLock');
+    let lockRatio = null;
+    lockEl.addEventListener('change', () => {
+        if (lockEl.checked) {
+            const w = parseInt(document.getElementById('aspectW').value, 10);
+            const h = parseInt(document.getElementById('aspectH').value, 10);
+            lockRatio = (Number.isInteger(w) && Number.isInteger(h) && w >= 16 && h >= 16) ? w / h : null;
+        } else {
+            lockRatio = null;
+        }
+    });
+    const syncLock = (changed) => {
+        if (!lockEl.checked || !lockRatio) return;
+        if (changed === 'W') {
+            const w = parseInt(document.getElementById('aspectW').value, 10);
+            if (Number.isInteger(w) && w >= 16) {
+                document.getElementById('aspectH').value = Math.max(16, Math.round(w / lockRatio));
+            }
+        } else if (changed === 'H') {
+            const h = parseInt(document.getElementById('aspectH').value, 10);
+            if (Number.isInteger(h) && h >= 16) {
+                document.getElementById('aspectW').value = Math.max(16, Math.round(h * lockRatio));
+            }
+        }
+    };
+    document.getElementById('aspectW').addEventListener('input', () => syncLock('W'));
+    document.getElementById('aspectH').addEventListener('input', () => syncLock('H'));
     const modal = document.getElementById('aspectModal');
     modal.addEventListener('keydown', (e) => {
         if (e.key === 'Enter') submitAspect();

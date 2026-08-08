@@ -56,13 +56,13 @@ export function showContextMenu(x, y, shotId, frameId = null) {
         const coverLabel = frame && frame.isCover ? '✓ 已是封面' : '设为封面';
         menu.innerHTML = `
             <div class="menu-title">帧 ${frame ? 'f' + frame.frame_no : ''}</div>
-            <button data-action="toggle-expand">${isExpanded(shotId) ? '折叠' : '展开'}</button>
+            <button data-action="toggle-expand">${isExpanded(shotId) ? '折叠' : '展开'}<span class="menu-kbd">Space</span></button>
             <button data-action="frame-cover" ${frame && frame.isCover ? 'disabled' : ''}>${coverLabel}</button>
             <button data-action="frame-rerender">重拍此帧</button>
             <button data-action="frame-jump">跳回构图</button>
-            <button class="danger" data-action="frame-delete" ${shot.frames.length <= 1 ? 'disabled' : ''}>删除此张</button>
+            <button class="danger" data-action="frame-delete" ${shot.frames.length <= 1 ? 'disabled' : ''}>删除此张<span class="menu-kbd">Delete</span></button>
             <hr>
-            <button data-action="open">Open Shot</button>
+            <button data-action="open">打开镜头<span class="menu-kbd">Enter</span></button>
         `;
     } else if (state.selectedIds.size > 1) {
         // 多选菜单：展开/折叠两个独立项（v0.9.1，用户要求批量展开/折叠并存）
@@ -72,7 +72,7 @@ export function showContextMenu(x, y, shotId, frameId = null) {
         menu.innerHTML = `
             <div class="menu-title">已选 ${state.selectedIds.size} 个镜头</div>
             ${multiSel.length > 0 ? `<button data-action="batch-expand">全部展开</button><button data-action="batch-collapse">全部折叠</button>` : ''}
-            <button data-action="batch-duplicate">批量复制</button>
+            <button data-action="batch-duplicate">批量复制<span class="menu-kbd">Ctrl+D</span></button>
             <button data-action="batch-rerender">批量重渲染</button>
             <button data-action="batch-rename">批量重命名</button>
             <button class="danger" data-action="batch-delete">批量删除</button>
@@ -81,16 +81,19 @@ export function showContextMenu(x, y, shotId, frameId = null) {
         const expanded = isExpanded(shotId);
         const expandLabel = expanded ? '折叠' : '展开';
         // v0.9.12：卡片菜单加台词功能——添加/编辑台词（无台词显示"添加"）+ 自动台词大小勾选
+        // v0.9.23/24：列表视图条目菜单去掉全部台词项（台词条只在宫格渲染，列表无台词编辑入口）
         const hasDlg = shot && shot.dialogue && shot.dialogue.trim();
+        const isList = state.viewMode === 'list';
         menu.innerHTML = `
-            ${isMulti ? `<button data-action="toggle-expand">${expandLabel}</button>` : ''}
-            <button data-action="open">Open Shot</button>
+            ${isMulti ? `<button data-action="toggle-expand">${expandLabel}<span class="menu-kbd">Space</span></button>` : ''}
+            <button data-action="open">打开镜头<span class="menu-kbd">Enter</span></button>
             <button data-action="rerender">重拍封面</button>
+            ${isList ? '' : `
             <button data-action="dlg-edit">${hasDlg ? '编辑台词' : '添加台词'}</button>
-            <button data-action="dlg-auto">${isDialogueAuto(shotId) ? '✓ ' : ''}自动台词大小</button>
-            <button data-action="rename">Rename</button>
-            <button data-action="duplicate">Duplicate</button>
-            <button class="danger" data-action="delete">Delete</button>
+            <button data-action="dlg-auto">${isDialogueAuto(shotId) ? '✓ ' : ''}自动台词大小</button>`}
+            <button data-action="rename">重命名</button>
+            <button data-action="duplicate">复制<span class="menu-kbd">Ctrl+D</span></button>
+            <button class="danger" data-action="delete">删除<span class="menu-kbd">Delete</span></button>
         `;
     }
     menu.style.display = 'block';

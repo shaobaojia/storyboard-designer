@@ -1,4 +1,28 @@
         * { margin: 0; padding: 0; box-sizing: border-box; }
+        /* v0.9.24：iconfont 图标字体（按钮图标化，ttf 与 style.css 同目录） */
+        @font-face {
+            font-family: "iconfont";
+            src: url(data:font/truetype;base64,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) format('truetype');
+            /* v0.9.24：ttf 3.4KB base64 内联——静态服务 CONTENT_TYPES 无 .ttf 会 404，零后端改动 */
+        }
+        .iconfont {
+            font-family: "iconfont" !important;
+            font-size: 16px;
+            font-style: normal;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+        }
+        .icon-shanchu:before { content: "\f013f"; }
+        .icon-liebiao:before { content: "\f0161"; }
+        .icon-jia:before { content: "\f0175"; }
+        .icon-huafu:before { content: "\e871"; }
+        .icon-ic_mode_block:before { content: "\e60c"; }
+        .icon-jianhao:before { content: "\e77f"; }
+        .icon-td-tp-ylt:before { content: "\e840"; }
+        .icon-lujing:before { content: "\e633"; }
+        .icon-caidanzhedie:before { content: "\e6a2"; }
+        .icon-a-chuangjian1:before { content: "\ea53"; }
+        .icon-taici:before { content: "\e7bb"; }
         :root { --card-min: 200px; --list-thumb-w: 80px; --header-h: 61px;
             /* v0.9.4 预览框缩放比例：开关预览只动这两个比例 + grid margin，不重建 DOM（丝滑）
                --preview-w = 预览框实际宽度（默认半屏）；grid margin 与它相等 → 无缝不重叠 */
@@ -17,6 +41,8 @@
             overflow-y: scroll;
             overflow-anchor: none;
         }
+        /* v0.9.24：FLIP 动画期间禁横向滚动条（动画中间态横向溢出 → 水平滚动条闪现 → fixed 底部工具条上下抖） */
+        body.no-hscroll { overflow-x: hidden; }
         /* v0.9.20: 暗色滚动条与页面融合（PyWebView 窗口 / Edge 统一深色主题） */
         ::-webkit-scrollbar { width: 10px; height: 10px; }
         ::-webkit-scrollbar-track { background: transparent; }
@@ -642,6 +668,14 @@
         .context-menu button:hover { background: #3a3a3a; }
         .context-menu button.danger { color: #ff6b6b; }
         .context-menu button.danger:hover { background: #4a2a2a; }
+        /* v0.9.23：菜单里带快捷键的命令——淡色小字标在右侧 */
+        .context-menu button .menu-kbd {
+            float: right;
+            margin-left: 12px;
+            color: #777;
+            font-size: 11px;
+            font-family: Consolas, "Courier New", monospace;
+        }
         .context-menu .menu-title {
             padding: 6px 14px;
             font-size: 11px;
@@ -650,7 +684,7 @@
             margin-bottom: 2px;
         }
 
-        /* v0.9.18：右上角主菜单（三条横线图标）+ 弹层 */
+        /* v0.9.18：右上角主菜单按钮（v0.9.24 改 iconfont 图标）+ 弹层 */
         .hamburger {
             background: #333;
             border: none;
@@ -659,68 +693,140 @@
             height: 30px;
             padding: 0;
             display: inline-flex;
-            flex-direction: column;
             align-items: center;
             justify-content: center;
-            gap: 4px;
             cursor: pointer;
+            color: #e0e0e0;
         }
         .hamburger:hover { background: #444; }
-        .hamburger .h-line {
+        .hamburger .menu-svg {
             display: block;
             width: 16px;
-            height: 2px;
-            background: #e0e0e0;
-            border-radius: 1px;
+            height: 16px;
+            flex: none;
+            fill: currentColor;
         }
         .main-menu { min-width: 160px; }
 
-        /* 左下角工具条：滑块 + 视图切换 + 垃圾桶 (#11) */
-        .size-slider {
+        /* 左下角缩放滑块（v0.9.24：独立容器，高度与右下角统计块/快捷键按钮一致 35px） */
+        .zoom-bar {
             position: fixed;
             left: 16px;
             bottom: 16px;
+            height: 35px;
             display: flex;
             align-items: center;
-            gap: 8px;
+            gap: 6px;
             background: #252525;
             border: 1px solid #3a3a3a;
             border-radius: 6px;
-            padding: 8px 12px;
+            padding: 0 12px;
             z-index: 900;
         }
-        .size-slider input[type="range"] {
-            width: 140px;
-            accent-color: #4a9eff;
-            cursor: pointer;
-        }
-        .size-slider .slider-label { font-size: 11px; color: #888; }
-        .size-slider .bar-btn {
-            background: #333;
+        .zoom-bar .bar-btn {
+            width: 24px;
+            height: 24px;
+            background: transparent;   /* v0.9.24：同中心横条，默认无底衬 hover 才有 */
             border: none;
             color: #e0e0e0;
-            padding: 5px 10px;
+            padding: 0;
             border-radius: 4px;
             cursor: pointer;
             font-size: 12px;
             position: relative;
-        }
-        .size-slider .bar-btn:hover { background: #444; }
-        .size-slider .bar-btn.active-view { background: #4a9eff; color: #fff; }
-        /* 滑块两侧 +/- 步进按钮：方形小钮，与滑块垂直居中对齐 */
-        .size-slider .zoom-step {
-            width: 22px;
-            height: 22px;
-            padding: 0;
-            font-size: 13px;
-            line-height: 1;
             display: inline-flex;
             align-items: center;
             justify-content: center;
             flex: none;
         }
+        .zoom-bar .bar-btn:hover { background: #333; }
+        .zoom-bar input[type="range"] {
+            width: 140px;
+            accent-color: #4a9eff;
+            cursor: pointer;
+        }
+        .zoom-bar .slider-label { font-size: 11px; color: #888; }
+
+        /* 底部居中工具条（v0.9.24）：视图控制组（宫格/列表/预览）+ 功能组（新建/台词/画幅/垃圾桶） */
+        .size-slider {
+            position: fixed;
+            left: 50%;
+            transform: translateX(-50%);
+            bottom: 16px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            background: #252525;
+            border: 1px solid #3a3a3a;
+            border-radius: 8px;
+            padding: 8px 12px;
+            z-index: 900;
+        }
+        .size-slider .tool-group {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .size-slider .tool-divider {
+            width: 1px;
+            height: 24px;
+            background: #3a3a3a;
+            flex: none;
+        }
+        .size-slider .bar-btn {
+            background: transparent;   /* v0.9.24：默认无底衬，hover 才显示 */
+            border: none;
+            color: #e0e0e0;
+            width: 30px;
+            height: 30px;
+            padding: 0;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+            position: relative;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            flex: none;
+        }
+        .size-slider .bar-btn:hover { background: #333; }
+        .size-slider .bar-btn.active-view { background: #4a9eff; color: #fff; }
+        .size-slider .zoom-step {
+            font-size: 13px;
+            line-height: 1;
+        }
         /* v0.9.8：台词开关按钮的高亮态（工具条按钮在 header，选择器放宽到全局） */
         .bar-btn.active-view { background: #4a9eff; color: #fff; }
+        /* v0.9.24：按钮 hover 文字——data-tip 自定义 tooltip，hover 立即显示（无原生 title 冷启动延迟） */
+        [data-tip] { position: relative; }
+        [data-tip]::after {
+            content: attr(data-tip);
+            position: absolute;
+            bottom: calc(100% + 8px);
+            left: 50%;
+            transform: translateX(-50%);
+            background: #2f2f2f;
+            border: 1px solid #444;
+            color: #e0e0e0;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            line-height: 1.4;
+            white-space: nowrap;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity .1s;
+            z-index: 1200;
+        }
+        [data-tip]:hover::after { opacity: 1; }
+        /* header 顶部按钮：tooltip 向下 + 右对齐（避免超出视口右缘） */
+        .header [data-tip]::after {
+            bottom: auto;
+            top: calc(100% + 8px);
+            left: auto;
+            right: 0;
+            transform: none;
+        }
         /* 台词框双击就地编辑输入框（v0.9.8，复用卡片改名输入框同款外观）
            v0.9.19：input → textarea（多行自动换行适配高度，与非编辑态 box 一致大小）
            ——padding 归 0（box 内容区已提供 6px 14px 6px 9px）、border 改 outline
@@ -1003,6 +1109,7 @@
             border-radius: 8px;
             padding: 20px;
             width: 300px;
+            color-scheme: dark;  /* v0.9.23：原生 select/checkbox/数字输入暗色外观 */
         }
         .modal.wide { width: 460px; max-height: 70vh; display: flex; flex-direction: column; }
         .modal h2 { font-size: 15px; margin-bottom: 14px; }
@@ -1039,18 +1146,33 @@
         .modal .btn-danger { background: #c0392b; color: #fff; }
         .modal .btn-danger:hover { background: #a93226; }
 
-        /* 画幅预设 chips（v0.9.22） */
-        .aspect-presets { display: flex; flex-wrap: wrap; gap: 6px; }
-        .preset-chip {
-            padding: 4px 10px;
+        /* 画幅预设下拉 + 锁定长宽比（v0.9.23 由 chips 改下拉） */
+        #aspectPresets {
+            width: 100%;
+            background: #111;
             border: 1px solid #3a3a3a;
             border-radius: 4px;
-            background: #2a2a2a;
-            color: #bbb;
-            font-size: 12px;
+            color: #e0e0e0;
+            padding: 6px 8px;
+            font-size: 13px;
+            outline: none;
+        }
+        #aspectPresets:focus { border-color: #4a9eff; }
+        /* v0.9.23：锁定长宽比 label（需覆盖 .modal label 的 display:block） */
+        .modal label.aspect-lock {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            cursor: pointer;
+            color: #ccc;
+            font-size: 13px;
+            margin: 0;
+        }
+        .aspect-lock input[type="checkbox"] {
+            width: auto;
+            accent-color: #4a9eff;
             cursor: pointer;
         }
-        .preset-chip:hover { border-color: #4a9eff; color: #fff; }
 
         /* 关于面板（v0.9.22）：主菜单 → 关于。大厂风——渐变品牌区 + 徽章版本号 + 等宽信息行 */
         .about-modal {

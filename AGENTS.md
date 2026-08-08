@@ -2,6 +2,24 @@
 
 > 给下一个 Agent（或下一个自己）的交接备忘录。**收工推送前必须更新「刚做完 / 正在做 / 下一步 / 坑」四个字段。**
 
+## 刚做完（v0.9.24：工具条重构+图标化+tooltip+抖动修复，2026-08-08 已部署，推前全量 42/42+12/12+23/23 全 PASS）
+
+- **底部工具条重构**：缩放滑块从中心横条摘出 → 左下角独立容器（高度 35px 与右下角统计块/快捷键一致）；中心横条 = 视图控制组（宫格/列表/预览窗口）+ 功能组（新建/台词/画幅/垃圾桶）两组分隔线；新建按钮从 header 移入横条（文字改「新建」）；视图按钮文字缩短
+- **按钮图标化**（iconfont 字体，用户提供 download.zip 11 图标）：全部 9 个工具条按钮 + 主菜单换图标（宫格/列表/预览/±/新建/台词/画幅/垃圾桶/菜单折叠）；ttf 仅 3.4KB **base64 内联进 style.css @font-face**（静态服务 CONTENT_TYPES 无 .ttf 会 404，零后端改动）；按钮统一 30×30（zoom-bar 24×24）；trash.js 不再重写按钮 innerHTML（会覆盖图标）——进出垃圾桶改 class 高亮 + data-tip 切换
+- **主菜单图标换成用户指定 SVG**（三条横线，内联 + currentColor；坑：svg 作 flex item 被 flex-shrink 收缩到 10px，须 flex:none）
+- **中心横条 + 缩放按钮默认无底衬**（transparent，hover 才 #333），active-view 高亮态保留蓝底
+- **tooltip 替换原生 title**（原生首次 hover 冷启动 ~1s）：全部 16 处静态 + 5 处动态 title → data-tip + CSS ::after 伪元素（hover 立即显示，transition .1s）；底部按钮向上、header 按钮向下右对齐；trash.js 模式切换提示同步
+- **修真 bug：宫格/列表切换工具条上下抖**——FLIP 动画中间态横向溢出（实测 scrollWidth 冲到 1976px）→ 水平滚动条闪现吃视口高 10px → fixed 底部元素上跳。修 = animateFrom（所有 FLIP 统一入口）期间 body.no-hscroll（overflow-x:hidden），0.28s 过渡后自动移除；验证切换全程 sliderTop 恒定
+- **版本号 0.9.21 → 0.9.24**（bl_info + 关于面板徽章，推前升号）
+
+## 刚做完（v0.9.23：五需求，2026-08-08 已部署+实测）
+
+- **画面设置面板预设改下拉列表**（aspect.js）：19 预设 chips → select 下拉（屏幕/电影工业/竖屏 三组 optgroup，选后保持 H 填 W 不自动提交）+ **锁定长宽比 checkbox**（勾选时固定当前比例，改 W/H 另一项自动跟随；坑：比例必须在勾选时记录，用当前值算会自锁恒等）
+- **快捷键面板 Ctrl++/Ctrl+- → Ctrl.+ / Ctrl.-**（仅文案，键盘实现不变）
+- **新快捷键**：v=开关预览窗口、Ctrl+D=创建副本（单选复制/多选批量，拦浏览器收藏）、Ctrl+F=聚焦搜索框（拦浏览器查找）；SHORTCUTS 清单同步
+- **菜单全部中文化**：Open Shot→打开镜头、Rename→重命名、Duplicate→复制、Delete→删除；带快捷键的命令右侧淡色标注（.menu-kbd #777 小字，Enter/Space/Ctrl+D/Delete）
+- **列表视图条目菜单去掉台词项**（添加/编辑台词 v0.9.23，自动台词大小 v0.9.24 补去——列表不渲染台词条）
+
 ## 刚做完（v0.9.22：六项前端 + Delete bug 修复，2026-08-08 已部署+实测，全量 42/42+12/12+23/23 全 PASS）
 
 - **主菜单「关于」+ 大厂风面板**（main.js + index.html + style.css）：主菜单只剩「关于」（Refresh 已移除，forceRefresh 函数保留）；面板 = 渐变品牌区 + 剪刀 SVG logo（品牌蓝 #4a9eff）+ 产品名 + 徽章式版本号（**与 bl_info 同步，升版时一起改**）+ 数据版本（fetch /api/version 的 COUNT-rev 动态拉取）+ 作者/邮箱 mailto + 引擎/数据层/前端技术栈 + 页脚 © 2026；关闭 = ✕ / 点遮罩 / Esc；aboutIn 0.22s 淡入
@@ -102,7 +120,7 @@
 
 ## 正在做
 
-- 无进行中任务（v0.9.22 已交付，待推 GitHub 后进入下一轮）
+- 无进行中任务（v0.9.24 已交付，2026-08-08 推 GitHub）
 
 ## 下一步
 
@@ -204,6 +222,12 @@ CREATE INDEX IF NOT EXISTS idx_frames_shot ON frames(shot_id);
 
 ## 坑（已踩过的雷）
 
+- **v0.9.24：FLIP 动画中间态横向溢出 → 水平滚动条闪现 → fixed 底部工具条上下抖**（宫格/列表切换实测 scrollWidth 冲到 1976px、sliderTop 967→957）：根因 = 切换 FLIP 动画中间态内容横向溢出，水平滚动条出现/消失吃掉视口底 10px，fixed bottom 元素跳。修 = animateFrom（所有 FLIP 统一入口）开头 body.no-hscroll（overflow-x:hidden）+ 320ms 后自动移除（0.28s 过渡+余量）。**凡 fixed 底部组件垂直跳动，先查水平滚动条出没**（v0.9.21 缩放抖动同根因）
+- **v0.9.24：锁定长宽比比例必须在勾选时记录**（aspect.js）：用当前 W/H 实时算比例会自锁——改 W 瞬间 H 还是旧值，比例=新W/旧H，H 算回来恒等。勾选 change 时固定 lockRatio，取消清空
+- **v0.9.24：.aspect-lock 的 display:flex 被 .modal label 覆盖**（优先级 0,1,1 > 0,1,0）：子选择器必须写 .modal label.aspect-lock
+- **v0.9.24：内联 svg 作 flex item 被 flex-shrink 收缩**（主菜单图标 16px 变 10px 实测）：须 flex:none（或 display:block）
+- **v0.9.24：web_audit 菜单断言过时**——菜单中文化后旧断言查 'Open Shot/Rename/Duplicate' 必 FAIL（Delete 因快捷键标注含 'Delete' 碰巧过）。**改菜单文案必须同步 scripts/web_audit.py 的 expect 列表**（已改中文断言 23/23）
+- **v0.9.24：按钮 title → data-tip 替换**（原生 title 首次 hover 冷启动 ~1s）：全站 16 静态 + 5 动态（main.js 关于 / render.js 台词框手柄/红格子/角标/折叠钮）title 已清；trash.js 进出垃圾桶改 dataset.tip 切换；**新增动态按钮 title 一律 data-tip**
 - **v0.9.22：Delete 帧级删除选择器漏列表 class**（已修，用户实测确认）：keyboard.js `querySelector('.frame-img.frame-focused')` 只匹配宫格——列表展开态蓝框是 `.frame-thumb.frame-focused`（v0.9.2 双 class 机制），命中不到 → 落 deleteSelection() 误删整镜头（实测 3 镜头进垃圾桶）。修 = 双选择器 + shotId 双来源（宫格 closest('.frame-cell').dataset.id / 列表 frame-thumb.dataset.shotId 兜底）。**凡"帧级 vs 镜头级"判定，宫格/列表两视图 class 都要覆盖**（skill pitfall 172）
 - **v0.9.22：CSS grid 分列模板必须放实际子元素**（关于面板）：`.about-body { display:grid; grid-template-columns }` 对内部 `.about-row`（label/value 的直接父）不生效——row 内仍是 inline 流，label 和值连排一行。DOM 断言查不出（30/30 全 PASS），几何测量（label 列左缘交替/行高参差）才暴露（skill pitfall 169）
 - **v0.9.22：PIL 单点采样小字号文本会采到子像素 AA 条纹**（红/青/蓝三色偏，别当渲染 bug）：crop 区域 Counter 统计主色判定 + elementFromPoint/computed 交叉（skill pitfall 170）
