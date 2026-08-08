@@ -1,7 +1,7 @@
 bl_info = {
     "name": "Storyboard Designer",
     "author": "邵保家",
-    "version": (0, 9, 28),
+    "version": (0, 9, 29),
     "blender": (4, 5, 0),
     "location": "View3D > Sidebar > Storyboard",
     "description": "Quick previs/storyboard design system",
@@ -88,6 +88,14 @@ class STORYBOARD_OT_init_project(bpy.types.Operator):
                     "resolution_y": context.scene.render.resolution_y,
                 }, f, indent=2)
 
+        # v0.9.29：初始化 = 用户明确要用分镜 → 顺手起服务（自动启动已按初始化
+        # 门控，手动初始化后必须在这里拉起，否则网页版/桌面窗口打不开）
+        try:
+            start_server(project_dir, port=8089)
+            ensure_timer()
+        except Exception as e:
+            print(f"[Storyboard] init: server start failed: {e}")
+
         self.report({'INFO'}, f"Project initialized: {project_dir}")
         return {'FINISHED'}
 
@@ -133,10 +141,13 @@ class STORYBOARD_OT_open_manager(bpy.types.Operator):
         import webbrowser
         server = get_server()
         if not (server and server.running):
-            # 服务没起就当场拉起（正常情况下插件加载已自动起好）
+            # 服务没起就当场拉起（v0.9.29：未初始化项目不自动建目录——提示先初始化）
             project_dir = _get_project_dir()
             if not project_dir:
                 self.report({'ERROR'}, "Save blend file first")
+                return {'CANCELLED'}
+            if not _project_initialized():
+                self.report({'ERROR'}, "项目未初始化，请先在「项目状态」面板点击「初始化」")
                 return {'CANCELLED'}
             server = start_server(project_dir, port=8089)
             ensure_timer()
@@ -158,10 +169,13 @@ class STORYBOARD_OT_open_manager_webview(bpy.types.Operator):
         import subprocess
         server = get_server()
         if not (server and server.running):
-            # 服务没起就当场拉起（与 open_manager 同逻辑）
+            # 服务没起就当场拉起（v0.9.29：未初始化项目不自动建目录——提示先初始化）
             project_dir = _get_project_dir()
             if not project_dir:
                 self.report({'ERROR'}, "Save blend file first")
+                return {'CANCELLED'}
+            if not _project_initialized():
+                self.report({'ERROR'}, "项目未初始化，请先在「项目状态」面板点击「初始化」")
                 return {'CANCELLED'}
             server = start_server(project_dir, port=8089)
             ensure_timer()
@@ -255,6 +269,47 @@ class STORYBOARD_OT_create_shot(bpy.types.Operator):
         return context.window_manager.invoke_props_dialog(self)
 
 
+class STORYBOARD_OT_duplicate_shot(bpy.types.Operator):
+    """复制当前镜头：完整独立副本（FULL_COPY + 独立背景图文件），
+    落位源镜头之后，自动拍封面帧；undo 可撤销（purge 逆操作）。v0.9.29 新增。"""
+    bl_idname = "storyboard.duplicate_shot"
+    bl_label = "复制镜头"
+    bl_options = {'REGISTER'}
+
+    def execute(self, context):
+        import uuid
+        from core.db import next_c_name
+        from core import undo
+        project_dir = _get_project_dir()
+        if not project_dir:
+            self.report({'ERROR'}, "Save blend file first")
+            return {'CANCELLED'}
+        scene = context.scene
+        db_path = get_db_path(project_dir)
+        shot = next((s for s in get_all_shots(db_path) if s["scene_name"] == scene.name), None)
+        if not shot:
+            self.report({'ERROR'}, f"Scene {scene.name} not in storyboard DB")
+            return {'CANCELLED'}
+        new_name = next_c_name(db_path)
+        new_id = uuid.uuid4().hex[:8]
+        try:
+            queue_command("duplicate_shot", {
+                "scene_name": shot["scene_name"],
+                "new_name": new_name,
+                "project_dir": project_dir,
+                "shot_id": new_id,
+                "after_id": shot["id"],
+            })
+        except Exception as e:
+            self.report({'ERROR'}, f"复制失败: {e}")
+            return {'CANCELLED'}
+        undo.push(f"复制 {shot['name']}", {
+            "purge": [{"id": new_id, "name": new_name, "scene_name": f"Shot_{new_name}"}]
+        })
+        self.report({'INFO'}, f"已复制为 {new_name}")
+        return {'FINISHED'}
+
+
 class STORYBOARD_OT_snap_frame(bpy.types.Operator):
     """拍当前帧：时间轴停在哪个帧就拍哪个帧，图按帧号自动排序（v0.8.0）。
     同帧号已有图 → 直接覆盖；满 5 张且是新帧号 → 软提示，不入队。"""
@@ -318,6 +373,66 @@ class STORYBOARD_OT_snap_frame(bpy.types.Operator):
             return {'CANCELLED'}
         verb = "覆盖重拍" if self.overwrite else "拍屏"
         self.report({'INFO'}, f"F{self.frame_no} {verb}完成")
+        return {'FINISHED'}
+
+
+class STORYBOARD_OT_delete_current_frame(bpy.types.Operator):
+    """删当前帧：删时间轴当前帧号对应的那一帧（DB 行 + 磁盘文件）。
+    删的是封面帧 → 自动晋升最小帧号为新封面（cmd_delete_frame 内部处理）；
+    单帧镜头最后一帧不可删（cmd_delete_frame 保护）。v0.9.29 新增。"""
+    bl_idname = "storyboard.delete_current_frame"
+    bl_label = "删当前帧"
+    bl_options = {'REGISTER'}
+
+    frame_no: bpy.props.IntProperty()
+    shot_id: StringProperty()
+    project_dir: StringProperty()
+    frame_id: StringProperty()
+
+    def _resolve(self, context):
+        from core.db import get_frames
+        project_dir = _get_project_dir()
+        if not project_dir:
+            self.report({'ERROR'}, "Save blend file first")
+            return False
+        scene = context.scene
+        db_path = get_db_path(project_dir)
+        shot = next((s for s in get_all_shots(db_path) if s["scene_name"] == scene.name), None)
+        if not shot:
+            self.report({'ERROR'}, f"Scene {scene.name} not in storyboard DB")
+            return False
+        self.project_dir = project_dir
+        self.shot_id = shot["id"]
+        self.frame_no = scene.frame_current
+        target = next((f for f in get_frames(db_path, shot["id"])
+                       if f["frame_no"] == self.frame_no), None)
+        if not target:
+            self.report({'ERROR'}, f"当前帧 F{self.frame_no} 没有已拍帧可删")
+            return False
+        self.frame_id = target["id"]
+        return True
+
+    def invoke(self, context, event):
+        if not self._resolve(context):
+            return {'CANCELLED'}
+        return self.execute(context)
+
+    def execute(self, context):
+        from core.queue import cmd_delete_frame
+        # 兜底：execute 被直接调用（脚本/EXEC 上下文）且未带属性时，现场解析
+        if not self.project_dir or not self.shot_id:
+            if not self._resolve(context):
+                return {'CANCELLED'}
+        try:
+            cmd_delete_frame({
+                "shot_id": self.shot_id,
+                "frame_id": self.frame_id,
+                "project_dir": self.project_dir,
+            })
+        except Exception as e:
+            self.report({'ERROR'}, f"删帧失败: {e}")
+            return {'CANCELLED'}
+        self.report({'INFO'}, f"F{self.frame_no} 已删除")
         return {'FINISHED'}
 
 
@@ -465,7 +580,15 @@ class _SbSubPanel:
 
 def _sb_draw_status_body(body):
     project_dir = _get_project_dir()
-    project_ok = bool(project_dir) and os.path.exists(project_dir)
+    if not project_dir:
+        row = body.row(align=True)
+        row.label(text="请先保存 .blend 文件", icon='ERROR')
+        row = body.row(align=True)
+        row.operator("storyboard.init_project", text="初始化", icon='FILE_NEW')
+        return
+    # v0.9.29：已保存但未初始化 → 提示手动初始化（不再自动建目录/DB）
+    project_ok = os.path.exists(project_dir) and os.path.exists(
+        os.path.join(project_dir, "shots.db"))
     if project_ok:
         row = body.row(align=True)
         row.label(text=f"项目：{os.path.basename(project_dir)}", icon='FILE_FOLDER')
@@ -473,12 +596,12 @@ def _sb_draw_status_body(body):
         if server and server.running:
             row.label(text=f"服务：{server.port}", icon='URL')
         else:
-            row.label(text="服务：启动中…", icon='TIME')
+            row.label(text="服务：未启动", icon='TIME')
     else:
         row = body.row(align=True)
-        row.label(text="请先保存 .blend 文件", icon='ERROR')
+        row.label(text="项目未初始化", icon='ERROR')
+        row = body.row(align=True)
         row.operator("storyboard.init_project", text="初始化", icon='FILE_NEW')
-
 
 def _sb_draw_open_body(body):
     # 双端打开：桌面窗口「分镜管理器」（主）/ 浏览器「网页版」（次）
@@ -500,6 +623,9 @@ def _sb_draw_shot_ops_body(body, scene):
     row = body.row(align=True)
     row.operator("storyboard.create_shot", text="创建镜头", icon='ADD')
     row.operator("storyboard.delete_shot", text="删除", icon='TRASH')
+    # v0.9.29：创建镜头下一行加「复制镜头」（复制当前场景镜头，独立副本）
+    row = body.row(align=True)
+    row.operator("storyboard.duplicate_shot", text="复制镜头", icon='DUPLICATE')
 
     project_dir = _get_project_dir()
     if project_dir and os.path.exists(project_dir) and scene.camera:
@@ -507,7 +633,9 @@ def _sb_draw_shot_ops_body(body, scene):
         if shot:
             row = body.row()
             row.scale_y = 1.3
+            # v0.9.29：拍当前帧旁加「删当前帧」（同解析模式，删时间轴当前帧号那帧）
             row.operator("storyboard.snap_frame", text="拍当前帧", icon='RENDER_STILL')
+            row.operator("storyboard.delete_current_frame", text="删当前帧", icon='X')
             if frames:
                 # 帧号行 + 导航行放进同一 column(align=True)：
                 # align 列内行距比面板默认行距小，解决"间距有点大"
@@ -585,7 +713,9 @@ classes = (
     STORYBOARD_OT_open_manager,
     STORYBOARD_OT_open_manager_webview,
     STORYBOARD_OT_create_shot,
+    STORYBOARD_OT_duplicate_shot,
     STORYBOARD_OT_snap_frame,
+    STORYBOARD_OT_delete_current_frame,
     STORYBOARD_OT_jump_frame,
     STORYBOARD_OT_step_frame,
     STORYBOARD_OT_delete_shot,
@@ -599,8 +729,21 @@ classes = (
 
 
 # --- Auto-start server: 插件加载即服务，跟随文件加载/首次保存 ---
+def _project_initialized():
+    """项目是否已初始化（目录 + shots.db 存在）。v0.9.29：未初始化的 .blend 文件
+    不自动建目录/DB/服务——不是所有 Blender 文件都用来做分镜，打开过的每个文件
+    都自动建 xxx_storyboard/ 目录是事故（用户 2026-08-08 反馈）。"""
+    project_dir = _get_project_dir()
+    if not project_dir:
+        return False
+    return (os.path.isdir(project_dir)
+            and os.path.exists(os.path.join(project_dir, "shots.db")))
+
+
 def _auto_start_server():
     try:
+        if not _project_initialized():
+            return None  # 未初始化：不自动建目录/DB/服务（v0.9.29，手动初始化后由 init_project 拉起）
         project_dir = _get_project_dir()
         if not project_dir:
             return None  # 文件还没保存过，等 save_post
@@ -629,8 +772,11 @@ _auto_sync_registered = False
 
 def _auto_sync():
     """轻量对账心跳：5s 一轮。queue 非空时跳过本轮（创建竞态保护——
-    DB 记录先行、场景后建，队列里还有 create/rename 命令时不能删记录）。"""
+    DB 记录先行、场景后建，队列里还有 create/rename 命令时不能删记录）。
+    v0.9.29：未初始化项目直接跳过（不建目录/DB）。"""
     try:
+        if not _project_initialized():
+            return 5.0
         from core.queue import queue_idle
         if queue_idle():
             from core.sync import sync_scenes_light

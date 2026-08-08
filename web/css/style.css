@@ -104,9 +104,18 @@
             padding: 16px;
             padding-top: 0;
             padding-bottom: 80px;
+            /* v0.9.29：展示区全局禁文本选中——框选/拖拽（卡片、台词条）时浏览器
+               原生文本选择会启动（蓝底高亮大块），mousedown preventDefault 拦不全；
+               编辑控件（input/textarea）下方恢复可选 */
+            user-select: none;
+            -webkit-user-select: none;
             /* 滚动条常驻：可用宽度稳定，列数反算才不会被滚动条出没顶歪 (#R6-5) */
             overflow-y: scroll;
             overflow-anchor: none;
+        }
+        input, textarea {
+            user-select: text;
+            -webkit-user-select: text;
         }
         /* v0.9.24：FLIP 动画期间禁横向滚动条（动画中间态横向溢出 → 水平滚动条闪现 → fixed 底部工具条上下抖） */
         body.no-hscroll { overflow-x: hidden; }
@@ -343,27 +352,37 @@
         .frame-stack .layer-1 { transform: translate(3px, 3px); z-index: 3; }
         .frame-stack .cover { z-index: 4; }
         /* 左上角张数角标（v0.9.26：选择器加 button 前缀——防 v0.9.24 的 [data-tip]{position:relative}
-           同特异性靠后覆盖把 absolute 拉回流内，角标掉到图下方） */
+           同特异性靠后覆盖把 absolute 拉回流内，角标掉到图下方）
+           v0.9.29b：胶囊/小三角 → 用户给的「包角」大三角（80px 盖住卡片左上角，
+           直角在右上、斜边直落左下、左上大圆角；用户 SVG path 原样缩放，
+           品牌蓝两种皮肤一致，硬编码安全；hover 用 brightness 提亮） */
         button.stack-badge {
             position: absolute;
-            top: 6px;
-            left: 6px;
+            top: 0;
+            left: 0;
             z-index: 5;
-            min-width: 20px;
-            height: 20px;
-            padding: 0 5px;
-            border-radius: 10px;
+            width: 80px;
+            height: 80px;
+            padding: 24px 0 0 0;
             border: none;
             cursor: pointer;
-            background: rgba(var(--accent-rgb), 0.92);
+            background: url("data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI4MCIgaGVpZ2h0PSI4MCIgdmlld0JveD0iMCAwIDEwMjQgMTAyNCI+PHBhdGggZD0iTTAgMTAyNFYyOTIuNjA5MjM1QTI5Mi42MDkyMzUgMjkyLjYwOTIzNSAwIDAgMSAyOTIuNjA5MjM1IDBoNzMxLjM5MDc2NXoiIGZpbGw9InJnYmEoNzQsMTU4LDI1NSwwLjkyKSIvPjwvc3ZnPg==") no-repeat center / 100% 100%;
             color: var(--text-strong);
-            font-size: 12px;
+            font-size: 14px;
             font-weight: 700;
-            line-height: 20px;
-            text-align: center;
+            display: flex;
+            align-items: flex-start;
+            justify-content: center;
+            text-indent: -11px;   /* 数字放三角重心（29,29）附近：水平中心 40 → 左移 11 */
         }
-        button.stack-badge:hover { background: rgba(var(--accent-rgb), 1); }
-        .stack-badge.expanded-badge { top: 9px; left: 9px; z-index: 6; }
+        button.stack-badge:hover { filter: brightness(1.08); }
+        .stack-badge.expanded-badge {
+            top: 9px; left: 9px; z-index: 6;
+            width: 26px; height: 26px;
+            padding: 4px 0 0 0;
+            font-size: 12px;
+            text-indent: -3px;    /* 26px 三角重心 (9.5,9.5) */
+        }
         /* 展开态帧格：占一格，深色背景自然连片成组 */
         .shot-card.frame-cell {
             background: var(--bg-frame-cell);

@@ -16,6 +16,8 @@ export function initMarquee() {
             e.target.closest('.preview-panel') || e.target.closest('.shortcuts-panel') ||
             // v0.9.8：宫格台词条（排间行）也是展示型区域
             e.target.closest('.dialogue-strip')) return;
+        // v0.9.29：框选起点阻止浏览器默认——拖过卡片文字/时长时启动原生文本选中（蓝块）
+        e.preventDefault();
         state.marqueeActive = true;
         marqueeStart = {x: e.clientX, y: e.clientY, ctrl: e.ctrlKey || e.metaKey};
         marqueeBox.style.display = 'block';

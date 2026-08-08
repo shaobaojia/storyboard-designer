@@ -2,7 +2,16 @@
 
 > 给下一个 Agent（或下一个自己）的交接备忘录。**收工推送前必须更新「刚做完 / 正在做 / 下一步 / 坑」四个字段。**
 
-## 刚做完（v0.9.28：面板卷展条化 + ARP 布局借鉴 + 导航按钮调整，2026-08-08 已部署，推前干净空库全量 42/42+12/12+23/23 全 PASS）
+## 刚做完（v0.9.29 六项：角标圆角三角 + 防文本选中 + 初始化门控 + 删当前帧 + 复制镜头，2026-08-08 已部署实测，版本号未升等推前统一）
+
+- **多图镜头角标 → 用户指定「包角」大三角**（button.stack-badge 80×80 贴卡片左上角 top:0 left:0，像角形包一沓纸：直角在右上、斜边直落左下、左上大圆角——用户 SVG path 原样缩放 base64 内联；数字 14px 放三角重心（flex padding-top 24 + text-indent -11）；hover filter brightness(1.08)；展开态 expanded-badge 26px 同形状（padding 4 + text-indent -3）；品牌蓝两皮肤一致硬编码 rgba(74,158,255,0.92)）
+- **全站防文本选中（修"框选蓝块/拖台词条蓝块"）**：根因 = 展示区文本无 user-select 保护 + marquee mousedown / 台词条·卡片拖拽 pointerdown 均无 preventDefault，真实鼠标拖动启动浏览器原生文本选择（蓝底高亮大块）。修 = body 全局 `user-select: none` + `input, textarea { user-select: text }` 恢复编辑控件 + marquee.js mousedown 起点 `e.preventDefault()`。框选/拖拽/其它页（镜头名/相机名）全部不再选中文本
+- **Blender 端初始化不自动（防所有打开过的 blend 文件被建 xxx_storyboard/ 目录）**：原链路 = load_post/save_post/register → `_auto_start_server` → `start_server` → `StoryboardHTTPServer.__init__` 无条件 makedirs shots/+animatic+init_db——打开过 N 个 blend 就建 N 个目录（事故）。修 = 新增 `_project_initialized()`（project_dir 存在且 shots.db 存在）门控 `_auto_start_server` 与 `_auto_sync`（未初始化直接 return）；`init_project` operator 初始化后顺手 start_server+ensure_timer（原来不启服务）；open_manager/open_manager_webview 未初始化时 report 报错"请先在「项目状态」面板点击「初始化」"；面板状态区未初始化文案改"项目未初始化"（原来误显示"请先保存 .blend 文件"）。已验证四场景：未保存不建/已保存未初始化不建/手动初始化建+起服务/已初始化文件自动起服务
+- **面板「删当前帧」**（STORYBOARD_OT_delete_current_frame，拍当前帧旁，icon X）：_resolve 同 snap_frame 模式（当前场景 shot + frame_current），找 frames 里 frame_no==当前帧的行 → cmd_delete_frame(shot_id, frame_id, project_dir)；删封面帧自动晋升最小帧号（cmd_delete_frame 内部）；最后一帧不可删（内部保护）；无对应帧报错提示
+- **面板「复制镜头」**（STORYBOARD_OT_duplicate_shot，创建镜头下一行，icon DUPLICATE）：next_c_name 分配编号 + uuid 预生成 shot_id + queue_command("duplicate_shot", {scene_name, new_name, project_dir, shot_id, after_id}) + undo.push("复制 x", purge 逆操作)——与网页端 _duplicate_one 同链路；落位源镜头后自动拍封面
+- 验证：删帧（c0010 删 F58 封面 → 自动晋升 F0 ✅，已还原现场重拍 F58+恢复封面）；复制（c0970 帧文件存在 + undo_label "复制 c0010" ✅，已清理）；回归 8/8（角标三角/台词条/展开折叠/卡片拖拽/框选无文本/编辑框可输/搜索/列表视图）；正式工程 77 镜头完好
+
+
 
 - **Blender 面板改为 5 个原生卷展条（layout.panel 内嵌 → 独立子 Panel 类）**：主面板 STORYBOARD_PT_panel 只留 draw_header（品牌图标）+ 空 draw；5 个子面板（STORYBOARD_PT_status 项目状态 / PT_open 面板开关 / PT_shot_info 镜头信息 / PT_shot_ops 镜头操作 / PT_about 关于）继承公共基类 `_SbSubPanel`（bl_parent_id=VIEW3D_PT_storyboard），全部默认展开，**「关于」DEFAULT_CLOSED 默认收起**（ARP 同款，展开状态 Blender 自动记忆）；正文抽成 `_sb_draw_*_body` 模块级函数
 - **镜头信息拆分**：镜头/相机各占一行（原同排 row 窄面板必截断）；**镜头操作拆子卷展**：创建/删除 + 拍当前帧 + 帧号按钮 + 导航
