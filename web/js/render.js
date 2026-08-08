@@ -215,7 +215,10 @@ export function updateDialogue() {
             const t = box.querySelector('.dialogue-text');
             if (state.editingDlg !== shot.id && t.textContent !== shot.dialogue) t.textContent = shot.dialogue;
             // 宽度（v0.9.10 每条独立：per-shot 覆盖 > 全局默认 > 列宽；同排并排时受容量钳制）
-            const w = Math.min(dialogueWidthOf(shot.id), capW) + 'px';
+            // v0.9.21：再加右缘钳制——box 左偏移 + 宽度 ≤ grid 内容右缘-16。靠右列台词镜头
+            // 缩放后自定义宽超过剩余空间 → 溢出视口 → 水平滚动条出现/消失 → 工具栏上下抖
+            const availRight = Math.max(120, gridW - 16 - card.offsetLeft);
+            const w = Math.min(dialogueWidthOf(shot.id), capW, availRight) + 'px';
             if (box.style.width !== w) box.style.width = w;
             // 左偏移 = 卡片左缘（absolute left 相对父条内容左缘 = grid 左缘；card.offsetLeft
             // 相对 grid 的 offsetParent 坐标，v0.9.9 起替代 getBoundingClientRect——零 reflow、
@@ -251,7 +254,10 @@ export function initDialogueResize() {
             if (raf) return;
             raf = requestAnimationFrame(() => {
                 raf = 0;
-                const w = Math.round(Math.min(Math.max(startW + ev.clientX - startX, 120), capW));
+                // v0.9.21：上限同步渲染端右缘钳制（box 左偏移 + 宽 ≤ grid 右缘-16，
+                // 与 relocateDialogue 的 availRight 同源，防拖宽超过剩余空间）
+                const availRight = Math.max(120, gridW - 16 - box.offsetLeft);
+                const w = Math.round(Math.min(Math.max(startW + ev.clientX - startX, 120), capW, availRight));
                 // v0.9.10：只改被拖的这条（每条独立宽度）——v0.9.9 曾同步应用全部 box
                 // 是全局共享宽度语义，现已废弃
                 box.style.width = w + 'px';

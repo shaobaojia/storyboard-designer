@@ -85,10 +85,9 @@ export function startFieldEdit(e, cellEl, shotId, field) {
     const shot = state.shots.find(s => s.id === shotId);
     if (!shot) return;
     const card = cellEl.closest('.shot-card');
-    if (!card) return;
-
+    // v0.9.21：预览框详情区元素不在 .shot-card 内（无卡片可禁拖）——判空适配
     state.editingId = shotId;
-    card.draggable = false;
+    if (card) card.draggable = false;
     const oldVal = field === 'duration' ? String(shot.duration) : (shot[field] || '');
     // v0.9.19：内容/台词 = 多行 textarea（自动换行 + 高随内容，至少撑满条目内容区
     // 与显示态一致）；时长 = 单行 input
@@ -121,7 +120,7 @@ export function startFieldEdit(e, cellEl, shotId, field) {
         done = true;
         const raw = input.value.trim();
         state.editingId = null;
-        card.draggable = true;
+        if (card) card.draggable = true;
         // 先还原单元格 DOM（差分渲染会复用卡片，输入框不能留在里面）
         if (input.isConnected) input.replaceWith(cellEl);
         if (commit && raw !== oldVal) {

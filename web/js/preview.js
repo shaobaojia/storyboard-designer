@@ -3,6 +3,7 @@
 // 零 DOM 重建、零 renderGrid（除已展开镜头需重算底衬分段时）；列数保持、卡片等比缩放
 import { state } from './state.js';
 import { renderGrid, relocateDialogue } from './render.js';
+import { startFieldEdit } from './rename.js';
 
 const GAP = 12;
 const panel = document.getElementById('previewPanel');
@@ -20,6 +21,7 @@ const dialogueEl = document.getElementById('pfDialogue');
 let savedMin = null;  // 宫格开预览前的 --card-min（关闭时精确还原比例）
 let wFull = 0;        // 开预览时的 grid 全宽（列表 --list-scale 的缩放基准）
 let closeTimer = null;  // 关闭动画计时器（防快速开关冲突，v0.9.5）
+let currentShotId = null;  // 当前预览镜头 id（详情双击编辑用，v0.9.21）
 
 // 大图 URL：缩略图文件名 → 全尺寸 still（v0.9.4 新格式 _still.jpg / still.jpg；
 // 老数据 _still.png / still.png 由 showPreviewImage 的 onerror 兜底），保留 ?v= 缓存戳
@@ -175,6 +177,7 @@ export function updatePreview() {
     let targetId = (state.lastClickId && shots.some(s => s.id === state.lastClickId))
         ? state.lastClickId : null;
     if (!targetId) targetId = [...state.selectedIds][0] || null;
+    currentShotId = targetId;  // 详情双击编辑目标（v0.9.21）
     const shot = targetId ? shots.find(s => s.id === targetId) : null;
     if (!shot) {
         img.style.display = 'none';
@@ -328,4 +331,14 @@ export function initPreview() {
     const closeBtn = document.getElementById('previewClose');
     if (closeBtn) closeBtn.addEventListener('click', () => setPreview(false));
     initResize();
+    // v0.9.21：预览框详情双击就地编辑（时长/内容/台词，复用列表字段编辑 startFieldEdit）
+    [['pfDuration', 'duration'], ['pfContent', 'content'], ['pfDialogue', 'dialogue']].forEach(([id, field]) => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        el.addEventListener('dblclick', (e) => {
+            if (state.editingId || state.trashMode) return;  // 编辑/垃圾桶态不响应
+            if (!currentShotId) return;
+            startFieldEdit(e, el, currentShotId, field);
+        });
+    });
 }

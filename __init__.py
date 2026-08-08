@@ -1,11 +1,12 @@
 bl_info = {
     "name": "Storyboard Designer",
-    "author": "Hermes",
-    "version": (0, 9, 20),
+    "author": "邵保家",
+    "version": (0, 9, 21),
     "blender": (4, 5, 0),
     "location": "View3D > Sidebar > Storyboard",
     "description": "Quick previs/storyboard design system",
     "category": "3D View",
+    "email": "shaobaojia_313@163.com",
 }
 
 import bpy
@@ -426,7 +427,8 @@ def _panel_db_read(project_dir, scene_name):
 
 class STORYBOARD_PT_panel(bpy.types.Panel):
     bl_idname = "VIEW3D_PT_storyboard"
-    bl_label = "Storyboard Designer"
+    # v0.9.21：标题 = Blender分镜系统 v{版本号}（bl_info 同源，升版自动跟随）
+    bl_label = f"Blender分镜系统 v{'.'.join(str(x) for x in bl_info.get('version', ()))}"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
     bl_category = "Storyboard"
@@ -434,6 +436,13 @@ class STORYBOARD_PT_panel(bpy.types.Panel):
     def draw(self, context):
         layout = self.layout
         scene = context.scene
+
+        # 版本与作品信息（v0.9.21：作者/邮箱/版本号，bl_info 同源）
+        ver = '.'.join(str(x) for x in bl_info.get('version', ()))
+        layout.label(text=f"v{ver} · {bl_info.get('author', '')}", icon='INFO')
+        if bl_info.get('email'):
+            layout.label(text=bl_info['email'], icon='URL')
+        layout.separator()
 
         # Project status
         project_dir = _get_project_dir()
@@ -454,8 +463,9 @@ class STORYBOARD_PT_panel(bpy.types.Panel):
         else:
             layout.label(text="Server: starting...", icon='TIME')
         # 双端打开：桌面窗口「分镜管理器」（主）/ 浏览器「网页版」（次），tooltip 区分
+        # v0.9.21：分镜管理器（PyWebView 桌面窗口）图标 WINDOW，网页版保持 URL
         row = layout.row(align=True)
-        row.operator("storyboard.open_manager_webview", text="分镜管理器", icon='URL')
+        row.operator("storyboard.open_manager_webview", text="分镜管理器", icon='WINDOW')
         row.operator("storyboard.open_manager", text="网页版", icon='URL')
 
         layout.separator()
@@ -463,7 +473,7 @@ class STORYBOARD_PT_panel(bpy.types.Panel):
         # Shot management
         layout.operator("storyboard.create_shot", icon='ADD')
         layout.operator("storyboard.delete_shot", icon='TRASH')
-        layout.operator("storyboard.sync_scenes", icon='FILE_REFRESH')
+        # v0.9.21：Sync Scenes 按钮已移除（sync 由自动对账/启动时执行覆盖）
 
         layout.separator()
 

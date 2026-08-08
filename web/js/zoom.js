@@ -124,6 +124,12 @@ export function initZoom() {
         apply();
     });
 
+    // 滑块两侧 +/- 按钮（点击步进一档，与 Ctrl+滚轮 / Ctrl++/- 同档位逻辑）
+    const zoomOut = document.getElementById('zoomOut');
+    const zoomIn = document.getElementById('zoomIn');
+    if (zoomOut) zoomOut.addEventListener('click', () => stepZoom(-1));
+    if (zoomIn) zoomIn.addEventListener('click', () => stepZoom(1));
+
     // 步进一档（v0.9.18：Ctrl+滚轮与 Ctrl++/- 键盘共用）——dir: +1 放大 / -1 缩小
     // 列表走 12 级档位序号（round 反推，消除累计取整漂移）；宫格列数少=卡片大
     const stepZoom = (dir) => {

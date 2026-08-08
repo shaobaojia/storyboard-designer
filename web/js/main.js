@@ -22,13 +22,13 @@ document.getElementById('viewToggle').addEventListener('click', toggleView);
 document.getElementById('btnCreate').addEventListener('click', openCreateModal);
 document.getElementById('btnTimeline').addEventListener('click', openTimeline);
 
-// v0.9.18：右上角主菜单（三条横线图标）——Sync DB / Refresh 移入（原 header 按钮删除）
+// v0.9.18：右上角主菜单（三条横线图标）——Refresh 移入（原 header 按钮删除）
+// v0.9.21：Sync DB 按钮已移除（sync 由自动对账/启动时执行覆盖）
 const menuBtn = document.getElementById('menuBtn');
 const mainMenu = document.getElementById('mainMenu');
 const fillMainMenu = () => {
     mainMenu.innerHTML = `
         <div class="menu-title">主菜单</div>
-        <button data-action="sync">Sync DB</button>
         <button data-action="refresh">Refresh</button>
     `;
 };
@@ -47,8 +47,7 @@ mainMenu.addEventListener('click', (e) => {
     const btn = e.target.closest('button[data-action]');
     if (!btn) return;
     mainMenu.style.display = 'none';
-    if (btn.dataset.action === 'sync') syncScenes();
-    else if (btn.dataset.action === 'refresh') forceRefresh();
+    if (btn.dataset.action === 'refresh') forceRefresh();
 });
 document.addEventListener('click', (e) => {
     // 容错：合成事件 dispatch 到 document 时 target 无 closest（AGENTS.md 坑列表）

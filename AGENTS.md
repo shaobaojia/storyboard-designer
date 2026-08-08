@@ -2,6 +2,13 @@
 
 > 给下一个 Agent（或下一个自己）的交接备忘录。**收工推送前必须更新「刚做完 / 正在做 / 下一步 / 坑」四个字段。**
 
+## 刚做完（v0.9.21：三批十项，2026-08-08 已部署+实测）
+
+- **第一批**：①滑块两侧 +/- 步进按钮（zoom.js stepZoom 复用，与 Ctrl+滚轮/Ctrl++/- 同档位）②预览框时长/内容/台词双击就地编辑（rename.js startFieldEdit 判空适配非卡片元素 + preview.js currentShotId + dblclick 绑定；CDP 无 dblclick 但合成 dblclick dispatch 对 addEventListener 监听器有效——pitfall 21 的"无效"仅限 CDP 通道）③展开态折叠三角右移到「图右沿与底衬右沿 9px 间隔」上（collapse-btn right:9px→0）④Blender 端版本号+作品信息（bl_info author=邵保家、email=shaobaojia_313@163.com、version 0.9.21；面板 draw 顶部 v0.9.21·邵保家 + 邮箱两行）
+- **第二批**：①分镜管理器按钮图标 URL→WINDOW（网页版保持 URL）②**工具栏缩放抖动修复**——根因=缩放列数变多→列宽变小→用户自定义宽台词条超出视口→水平滚动条出现/消失（吃掉视口底 10px）→fixed 工具栏上下跳；修=render.js 台词条宽度右缘钳制 availRight（渲染端+拖宽手柄端同源，v0.9.17 capW 教训同款）③预览框下沿贴底（bottom:100px→0）+ 详情区 padding-bottom 60px 避开按钮 ④快捷键按钮并排统计块（.corner-right flex 容器，统计左快捷键右同底 16、按钮与统计块同高）
+- **第三批**：①N 栏面板标题 → `Blender分镜系统 v{版本号}`（bl_label 动态拼 bl_info.version）②Sync Scenes 按钮双端移除（Blender 面板 draw + 网页端主菜单 Sync DB；operator/自动 sync 保留）③骨架屏镂空漏内容修复（#skelLayer 加不透明底板 #1a1a1a——skel-card 间 12px gap 原为透明漏出下面 grid）④预览详情避让精确对称（pf-foot padding-bottom 77px：详情-工具条间距 16px = 工具条下沿-页面下沿 16px）⑤快捷键面板间距 = 按钮间间距（shortcuts-panel bottom 100→58px，面板底距按钮顶 8px = corner-right gap）
+- **坑（详见 AGENTS.md 坑列表 + skill pitfalls）**：水平滚动条出现/消失 = fixed 元素垂直跳动的根因（找横向溢出源）；Blender shader compiler 子进程（--compilation-subprocess，~134MB ×4）不是孤儿进程别杀；面板标题/版本号升版时 bl_label 自动跟随
+
 ## 刚做完（v0.9.20：PyWebView 双端——桌面窗口外壳，2026-08-08 已部署+实测）
 
 - **PyWebView 双端启用**（用户拍板）：Blender 面板两个按钮——左「分镜管理器」（PyWebView 桌面窗口，主）/ 右「网页版」（Edge 浏览器，次），text 覆盖 label，tooltip 区分；**前端 web/ 零改动**——外壳只是 WebView2 加载同一 URL
@@ -85,14 +92,10 @@
 
 ## 正在做
 
-- **【下个会话最高优先】rename 段审计触发 Blender 崩溃（C 档弹窗）定位**：全量回归 rename_seq 超时（幽灵场景 Shot_c0060 撞名——已改名 __ghost_c0060 并存盘固化，78 镜头场景全在位）；但随后 --only=rename 段连崩 2 次（进程活+端口监听+MCP refused=C 档弹窗，audit 日志因 stdout 缓冲为空看不到崩溃前操作）；重启后手动逐步复现（创建/set_background/rename/rename_seq 单步+MCP 探活脚本 ~/AppData/Local/hermes/tmp/repro_rename_crash.py）第一次跑因脚本 bug 中断，**未定位崩溃操作**；候选：create+自动拍屏（第一次崩前 AUDIT_BGREN 创建超时=主线程已卡）或 set_background；重启后 Blender 当前 PID 45120（81 场景，3 __ghost_ 正常）；复现脚本已修好 api() 签名待跑；**崩溃定位前不要整跑 rename 段审计**。**2026-08-07 空库新线索：create 链路主线程卡死已复现**（审计全过后 ~4 分钟无操作，手动创建 STD_S10 触发 HTTP+MCP 全拒——进程活+端口监听 C 档假死；重启后重建数据秒过、全量审计创建全秒过）——**与幽灵场景无关，是真实偶发问题**，候选=render_shot_files 拍屏卡主线程；repro 方向不变
-- **v0.9.14 审计体系重构已实测**：audit.py 12 段全量 41/41 + 段级（trash/undo/rerender/open）全过；ctx 4 段 12/12；web_audit 23/23（38s）；watchdog 前后端链路实测全过（web 23/23、back 41/41+12/12）。**watchdog 已退役常驻（2026-08-07 用户拍板：交付前全量回归替代自动触发，按需启动见 skill）**；--only 关键词全集（create/open/rerender/duplicate/reorder/trash/sync/rename/undo/thumb/frames/panel）待逐段实测
-- 幽灵场景：**正名幽灵 c0970-c1000 已删**（2026-08-07，rename_seq 改名失败 3 轮元凶）；**2026-08-07 审计处置再改 7 个为 __ghost_***（漏网正名幽灵 Shot_c0060/Shot_c0110 + 审计残留 AUDIT_TV/CTX_TEST/__ren_1f36814d/__un_25d46d9d/__un_5e24b41d，改名方案见坑列表 + skill pitfalls 146）；**现共 22 个 `__ghost_*`**（前缀不干扰改名）待用户确认是否彻底删除（含 .blend 存盘防复活）；**反复出现说明 sync 自动对账（稳健性待办 7）值得优先做**
-- 测试现场：镜头数据已还原（78 个无残留，分辨率已回 1920×1080）；用户台词数据完整（c0020/c0130/c0250/c0330/c0120/c0380 + c0910，含用户手工调宽值 sb-dialogue-w-map）
+- 无进行中任务（v0.9.21 三批已交付，待推 GitHub 后进入下一轮）
 
 ## 下一步
 
-- 幽灵场景确认删除 → sync 自动对账（稳健性待办 7）优先级可提前
 - **稳健性待办（v0.6.3 对抗审计产出，用户已阅，优先级低暂缓）**，按性价比排序：
   1. ~~**拍屏副作用还原**：`render_shot_files` 改完 `scene.render.filepath/file_format/engine` 不还原，污染用户正式渲染设置~~ ✅ v0.9.4 已修（改完全部恢复）
   2. **主线程预算**：`process_queue` 一次排空全队列，批量重渲染 = UI 冻结整场渲染；改每 tick 1 个重命令
@@ -311,4 +314,3 @@ CREATE INDEX IF NOT EXISTS idx_frames_shot ON frames(shot_id);
 - 测试：改完跑 `python3 scripts/audit.py`（41 项，含 v0.2-v0.5 全部端点+垃圾桶/撤销链+多图保帧/rename 四层/时长对齐）+ `python3 scripts/audit_context_menu.py`（12 项：打开/重拍封面/复制/软删+purge）；网页 JS 改动另需 webbridge 全交互回归
 - 152. **rename_seq 撞 Blender scene 名而非 DB 名**：candidate 生成只查 DB name_exists，scene 层撞名查不到（幽灵场景 DB 无记录）→ `Scene Shot_cXXX0 already exists` → phase 2 卡死镜头停 `__ren_` 临时名 → audit 超时。清理：孤儿场景改名 `__ghost_` 前缀 + 存盘
 - 153. **MCP timer 回调 print 不回传**（只含 REGISTERED）；`print(chr(1).join(...))` 尾随 \n 让 split 最后一项带换行 → 场景名比对误判幽灵——strip 后再比
-- 154. **rename 段审计触发 Blender C 档崩溃（未定位）**：连崩 2 次（进程活+端口监听+MCP refused）；audit 输出块缓冲崩溃时日志空；候选 create+拍屏或 set_background；定位法=手动单步复现+MCP 探活（tmp/repro_rename_crash.py）；**定位前别整跑 rename 段**

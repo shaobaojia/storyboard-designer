@@ -126,6 +126,9 @@
             top: 16px;
             left: 0;
             right: 0;
+            /* v0.9.21：加不透明底板（与 body 同色）——skel-card 之间 12px 镂空
+               gap 会漏出下面 grid 的内容（empty-state/旧卡片），底板盖住 */
+            background: #1a1a1a;
             display: grid;
             grid-template-columns: repeat(auto-fill, calc(var(--card-min) * var(--card-scale)));
             justify-content: start;
@@ -332,8 +335,10 @@
         .collapse-btn {
             position: absolute;
             /* v0.9.4：贴最后一张图的右边缘（卡片 padding 9px → right:9px 对齐图右缘），
-               垂直相对图居中：图中心 = 卡片中心 - 23px（= padding 9 - info 区半高 32，与列宽无关恒成立） */
-            right: 9px;
+               垂直相对图居中：图中心 = 卡片中心 - 23px（= padding 9 - info 区半高 32，与列宽无关恒成立）
+               v0.9.21：右移到「图右沿与底衬右沿的 9px 间隔」上——right:0 对齐底衬右沿，
+               按钮横跨间隔（右半在间隙、左半盖图右缘） */
+            right: 0;
             top: calc(50% - 23px);
             transform: translateY(-50%);
             background: rgba(255,255,255,0.08);
@@ -702,6 +707,18 @@
         }
         .size-slider .bar-btn:hover { background: #444; }
         .size-slider .bar-btn.active-view { background: #4a9eff; color: #fff; }
+        /* 滑块两侧 +/- 步进按钮：方形小钮，与滑块垂直居中对齐 */
+        .size-slider .zoom-step {
+            width: 22px;
+            height: 22px;
+            padding: 0;
+            font-size: 13px;
+            line-height: 1;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            flex: none;
+        }
         /* v0.9.8：台词开关按钮的高亮态（工具条按钮在 header，选择器放宽到全局） */
         .bar-btn.active-view { background: #4a9eff; color: #fff; }
         /* 台词框双击就地编辑输入框（v0.9.8，复用卡片改名输入框同款外观）
@@ -738,41 +755,42 @@
         }
         #trashCount.on { display: inline-block; }
 
-        /* 右下角统计 (#8) */
-        #statsBadge {
+        /* 右下角统计 (#8) + 快捷键按钮（v0.9.21：并排一行，统计左、快捷键右） */
+        .corner-right {
             position: fixed;
             right: 16px;
             bottom: 16px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            z-index: 900;
+        }
+        #statsBadge {
             background: #252525;
             border: 1px solid #3a3a3a;
             border-radius: 6px;
             padding: 8px 12px;
             font-size: 12px;
             color: #999;
-            z-index: 900;
         }
         #statsBadge b { color: #e0e0e0; font-weight: 600; }
 
-        /* 右下角「快捷键」按钮 + 面板 (v0.9.4)：按钮在统计徽章上方，面板在按钮上方弹出 */
+        /* 「快捷键」按钮（在统计块右侧并排）+ 面板（v0.9.4：面板在按钮上方弹出） */
         .shortcuts-btn {
-            position: fixed;
-            right: 16px;
-            bottom: 60px;
             background: #252525;
             border: 1px solid #3a3a3a;
             color: #e0e0e0;
             border-radius: 6px;
-            padding: 6px 12px;
+            padding: 8px 12px;  /* 与统计块同高（对齐统一） */
             font-size: 12px;
             cursor: pointer;
-            z-index: 900;
         }
         .shortcuts-btn:hover { background: #333; }
         .shortcuts-btn.active { background: #4a9eff; color: #fff; }
         .shortcuts-panel {
             position: fixed;
             right: 16px;
-            bottom: 100px;
+            bottom: 58px;  /* v0.9.21：面板底距按钮顶 8px = 按钮之间间距（corner-right gap 8px） */
             width: 290px;
             max-height: 60vh;
             overflow-y: auto;
@@ -824,7 +842,7 @@
         .preview-panel {
             position: fixed;
             top: var(--header-h);
-            bottom: 100px;  /* v0.9.5：底部留白避开常驻组件（右下 statsBadge/快捷键按钮、左下工具条） */
+            bottom: 0;  /* v0.9.21：下沿顶到头（原 100px 留白取消）；详情区用 padding-bottom 避开按钮 */
             width: var(--preview-w);
             display: flex;
             flex-direction: column;
@@ -937,7 +955,9 @@
             font-size: 13px;
         }
         .preview-foot {
-            padding: 8px 14px;
+            /* v0.9.21：底部留白 = 工具条顶距底(61px) + 16px（工具条下沿到页面下沿的间距），
+               详情最后一行与工具条的间距 = 工具条与页面下沿的间距，视觉对称 */
+            padding: 8px 14px 77px;
             border-top: 1px solid #333;
             display: flex;
             flex-direction: column;

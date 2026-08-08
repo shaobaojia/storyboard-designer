@@ -41,7 +41,9 @@
 
     <div class="size-slider">
         <span class="slider-label">缩略图</span>
+        <button id="zoomOut" class="bar-btn zoom-step" title="缩小">−</button>
         <input type="range" id="sizeSlider" min="0" max="7" step="1" value="2">
+        <button id="zoomIn" class="bar-btn zoom-step" title="放大">+</button>
         <span class="slider-label" id="sizeValue">200px</span>
         <button id="viewToggle" class="bar-btn">列表视图</button>
         <button id="trashBtn" class="bar-btn">垃圾桶<span id="trashCount"></span></button>
@@ -50,7 +52,11 @@
         <button id="dialogueBtn" class="bar-btn" title="全局台词显示开关">台词</button>
     </div>
 
-    <div id="statsBadge">共 <b id="statTotal">0</b> · 已选 <b id="statSel">0</b></div>
+    <!-- v0.9.21：右下角容器——统计块（左）+ 快捷键按钮（右）并排 -->
+    <div id="cornerRight" class="corner-right">
+        <div id="statsBadge">共 <b id="statTotal">0</b> · 已选 <b id="statSel">0</b></div>
+        <button id="shortcutsBtn" class="shortcuts-btn" title="查看快捷键">快捷键</button>
+    </div>
 
     <div id="previewPanel" class="preview-panel side-right" style="display:none;">
         <div class="preview-resize" id="previewResize" title="拖拽调整宽度"></div>
@@ -75,9 +81,7 @@
         </div>
     </div>
 
-    <button id="shortcutsBtn" class="shortcuts-btn" title="查看快捷键">快捷键</button>
     <div id="shortcutsPanel" class="shortcuts-panel" style="display:none;"></div>
-
     <div id="createModal" class="modal-overlay" style="display:none;">
         <div class="modal">
             <h2>创建镜头</h2>
