@@ -2,7 +2,18 @@
 
 > 给下一个 Agent（或下一个自己）的交接备忘录。**收工推送前必须更新「刚做完 / 正在做 / 下一步 / 坑」四个字段。**
 
-## 刚做完（v0.9.29 六项：角标圆角三角 + 防文本选中 + 初始化门控 + 删当前帧 + 复制镜头，2026-08-08 已部署实测，版本号未升等推前统一）
+## 刚做完（v0.9.30：角标四条标准，2026-08-08 已部署实测，与 v0.9.29 六项一起推 GitHub）
+
+- **角标规格四条标准（用户拍板）**：①展开/折叠角标大小位置完全一致（严丝合缝一动不动）②镜头数字同样不动 ③角标宽 = 卡片宽 15% ④数字左上角 = 角标/卡片左上圆角轴心重合
+- **实现**：角标宽高 = `calc(var(--card-min) * 0.15)`（天然随缩放，**退役 --badge-scale 锚点机制**，zoom.js 删两处变量设置）；折叠态 -2px（抵消卡片 2px 透明 border）与展开态 0px（帧格 border:none 且第一帧格=原卡片位置）→ 两态原点都 = 卡片 border box 左上角；SVG 改直角三角 + CSS border-radius 8px（= 卡片圆角，轴心同心）；数字 padding 8px 0 0 8px + flex-start 左上对齐（左上角 = 圆角轴心 (8,8)），字号 = 角标宽 35% 随缩放
+- **三个隐藏根因（"角标动了"的真凶，已修）**：
+  ① `.shot-card overflow: hidden` 裁掉 -2px 定位的折叠角标 2px（视觉 38px vs 展开 40px）→ 改 visible（叠牌错位露边由 layer 图 box-shadow 呈现不受影响，frame-cell 早已 visible）
+  ② **焦点框 outline 是 CSS 绘制顺序（附录 E.2）最后阶段，穿透一切 z-index（实测 z=9999 压不住）**——展开态第一帧自动焦点框在角标斜边下缘划 2px 亮蓝线；外扩 box-shadow 同理穿透 → 焦点框改 `inset 0 0 0 2px var(--accent)`（图内蓝框，角标自然盖住，与列表 frame-focused border 同款语义）
+  ③ flex 容器内数字 ink 顶比行框顶高 1px（字体负 half-leading）→ padding-top 9px 补偿，数字左上角精确 (8,8)
+- 验证：4 条标准全列数（3/4/6/8 列）DOM 层 PASS + PIL 像素级（角标/卡片 45° 弧线逐像素一致、展开/折叠蓝色掩码对比、数字重心差 0.0px）；展开/折叠切换角标区域像素一致
+- 版本号 0.9.29 → 0.9.30（bl_info + 关于徽章；v0.9.29 六项当时未升号，本次推前统一）
+
+## 刚做完（v0.9.29 六项：角标圆角三角 + 防文本选中 + 初始化门控 + 删当前帧 + 复制镜头，2026-08-08 已部署实测，随 v0.9.30 一起推）
 
 - **多图镜头角标 → 用户指定「包角」大三角**（button.stack-badge 80×80 贴卡片左上角 top:0 left:0，像角形包一沓纸：直角在右上、斜边直落左下、左上大圆角——用户 SVG path 原样缩放 base64 内联；数字 14px 放三角重心（flex padding-top 24 + text-indent -11）；hover filter brightness(1.08)；展开态 expanded-badge 26px 同形状（padding 4 + text-indent -3）；品牌蓝两皮肤一致硬编码 rgba(74,158,255,0.92)）
 - **全站防文本选中（修"框选蓝块/拖台词条蓝块"）**：根因 = 展示区文本无 user-select 保护 + marquee mousedown / 台词条·卡片拖拽 pointerdown 均无 preventDefault，真实鼠标拖动启动浏览器原生文本选择（蓝底高亮大块）。修 = body 全局 `user-select: none` + `input, textarea { user-select: text }` 恢复编辑控件 + marquee.js mousedown 起点 `e.preventDefault()`。框选/拖拽/其它页（镜头名/相机名）全部不再选中文本
@@ -169,7 +180,7 @@
 
 ## 正在做
 
-- 无进行中任务（v0.9.28 已交付，2026-08-08 推 GitHub）
+- 无进行中任务（v0.9.30 已交付，2026-08-08 推 GitHub）
 
 ## 下一步
 
@@ -271,6 +282,9 @@ CREATE INDEX IF NOT EXISTS idx_frames_shot ON frames(shot_id);
 
 ## 坑（已踩过的雷）
 
+- **v0.9.30：CSS 绘制顺序（附录 E.2）——outline 是所有元素最后统一绘制的阶段，穿透一切 z-index（实测 z=9999 压不住）；外扩 box-shadow 同理**。凡"画在元素外边缘"的指示层（焦点框/选中框），要么用 inset（画进元素内，被更高 z 元素正常盖住），要么接受会被盖。宫格 frame-focused 焦点框已改 inset box-shadow（列表 border 焦点框无此问题——border 在元素内）
+- **v0.9.30：.shot-card overflow: hidden 会裁掉 absolute 负偏移子元素**（折叠角标 top/left -2px 被裁 2px，视觉 38px vs 展开 40px，"展开/折叠角标动了"的隐藏根因）——overflow 容器内负偏移定位元素必查裁切
+- **v0.9.30：flex 容器内文本的 ink 顶比行框顶高 1px（字体负 half-leading）**——"数字左上角对齐"类需求（Range.getClientRects 实测 relY=7 vs padding 8），要 padding-top 补偿 1px 才能让 ink 左上角精确落在目标点
 - **v0.9.28：register() 函数内写 `import bpy.utils.previews` 会静默搞挂插件注册**——import 语句让 bpy 变函数级局部变量，函数内前面的 `bpy.utils.register_class(cls)` 反炸 `UnboundLocalError: cannot access local variable 'bpy'`；症状 = addons 显示已启用但 sys.modules 无模块、8089 不起 9876 正常。修 = `from bpy.utils import previews as _previews`。诊断 = 拉起时 stdout 重定向（`blender.exe file.blend > log 2>&1`）抓 register Traceback，别对着模块顶层代码猜
 - **v0.9.28：UILayout.separator(factor) 在子 Panel 面板里视觉不生效**（调了不报错但间隔无变化；hasattr 也查不到 separator）——收紧两行按钮垂直间距用 `column(align=True)` 包两行（align 列内行距比默认小），别换 factor 值试
 - **v0.9.28：Blender 按钮图标永远渲染在文本左边**——要"图标在右"（如导航 ◀/▶ 方向语义）只能文本内嵌字符，去掉 icon 参数

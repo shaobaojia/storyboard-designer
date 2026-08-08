@@ -270,7 +270,11 @@
         .shot-card {
             background: var(--bg-card);
             border-radius: 8px;
-            overflow: hidden;
+            /* v0.9.30：overflow 改 visible——hidden 会把 -2px 定位的角标裁掉 2px
+               （折叠角标视觉 38px vs 展开 40px，展开/折叠"角标动了"的根因）；
+               frame-cell 早已 visible（v0.9.5）。叠牌错位露边由 layer 图自带
+               box-shadow 呈现，不受影响；若未来有内容需裁切，改用 frame-stack 内裁 */
+            overflow: visible;
             /* v0.9.5：全程默认光标——去掉 grab（悬停/按下闪现抓手样式；
                DnD 会话期间浏览器光标由 dropEffect 决定 = 默认箭头） */
             cursor: default;
@@ -353,35 +357,40 @@
         .frame-stack .cover { z-index: 4; }
         /* 左上角张数角标（v0.9.26：选择器加 button 前缀——防 v0.9.24 的 [data-tip]{position:relative}
            同特异性靠后覆盖把 absolute 拉回流内，角标掉到图下方）
-           v0.9.29b：胶囊/小三角 → 用户给的「包角」大三角（80px 盖住卡片左上角，
-           直角在右上、斜边直落左下、左上大圆角；用户 SVG path 原样缩放，
-           品牌蓝两种皮肤一致，硬编码安全；hover 用 brightness 提亮） */
+           v0.9.29b：胶囊/小三角 → 用户给的「包角」大三角（直角在右上、斜边直落左下、
+           左上大圆角；用户 SVG path 原样缩放，品牌蓝两种皮肤一致，硬编码安全）
+           v0.9.30 规格（用户拍板四条标准）：
+           ① 展开/折叠角标大小位置完全一致——折叠 -2px 抵消卡片 2px 透明 border、
+              展开 0px（帧格无 border 且第一帧格 = 原卡片位置）→ 两态原点都 = 卡片
+              border box 左上角，切换时角标一动不动
+           ② 角标宽 = 卡片宽 15%（calc(var(--card-min) * 0.15)，天然随缩放，无锚点）
+           ③ 圆角恒 8px = 卡片圆角，轴心与卡片同心；数字左上角 = 圆角轴心 (8,8)
+              （padding 8px + flex-start 左上对齐），展开/折叠数字不动 */
         button.stack-badge {
             position: absolute;
-            top: 0;
-            left: 0;
+            top: -2px;
+            left: -2px;
             z-index: 5;
-            width: 80px;
-            height: 80px;
-            padding: 24px 0 0 0;
+            width: calc(var(--card-min, 200px) * 0.15);
+            height: calc(var(--card-min, 200px) * 0.15);
+            padding: 9px 0 0 8px;  /* 顶 9px 补偿字形 ink 负 half-leading（行框 8px，ink 顶实测 7px → 9px 后 ink 顶 = 8px = 轴心） */
             border: none;
             cursor: pointer;
-            background: url("data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI4MCIgaGVpZ2h0PSI4MCIgdmlld0JveD0iMCAwIDEwMjQgMTAyNCI+PHBhdGggZD0iTTAgMTAyNFYyOTIuNjA5MjM1QTI5Mi42MDkyMzUgMjkyLjYwOTIzNSAwIDAgMSAyOTIuNjA5MjM1IDBoNzMxLjM5MDc2NXoiIGZpbGw9InJnYmEoNzQsMTU4LDI1NSwwLjkyKSIvPjwvc3ZnPg==") no-repeat center / 100% 100%;
+            border-radius: 8px;  /* = 卡片圆角，轴心 (8,8) 与卡片同心 */
+            background: url("data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI4MCIgaGVpZ2h0PSI4MCIgdmlld0JveD0iMCAwIDEwMjQgMTAyNCI+PHBhdGggZD0iTTAgMTAyNCBWMCBIMTAyNCBaIiBmaWxsPSJyZ2JhKDc0LDE1OCwyNTUsMC45MikiLz48L3N2Zz4=") no-repeat center / 100% 100%;
             color: var(--text-strong);
-            font-size: 14px;
+            font-size: calc(var(--card-min, 200px) * 0.0525);  /* = 角标宽 35%，随缩放 */
             font-weight: 700;
+            line-height: 1;
             display: flex;
-            align-items: flex-start;
-            justify-content: center;
-            text-indent: -11px;   /* 数字放三角重心（29,29）附近：水平中心 40 → 左移 11 */
+            align-items: flex-start;   /* 数字左上角对齐圆角轴心 (8,8)（padding 8px 起） */
+            justify-content: flex-start;
         }
         button.stack-badge:hover { filter: brightness(1.08); }
         .stack-badge.expanded-badge {
-            top: 9px; left: 9px; z-index: 6;
-            width: 26px; height: 26px;
-            padding: 4px 0 0 0;
-            font-size: 12px;
-            text-indent: -3px;    /* 26px 三角重心 (9.5,9.5) */
+            /* 帧格 border:none（.shot-card.frame-cell 覆盖）→ 0px 即 border box 原点，
+               与折叠态 -2px（卡片 2px border）落在同一位置 */
+            top: 0; left: 0; z-index: 6;
         }
         /* 展开态帧格：占一格，深色背景自然连片成组 */
         .shot-card.frame-cell {
@@ -423,9 +432,17 @@
             position: relative;
             z-index: 1;
         }
-        /* 焦点帧蓝框（v0.8.1）：跟手点击，默认落封面；封面身份降级为角标，不再抢焦点框 */
+        /* 焦点帧蓝框（v0.8.1）：跟手点击，默认落封面；封面身份降级为角标，不再抢焦点框
+           v0.9.30：outline → box-shadow——outline 是 CSS 绘制顺序（附录 E.2）最后阶段，
+           穿透所有 z-index：展开态焦点框会盖住角标（z=6 压不住 outline），
+           展开/折叠角标视觉不一致（"角标动了"的最后一环）。box-shadow 参与 z 排序，
+           被角标正常压住；视觉等价（2px accent 外扩环，跟随圆角），与列表 frame-focused 同款 */
         .shot-card.frame-cell .frame-img.frame-focused {
-            outline: 2px solid var(--accent);
+            /* v0.9.30：焦点框用 inset box-shadow——外扩的 outline/box-shadow 都绘制在
+               角标之上（外阴影层级不受 z-index 压制，实测 z=9999 也压不住），
+               展开态焦点框会在角标斜边下缘划一道亮蓝线。inset 画在图内边缘
+               （同列表 border 焦点框语义），角标自然盖住重叠区 */
+            box-shadow: inset 0 0 0 2px var(--accent);
         }
         .shot-card.frame-cell {
             position: relative;
