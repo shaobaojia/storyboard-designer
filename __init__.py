@@ -1,7 +1,7 @@
 bl_info = {
     "name": "Storyboard Designer",
     "author": "邵保家",
-    "version": (0, 9, 27),
+    "version": (0, 9, 28),
     "blender": (4, 5, 0),
     "location": "View3D > Sidebar > Storyboard",
     "description": "Quick previs/storyboard design system",
@@ -26,6 +26,17 @@ from core.server import start_server, stop_server, get_server
 from core.queue import queue_command, ensure_timer
 from core.paths import get_project_dir as _get_project_dir
 from core.sync import sync_scenes_with_db
+
+# 自定义图标（v0.9.28：面板标题栏剪刀，借鉴 ARP 品牌 header）
+_sb_icons = None
+
+
+def _get_sb_icon(name):
+    """按名取自定义图标 icon_id，未加载/缺文件返回 -1（安全回退，ARP 同款防御）"""
+    global _sb_icons
+    if _sb_icons is None:
+        return -1
+    return _sb_icons[name].icon_id if name in _sb_icons else -1
 
 
 class STORYBOARD_OT_sync_scenes(bpy.types.Operator):
@@ -433,87 +444,135 @@ class STORYBOARD_PT_panel(bpy.types.Panel):
     bl_region_type = 'UI'
     bl_category = "Storyboard"
 
+    def draw_header(self, context):
+        # v0.9.28：品牌图标（借鉴 ARP draw_header，缺图标回退内置 NONE 不影响标题）
+        icon_id = _get_sb_icon('sb_logo')
+        self.layout.label(text='', icon_value=icon_id)
+
     def draw(self, context):
+        # 主面板留空：内容全在子卷展（v0.9.28 拆 5 个独立子 Panel，借鉴 ARP bl_parent_id 结构）
         layout = self.layout
-        scene = context.scene
+        layout.separator()
 
-        # ── 标题行：作品署名（v0.9.27 布局改版：三分区，署名压小）──
-        author = bl_info.get('author', '')
-        email = bl_info.get('email', '')
-        layout.label(text=f"作者：{author}", icon='USER')
-        if email:
-            layout.label(text=email, icon='URL')
 
-        # ── 插件信息 ──
-        box = layout.box()
-        row = box.row()
-        row.label(text="插件信息", icon='INFO')
-        box.separator()
-        project_dir = _get_project_dir()
-        if project_dir and os.path.exists(project_dir):
-            row = box.row(align=True)
-            row.label(text=f"项目：{os.path.basename(project_dir)}", icon='FILE_FOLDER')
-            server = get_server()
-            if server and server.running:
-                row.label(text=f"服务：{server.port}", icon='URL')
-            else:
-                row.label(text="服务：启动中…", icon='TIME')
+class _SbSubPanel:
+    """子卷展公共基类（v0.9.28）"""
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = "Storyboard"
+    bl_parent_id = "VIEW3D_PT_storyboard"
+
+
+def _sb_draw_status_body(body):
+    project_dir = _get_project_dir()
+    project_ok = bool(project_dir) and os.path.exists(project_dir)
+    if project_ok:
+        row = body.row(align=True)
+        row.label(text=f"项目：{os.path.basename(project_dir)}", icon='FILE_FOLDER')
+        server = get_server()
+        if server and server.running:
+            row.label(text=f"服务：{server.port}", icon='URL')
         else:
-            row = box.row(align=True)
-            row.label(text="请先保存 .blend 文件", icon='ERROR')
-            row.operator("storyboard.init_project", text="初始化", icon='FILE_NEW')
+            row.label(text="服务：启动中…", icon='TIME')
+    else:
+        row = body.row(align=True)
+        row.label(text="请先保存 .blend 文件", icon='ERROR')
+        row.operator("storyboard.init_project", text="初始化", icon='FILE_NEW')
 
-        # ── 面板开关 ──
-        box = layout.box()
-        row = box.row()
-        row.label(text="面板开关", icon='WINDOW')
-        box.separator()
-        # 双端打开：桌面窗口「分镜管理器」（主）/ 浏览器「网页版」（次），tooltip 区分
-        row = box.row(align=True)
-        row.scale_y = 1.5
-        row.operator("storyboard.open_manager_webview", text="分镜管理器", icon='WINDOW')
-        row.operator("storyboard.open_manager", text="网页版", icon='URL')
 
-        # ── 镜头操作 ──
-        box = layout.box()
-        row = box.row()
-        row.label(text="镜头操作", icon='TOOL_SETTINGS')
-        box.separator()
-        row = box.row(align=True)
-        row.operator("storyboard.create_shot", text="创建镜头", icon='ADD')
-        row.operator("storyboard.delete_shot", text="删除", icon='TRASH')
+def _sb_draw_open_body(body):
+    # 双端打开：桌面窗口「分镜管理器」（主）/ 浏览器「网页版」（次）
+    row = body.row(align=True)
+    row.scale_y = 1.5
+    row.operator("storyboard.open_manager_webview", text="分镜管理器", icon='WINDOW')
+    row.operator("storyboard.open_manager", text="网页版", icon='URL')
 
-        # Current scene info
-        if scene.camera:
-            row = box.row(align=True)
-            row.label(text=f"镜头：{scene.name}", icon='SCENE_DATA')
-            row.label(text=f"相机：{scene.camera.name}", icon='CAMERA_DATA')
-        else:
-            row = box.row()
-            row.label(text="无相机", icon='ERROR')
 
-        # 多图镜头（v0.8.0）：拍当前帧 + 已拍帧号列表（点帧号跳转查看/重拍）
-        if project_dir and os.path.exists(project_dir) and scene.camera:
-            shot, frames = _panel_db_read(project_dir, scene.name)
-            if shot:
-                row = box.row()
-                row.scale_y = 1.3
-                row.operator("storyboard.snap_frame", text="拍当前帧", icon='RENDER_STILL')
-                if frames:
-                    from core.db import MAX_FRAMES_PER_SHOT
-                    col = box.column(align=True)
-                    col.label(text=f"已拍帧 ({len(frames)}/{MAX_FRAMES_PER_SHOT}):", icon='SEQUENCE')
-                    row = col.row(align=True)
-                    for f in frames:
-                        missing = not f["image_path"] or not os.path.exists(f["image_path"])
-                        icon = 'ERROR' if missing else ('IMAGE_DATA' if f["is_cover"] else 'NONE')
-                        row.operator("storyboard.jump_frame",
-                                     text=f"F{f['frame_no']}", icon=icon).frame_no = f["frame_no"]
-                    # 上/下一个已拍帧导航：单独一行、按钮放大（v0.9.1 用户要求）
-                    nav = col.row(align=True)
-                    nav.scale_y = 1.4
-                    nav.operator("storyboard.step_frame", text="◀ 上一个", icon='BACK').direction = -1
-                    nav.operator("storyboard.step_frame", text="下一个 ▶", icon='FORWARD').direction = 1
+def _sb_draw_shot_info_body(body, scene):
+    if scene.camera:
+        body.label(text=f"镜头：{scene.name}", icon='SCENE_DATA')
+        body.label(text=f"相机：{scene.camera.name}", icon='CAMERA_DATA')
+    else:
+        body.label(text="无相机", icon='ERROR')
+
+
+def _sb_draw_shot_ops_body(body, scene):
+    row = body.row(align=True)
+    row.operator("storyboard.create_shot", text="创建镜头", icon='ADD')
+    row.operator("storyboard.delete_shot", text="删除", icon='TRASH')
+
+    project_dir = _get_project_dir()
+    if project_dir and os.path.exists(project_dir) and scene.camera:
+        shot, frames = _panel_db_read(project_dir, scene.name)
+        if shot:
+            row = body.row()
+            row.scale_y = 1.3
+            row.operator("storyboard.snap_frame", text="拍当前帧", icon='RENDER_STILL')
+            if frames:
+                # 帧号行 + 导航行放进同一 column(align=True)：
+                # align 列内行距比面板默认行距小，解决"间距有点大"
+                fr_col = body.column(align=True)
+                row = fr_col.row(align=True)
+                for f in frames:
+                    missing = not f["image_path"] or not os.path.exists(f["image_path"])
+                    icon = 'ERROR' if missing else ('IMAGE_DATA' if f["is_cover"] else 'NONE')
+                    row.operator("storyboard.jump_frame",
+                                 text=f"F{f['frame_no']}", icon=icon).frame_no = f["frame_no"]
+                nav = fr_col.row(align=True)
+                nav.scale_y = 1.4
+                nav.operator("storyboard.step_frame", text="◀ 上一个").direction = -1
+                nav.operator("storyboard.step_frame", text="下一个 ▶").direction = 1
+
+
+def _sb_draw_about_body(body):
+    version = '.'.join(str(x) for x in bl_info.get('version', ()))
+    body.label(text=f"版本：v{version}", icon='FILE_BLEND')
+    body.label(text=f"作者：{bl_info.get('author', '')}", icon='USER')
+    email = bl_info.get('email', '')
+    if email:
+        body.label(text=email, icon='URL')
+
+
+class STORYBOARD_PT_status(_SbSubPanel, bpy.types.Panel):
+    bl_idname = "VIEW3D_PT_sb_status"
+    bl_label = "项目状态"
+
+    def draw(self, context):
+        _sb_draw_status_body(self.layout)
+
+
+class STORYBOARD_PT_open(_SbSubPanel, bpy.types.Panel):
+    bl_idname = "VIEW3D_PT_sb_open"
+    bl_label = "面板开关"
+
+    def draw(self, context):
+        _sb_draw_open_body(self.layout)
+
+
+class STORYBOARD_PT_shot_info(_SbSubPanel, bpy.types.Panel):
+    bl_idname = "VIEW3D_PT_sb_shot_info"
+    bl_label = "镜头信息"
+
+    def draw(self, context):
+        _sb_draw_shot_info_body(self.layout, context.scene)
+
+
+class STORYBOARD_PT_shot_ops(_SbSubPanel, bpy.types.Panel):
+    bl_idname = "VIEW3D_PT_sb_shot_ops"
+    bl_label = "镜头操作"
+
+    def draw(self, context):
+        _sb_draw_shot_ops_body(self.layout, context.scene)
+
+
+class STORYBOARD_PT_about(_SbSubPanel, bpy.types.Panel):
+    bl_idname = "VIEW3D_PT_sb_about"
+    bl_label = "关于"
+    # 默认收起（ARP 同款 DEFAULT_CLOSED，展开状态 Blender 自动记忆）
+    bl_options = {'DEFAULT_CLOSED'}
+
+    def draw(self, context):
+        _sb_draw_about_body(self.layout)
 
 
 # --- Registration ---
@@ -531,6 +590,11 @@ classes = (
     STORYBOARD_OT_step_frame,
     STORYBOARD_OT_delete_shot,
     STORYBOARD_PT_panel,
+    STORYBOARD_PT_status,
+    STORYBOARD_PT_open,
+    STORYBOARD_PT_shot_info,
+    STORYBOARD_PT_shot_ops,
+    STORYBOARD_PT_about,
 )
 
 
@@ -589,6 +653,19 @@ def _on_file_loaded(*_args):
 def register():
     for cls in classes:
         bpy.utils.register_class(cls)
+    # 自定义图标（v0.9.28：面板标题栏品牌 logo，加载失败静默回退无图标）
+    # 注意：不能在函数内写 import bpy.utils.previews——import 语句会让 bpy 变函数级
+    # 局部变量，前面的 bpy.utils.register_class 反炸 UnboundLocalError（本轮实测）
+    global _sb_icons
+    try:
+        from bpy.utils import previews as _previews
+        _sb_icons = _previews.new()
+        png = os.path.join(addon_dir, 'icons', 'panel_icon.png')
+        if os.path.exists(png):
+            _sb_icons.load('sb_logo', png, 'IMAGE')
+    except Exception as e:
+        print(f"[Storyboard] custom icon load failed: {e}")
+        _sb_icons = None
     bpy.app.handlers.load_post.append(_on_file_loaded)
     bpy.app.handlers.save_post.append(_on_file_loaded)
     # 插件在已打开文件里启用时立即尝试
@@ -597,12 +674,15 @@ def register():
 
 def unregister():
     stop_server()
-    global _auto_sync_registered
+    global _auto_sync_registered, _sb_icons
     try:
         bpy.app.timers.unregister(_auto_sync)
     except Exception:
         pass
     _auto_sync_registered = False
+    if _sb_icons is not None:
+        bpy.utils.previews.remove(_sb_icons)
+        _sb_icons = None
     for h in (bpy.app.handlers.load_post, bpy.app.handlers.save_post):
         if _on_file_loaded in h:
             h.remove(_on_file_loaded)

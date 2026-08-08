@@ -2,6 +2,15 @@
 
 > 给下一个 Agent（或下一个自己）的交接备忘录。**收工推送前必须更新「刚做完 / 正在做 / 下一步 / 坑」四个字段。**
 
+## 刚做完（v0.9.28：面板卷展条化 + ARP 布局借鉴 + 导航按钮调整，2026-08-08 已部署，推前干净空库全量 42/42+12/12+23/23 全 PASS）
+
+- **Blender 面板改为 5 个原生卷展条（layout.panel 内嵌 → 独立子 Panel 类）**：主面板 STORYBOARD_PT_panel 只留 draw_header（品牌图标）+ 空 draw；5 个子面板（STORYBOARD_PT_status 项目状态 / PT_open 面板开关 / PT_shot_info 镜头信息 / PT_shot_ops 镜头操作 / PT_about 关于）继承公共基类 `_SbSubPanel`（bl_parent_id=VIEW3D_PT_storyboard），全部默认展开，**「关于」DEFAULT_CLOSED 默认收起**（ARP 同款，展开状态 Blender 自动记忆）；正文抽成 `_sb_draw_*_body` 模块级函数
+- **镜头信息拆分**：镜头/相机各占一行（原同排 row 窄面板必截断）；**镜头操作拆子卷展**：创建/删除 + 拍当前帧 + 帧号按钮 + 导航
+- **删「已拍帧 (N/5):」标签行**；帧号行与导航行间距收紧（separator 在面板不生效 → 两行收进同一 `column(align=True)`，用户实测确认）；导航按钮改「◀ 上一个 / 下一个 ▶」（图标恒在文本左，右置只能文本内嵌字符——曾换 icon='BACK'/'FORWARD' 又被用户纠正回来）
+- **面板标题栏品牌剪刀图标（draw_header + custom icons）**：`icons/panel_icon.png`（32px RGBA，scripts/sb_icon.svg → svglib+renderPM 转换）；register() 里 `from bpy.utils import previews` 加载（**不能写 `import bpy.utils.previews`——bpy 变函数级局部变量，register_class 反炸 UnboundLocalError，插件静默加载失败**，已记 skill pitfall 199/206）；unregister 释放；`_get_sb_icon()` 缺图标防御 -1
+- 版本号 0.9.27 → 0.9.28（bl_info + 关于徽章）
+- 推前验证：干净空库（C:/Users/54718/AppData/Local/hermes/tmp/audit_v0928/audit_clean.blend + make_std_shots STD 10 镜头）全量 42/42+12/12+23/23 全 PASS，无残留，切回正式工程（storyboard_test.blend 77 镜头完好）
+
 ## 刚做完（v0.9.27：窗口图标真修复 + 其它页提速 + 面板三分区 + 折叠按钮翻倍 + 其它页隐藏创建 + 皮肤系统，2026-08-08 已部署，推前干净空库全量 42/42+12/12+23/23 全 PASS）
 
 - **PyWebView 窗口标题栏图标——真正根因（v0.9.26 的 WM_SETICON 回设被证伪）**：真实根因 = **WS_EX_TOOLWINDOW（工具窗口样式）**，DWM 对 toolwindow 标题栏不绘制窗口图标（深浅色无关，v0.9.26 结论"深色重绘不重读图标"是错的）。用户线索"创建瞬间闪白标题栏有图标"= on_started 里 sleep 1.0 期间还是普通窗口样式，attach_to_blender 加 TOOLWINDOW 后图标消失。修 = attach_to_blender **不再加 WS_EX_TOOLWINDOW**——悬浮化（不进任务栏/Alt+Tab）由 owner 关系（owned 窗口默认不进任务栏）+ 去 WS_EX_APPWINDOW 保证；仅 Blender 窗口找不到（无 owner 保底）才退回落 toolwindow。验证：真实窗口去 tool 后图标区 #cdcdcd 像素 2→13、恢复 tool 又 13→2；裸 Win32 窗口实验证非 tool 浅色/深色都画图标。**诊断坑：PrintWindow(PW_RENDERFULLCONTENT) 拿不到 DWM 标题栏图标层（恒输出白色占位块），必须用 ImageGrab 屏幕真实像素采样**
@@ -151,7 +160,7 @@
 
 ## 正在做
 
-- 无进行中任务（v0.9.26 已交付，2026-08-08 推 GitHub）
+- 无进行中任务（v0.9.28 已交付，2026-08-08 推 GitHub）
 
 ## 下一步
 
@@ -253,6 +262,10 @@ CREATE INDEX IF NOT EXISTS idx_frames_shot ON frames(shot_id);
 
 ## 坑（已踩过的雷）
 
+- **v0.9.28：register() 函数内写 `import bpy.utils.previews` 会静默搞挂插件注册**——import 语句让 bpy 变函数级局部变量，函数内前面的 `bpy.utils.register_class(cls)` 反炸 `UnboundLocalError: cannot access local variable 'bpy'`；症状 = addons 显示已启用但 sys.modules 无模块、8089 不起 9876 正常。修 = `from bpy.utils import previews as _previews`。诊断 = 拉起时 stdout 重定向（`blender.exe file.blend > log 2>&1`）抓 register Traceback，别对着模块顶层代码猜
+- **v0.9.28：UILayout.separator(factor) 在子 Panel 面板里视觉不生效**（调了不报错但间隔无变化；hasattr 也查不到 separator）——收紧两行按钮垂直间距用 `column(align=True)` 包两行（align 列内行距比默认小），别换 factor 值试
+- **v0.9.28：Blender 按钮图标永远渲染在文本左边**——要"图标在右"（如导航 ◀/▶ 方向语义）只能文本内嵌字符，去掉 icon 参数
+- **v0.9.28：MCP 线程无 window context，自截图用 `bpy.app.timers.register` 包 `bpy.ops.screen.screenshot(filepath=...)`**，sleep 3s 后读文件；PIL 亮度/边缘分析对深色 UI 按钮边界分辨力差，布局微调以用户目检为准
 - **v0.9.27：WS_EX_TOOLWINDOW 的窗口标题栏 DWM 不绘制图标**（pywebview 窗口实测，深浅色无关）——悬浮化别用 TOOLWINDOW，owner 关系（owned 窗口默认不进任务栏/Alt+Tab）+ 去 WS_EX_APPWINDOW 已足够；仅无 owner 时才退回落 toolwindow。v0.9.26 的"深色重绘不重读 WM_SETICON"结论是错的（回设无效），真正的用户线索 = 创建瞬间（on_started sleep 1.0 期间）还是普通窗口所以有图标
 - **v0.9.27：PrintWindow(PW_RENDERFULLCONTENT) 拿不到 DWM 标题栏图标层**（恒输出白色占位块）——诊断"图标画没画"必须 ImageGrab 屏幕真实像素（PrintWindow 只适用于客户区内容）
 - **v0.9.27：批量行号替换脚本的行号偏移会算错**——文件插入/删除后旧行号→新行号偏移必须用**锚点行动态反推**（找文件中唯一标志串定位），别手算插入行数（两次踩坑：差 3、差 1）。且"同值不同义"的颜色必须行级映射拆分，值级默认映射会混语义
