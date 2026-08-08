@@ -158,10 +158,18 @@ grid.addEventListener('click', (e) => {
     if (card.classList.contains('frame-cell') && card.dataset.frameId) {
         focusFrame(card.dataset.id, card.dataset.frameId);
     } else {
-        // 点击非帧格卡片：清除所有帧焦点，避免残留蓝框（v0.9.2 含列表 frame-thumb）
-        state.focusedFrameId = null;
-        grid.querySelectorAll('.frame-img.frame-focused, .frame-thumb.frame-focused')
-            .forEach(el => el.classList.remove('frame-focused'));
+        // v0.9.30b：点击折叠态多图卡片 → 焦点落封面帧（焦点框盖在封面上）；
+        // 单图/无帧镜头保持清焦点（.selected 边框即选中表达）
+        const _shot = state.shots.find(s => s.id === card.dataset.id);
+        const _frames = (_shot && _shot.frames) || [];
+        const _cover = _frames.find(f => f.isCover) || _frames[0];
+        if (_frames.length > 1 && _cover) {
+            focusFrame(card.dataset.id, _cover.id);
+        } else {
+            state.focusedFrameId = null;
+            grid.querySelectorAll('.frame-img.frame-focused, .frame-thumb.frame-focused')
+                .forEach(el => el.classList.remove('frame-focused'));
+        }
     }
     updatePreview();  // v0.9.4：点击卡片/帧格后预览框跟随（大图 = 焦点帧或封面）
 });

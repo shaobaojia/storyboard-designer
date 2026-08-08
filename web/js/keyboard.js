@@ -81,8 +81,18 @@ function arrowMove(e) {
     } else {
         state.selectedIds = new Set([target.shotId]);
         state.anchorId = target.shotId;
-        state.focusedFrameId = target.frameId || null;
-        focusFrame(target.shotId, target.frameId || null);  // 同步蓝框（展开态帧格级）
+        // v0.9.30b：方向键选中折叠态多图 → 焦点落封面帧（与鼠标点击语义一致）
+        let fid = target.frameId;
+        if (!fid) {
+            const _shot = shots.find(s => s.id === target.shotId);
+            const _frames = (_shot && _shot.frames) || [];
+            if (_frames.length > 1) {
+                const _cover = _frames.find(f => f.isCover) || _frames[0];
+                fid = _cover ? _cover.id : null;
+            }
+        }
+        state.focusedFrameId = fid;
+        focusFrame(target.shotId, fid);  // 同步蓝框（展开态帧格级/折叠态封面级）
         state.lastClickId = target.shotId;  // v0.9.4：预览框跟随移动目标
     }
     updateSelectionUI();

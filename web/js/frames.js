@@ -188,7 +188,8 @@ export function collapseAnimated(shotId) {
     });
 
     // 2. 立即 toggle + renderGrid：帧格已脱离流，其他卡片 FLIP 直接开始
-    state.focusedFrameId = null;  // 折叠后清焦点，防止下次展开残留蓝框
+    // v0.9.30b：折叠不再清 focusedFrameId——折叠态多图封面帧保留焦点框
+    //（用户语义：焦点框盖在镜头上；下次展开 focusFirstFrame 会重置，无残留风险）
     toggleExpand(shotId);
     renderGrid();
 
@@ -228,7 +229,9 @@ export function focusFrame(shotId, frameId) {
     grid.querySelectorAll('.frame-img.frame-focused, .frame-thumb.frame-focused')
         .forEach(el => el.classList.remove('frame-focused'));
     if (frameId) {
-        grid.querySelectorAll(`.shot-card.frame-cell[data-id="${shotId}"] .frame-img[data-frame-id="${frameId}"], .shot-card.list-item[data-id="${shotId}"] .frame-thumb[data-frame-id="${frameId}"]`)
+        // v0.9.30b：选择器从 .shot-card.frame-cell 放宽到 .shot-card[data-id]——
+        // 折叠态多图封面帧（.frame-stack .frame-img.cover）也参与帧焦点（焦点框盖在封面上）
+        grid.querySelectorAll(`.shot-card[data-id="${shotId}"] .frame-img[data-frame-id="${frameId}"], .shot-card.list-item[data-id="${shotId}"] .frame-thumb[data-frame-id="${frameId}"]`)
             .forEach(el => el.classList.add('frame-focused'));
     }
 }

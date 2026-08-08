@@ -2,6 +2,16 @@
 
 > 给下一个 Agent（或下一个自己）的交接备忘录。**收工推送前必须更新「刚做完 / 正在做 / 下一步 / 坑」四个字段。**
 
+## 刚做完（v0.9.31：焦点框修复两连 + 滑块诊断结论，2026-08-08 已部署实测，与 v0.9.30/v0.9.29 一起推 GitHub）
+
+- **展开态焦点框丢失修复**（用户报告）：v0.9.30 把焦点框从 outline 改 inset box-shadow 的动机对（outline 穿透 z-index 在角标上划线），但 **inset box-shadow 绘制在 img 替换内容之下，实测不可见**（PIL 采样帧图边缘内侧无蓝）→ 展开态焦点框完全丢失
+- **折叠态多图焦点框"没盖在镜头上"修复**（用户报告）：折叠态 cover 图从无帧级焦点框（focusFrame 只处理展开态/列表；点击折叠态卡片只给 .selected 边框，边框离封面图 9px padding）→ 新语义（用户拍板）：点击折叠态多图 → 焦点落封面帧，蓝框盖在封面上；键盘方向键同语义
+- **实现**：img 是替换元素 ::after 伪元素同样不渲染（computed 有值但不绘制，实测）→ 最终方案 = **border 方案**（同列表 frame-thumb 焦点框）：全局 box-sizing: border-box 下 `.frame-img.frame-focused` 加 `border: 2px solid var(--accent)`，元素尺寸不变（内容区缩 4px 由 object-fit cover 吸收），角标（z=6）正常盖住重叠区（v0.9.30 语义保持）
+- **联动改动**：①render.js stackHtml 折叠态 cover 按 focusedFrameId（属于本镜头任意帧即显示）带 frame-focused；②render.js 差分复用分支同步 cover 的 frame-focused（复用不重建 DOM——折叠保留焦点缺失的隐藏坑）；③frames.js focusFrame 选择器从 `.frame-cell` 放宽到 `.shot-card[data-id]`（覆盖折叠态 cover）+ 折叠动画不再清 focusedFrameId（下次展开 focusFirstFrame 重置，无残留）；④main.js 点击折叠态多图 → 焦点落封面帧（单图仍清焦点）；⑤keyboard.js 方向键选中折叠态多图 → 同语义
+- 验证：WebBridge DOM 断言 + PIL 像素（折叠封面/展开焦点帧边缘内侧均采到 accent 蓝）+ 折叠保留焦点 + 帧级点击跟手 + 键盘方向键 + 单图清焦点 + 回归（视图切换 77 卡/缩放正常）
+- **缩放条"失灵"诊断结论（未改代码）**：滑块逻辑正常（宫格/列表合成 input 驱动均验证：363→128px / 215→127px）；CDP 真实拖动无效 = 测试通道限制（CDP mouseMoved 对原生 range 只送达第一次 + release 变 pointercancel，重启 daemon 复测仍无效）；elementFromPoint 滑块条全命中无覆盖；**打开页面滑块就在最大值（value=max），放大方向天然拖不动，v0.9.26 去文字后用户看不出已到顶**——体验待用户实测确认，若仍失灵需用户提供具体场景
+- 版本号 0.9.30 → 0.9.31（bl_info + 关于徽章；v0.9.30/v0.9.29 当时未升号，本次推前统一）
+
 ## 刚做完（v0.9.30：角标四条标准，2026-08-08 已部署实测，与 v0.9.29 六项一起推 GitHub）
 
 - **角标规格四条标准（用户拍板）**：①展开/折叠角标大小位置完全一致（严丝合缝一动不动）②镜头数字同样不动 ③角标宽 = 卡片宽 15% ④数字左上角 = 角标/卡片左上圆角轴心重合
@@ -281,6 +291,11 @@ CREATE INDEX IF NOT EXISTS idx_frames_shot ON frames(shot_id);
 | Edge | 不杀！开着一直复用 |
 
 ## 坑（已踩过的雷）
+
+- **v0.9.31：img 是替换元素——inset box-shadow 绘制在替换内容之下不可见、::after/::before 伪元素 computed 有值但不渲染**（实测双击确认）。凡要在 img 上画"盖在图上"的框，唯一边际成本最低的方案 = **border + 全局 box-sizing: border-box**（元素尺寸不变、内容区缩 4px 由 object-fit cover 吸收，同列表 frame-thumb 焦点框语义）；outline 穿透 z-index（v0.9.30 已踩）也不行。替换元素上做视觉层三连坑：outline（E.2 最后绘制）✗ / inset box-shadow（内容之下）✗ / ::after（不渲染）✗ / border（唯一正解）✓
+- **v0.9.31：差分渲染复用分支不重建 DOM——新增 class 语义（如折叠态封面焦点框）必须同步进复用分支**，只改新建路径（stackHtml）会在"初始渲染后状态变化 + renderGrid"场景静默失效（复用旧元素不走新建模板）；判别：手动 toggle + renderGrid 新建路径有效、实际交互路径无效 = 复用分支漏同步
+- **v0.9.31：CDP 无法驱动原生 range 滑块拖动**（mousePressed 不触发跳值、mouseMoved 只送达第一次、release 变 pointercancel——重启 daemon 复测仍无效，非抖动）：滑块类交互自动化验证 = 合成 input 事件（setter + dispatch input 监听器可达主世界）驱动 JS 逻辑 + elementFromPoint 命中检测，真实拖拽路径留用户实测；CDP 拖动滑块失败**不是产品 bug 证据**
+- **v0.9.31：滑块初始 value = nMax - cols（宫格模式）——打开页面即最大值档**（localStorage sb-cols 持久化），放大方向天然 clamp 无效果，v0.9.26 去滑块文字后用户看不出已到顶，易被报"缩放条失灵"；诊断先读 sizeSlider.value/max/min 三件套，别对着"拖不动"改 JS
 
 - **v0.9.30：CSS 绘制顺序（附录 E.2）——outline 是所有元素最后统一绘制的阶段，穿透一切 z-index（实测 z=9999 压不住）；外扩 box-shadow 同理**。凡"画在元素外边缘"的指示层（焦点框/选中框），要么用 inset（画进元素内，被更高 z 元素正常盖住），要么接受会被盖。宫格 frame-focused 焦点框已改 inset box-shadow（列表 border 焦点框无此问题——border 在元素内）
 - **v0.9.30：.shot-card overflow: hidden 会裁掉 absolute 负偏移子元素**（折叠角标 top/left -2px 被裁 2px，视觉 38px vs 展开 40px，"展开/折叠角标动了"的隐藏根因）——overflow 容器内负偏移定位元素必查裁切
