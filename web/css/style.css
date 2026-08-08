@@ -800,6 +800,7 @@
             padding: 10px 12px;
             z-index: 950;
             box-shadow: 0 4px 16px rgba(0,0,0,.5);
+            cursor: default;  /* v0.9.22：文本 hover 光标固定箭头，不做任何变化 */
         }
         /* v0.9.5 弹簧动画：开 = 弹入（translateY+scale overshoot），关 = 先弹走再隐藏 */
         .shortcuts-panel { transform-origin: bottom right; }
@@ -1037,6 +1038,81 @@
         .modal .btn-cancel:hover { background: #444; }
         .modal .btn-danger { background: #c0392b; color: #fff; }
         .modal .btn-danger:hover { background: #a93226; }
+
+        /* 画幅预设 chips（v0.9.22） */
+        .aspect-presets { display: flex; flex-wrap: wrap; gap: 6px; }
+        .preset-chip {
+            padding: 4px 10px;
+            border: 1px solid #3a3a3a;
+            border-radius: 4px;
+            background: #2a2a2a;
+            color: #bbb;
+            font-size: 12px;
+            cursor: pointer;
+        }
+        .preset-chip:hover { border-color: #4a9eff; color: #fff; }
+
+        /* 关于面板（v0.9.22）：主菜单 → 关于。大厂风——渐变品牌区 + 徽章版本号 + 等宽信息行 */
+        .about-modal {
+            position: relative;
+            width: 400px;
+            border-radius: 14px;
+            background: linear-gradient(180deg, #262a33 0%, #1a1c22 100%);
+            border: 1px solid rgba(255, 255, 255, 0.09);
+            box-shadow: 0 18px 60px rgba(0, 0, 0, 0.6);
+            overflow: hidden;
+            animation: aboutIn 0.22s ease-out;
+            cursor: default;  /* v0.9.22：面板文本 hover 光标固定箭头（按钮/链接例外显式覆盖） */
+        }
+        @keyframes aboutIn {
+            from { opacity: 0; transform: translateY(10px) scale(0.97); }
+            to   { opacity: 1; transform: none; }
+        }
+        .about-close {
+            position: absolute; top: 10px; right: 10px;
+            width: 28px; height: 28px;
+            border: none; border-radius: 7px;
+            background: transparent; color: #999;
+            font-size: 14px; cursor: pointer; line-height: 1; z-index: 1;
+        }
+        .about-close:hover { background: rgba(255, 255, 255, 0.08); color: #fff; }
+        .about-brand {
+            padding: 28px 24px 20px;
+            text-align: center;
+            background: linear-gradient(180deg, rgba(74, 158, 255, 0.14) 0%, rgba(74, 158, 255, 0) 100%);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+        }
+        .about-logo { width: 56px; height: 56px; color: #4a9eff; margin-bottom: 12px; }
+        .about-title { font-size: 18px; font-weight: 600; color: #f2f2f2; letter-spacing: 1px; }
+        .about-sub { font-size: 12px; color: #8a8f98; margin-top: 6px; }
+        .about-body {
+            padding: 18px 24px 14px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        .about-row {
+            display: grid;
+            grid-template-columns: 84px 1fr;
+            align-items: baseline;
+        }
+        .about-k { font-size: 12px; color: #777c85; }
+        .about-v { font-size: 12px; color: #d6d9de; }
+        .about-row code.about-v {
+            font-family: "Cascadia Mono", Consolas, monospace;
+            color: #4a9eff;
+            background: rgba(74, 158, 255, 0.08);
+            padding: 1px 6px;
+            border-radius: 4px;
+        }
+        .about-row a.about-v { color: #4a9eff; text-decoration: none; cursor: default; }  /* v0.9.22：链接光标也固定箭头（下划线保留提示可点） */
+        .about-row a.about-v:hover { text-decoration: underline; }
+        .about-foot {
+            padding: 12px 24px 16px;
+            font-size: 11px; color: #6b707a;
+            text-align: center;
+            border-top: 1px solid rgba(255, 255, 255, 0.05);
+        }
 
         /* 垃圾桶列表 */
         .trash-list { overflow-y: auto; flex: 1; }

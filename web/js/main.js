@@ -1,7 +1,7 @@
 // 入口：接线所有模块，启动心跳与首次拉取
 import { grid, state } from './state.js';
-import { syncViewToggleButton, toggleView, showSkeleton, renderGrid, initDialogueResize, initDialogueDrag, startDlgEdit } from './render.js';
-import { fetchShots, heartbeat, loadProjectTitle, openShot, openTimeline, syncScenes, forceRefresh } from './data.js';
+import { syncViewToggleButton, setView, toggleView, showSkeleton, renderGrid, initDialogueResize, initDialogueDrag, startDlgEdit } from './render.js';
+import { fetchShots, heartbeat, loadProjectTitle, openShot, openTimeline, syncScenes } from './data.js';
 import { cardClick } from './selection.js';
 import { initCardDnd, initFileDrop } from './dnd.js';
 import { startRename, startFieldEdit } from './rename.js';
@@ -18,18 +18,21 @@ import { initAspect, applyAspect } from './aspect.js';
 import { isExpanded, expandAnimated, collapseAnimated, jumpToFrame, initStackHover, focusFrame } from './frames.js';
 
 // ---- 头部按钮 ----
-document.getElementById('viewToggle').addEventListener('click', toggleView);
+// v0.9.22：宫格/列表拆成两个独立按钮（幂等直切），toggleView 保留给 Tab 快捷键
+document.getElementById('viewGridBtn').addEventListener('click', () => setView('grid'));
+document.getElementById('viewListBtn').addEventListener('click', () => setView('list'));
 document.getElementById('btnCreate').addEventListener('click', openCreateModal);
 document.getElementById('btnTimeline').addEventListener('click', openTimeline);
 
 // v0.9.18：右上角主菜单（三条横线图标）——Refresh 移入（原 header 按钮删除）
 // v0.9.21：Sync DB 按钮已移除（sync 由自动对账/启动时执行覆盖）
+// v0.9.22：Refresh 移除（forceRefresh 函数保留），主菜单只剩「关于」
 const menuBtn = document.getElementById('menuBtn');
 const mainMenu = document.getElementById('mainMenu');
 const fillMainMenu = () => {
     mainMenu.innerHTML = `
         <div class="menu-title">主菜单</div>
-        <button data-action="refresh">Refresh</button>
+        <button data-action="about" title="版本与项目信息">关于</button>
     `;
 };
 fillMainMenu();
@@ -47,7 +50,7 @@ mainMenu.addEventListener('click', (e) => {
     const btn = e.target.closest('button[data-action]');
     if (!btn) return;
     mainMenu.style.display = 'none';
-    if (btn.dataset.action === 'refresh') forceRefresh();
+    if (btn.dataset.action === 'about') openAbout();
 });
 document.addEventListener('click', (e) => {
     // 容错：合成事件 dispatch 到 document 时 target 无 closest（AGENTS.md 坑列表）
@@ -55,6 +58,28 @@ document.addEventListener('click', (e) => {
     if (t && t.closest && !t.closest('#mainMenu') && !t.closest('#menuBtn')) {
         mainMenu.style.display = 'none';
     }
+});
+
+// ---- 关于面板（v0.9.22）：主菜单 → 关于 ----
+// 版本号 = 产品版本（与 __init__.py bl_info.version 同步，升版时一起改）
+// 数据版本 = /api/version 的 "COUNT-rev"（DB 内容版本戳，动态拉取）
+const aboutModal = document.getElementById('aboutModal');
+function openAbout() {
+    fetch('/api/version').then(r => r.json()).then(d => {
+        const el = document.getElementById('aboutRev');
+        if (el && d && d.version) el.textContent = d.version;
+    }).catch(() => {});
+    aboutModal.style.display = 'flex';
+}
+function closeAbout() {
+    aboutModal.style.display = 'none';
+}
+document.getElementById('aboutClose').addEventListener('click', closeAbout);
+aboutModal.addEventListener('click', (e) => {
+    if (e.target === aboutModal) closeAbout();  // 点遮罩关闭
+});
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && aboutModal.style.display !== 'none') closeAbout();
 });
 
 // ---- 卡片交互（事件委托）----
@@ -153,7 +178,7 @@ initStackHover();  // 多图镜头折叠态悬停扫视（v0.7.0）
 
 // e2e 调试句柄：webbridge evaluate 走页面主世界时可直接驱动编排函数
 window.__aspectApply = applyAspect;  // loadProjectTitle 拉到项目画幅后调用
-window.__sb = { state, renderGrid, expandAnimated, collapseAnimated, isExpanded, toggleView,
+window.__sb = { state, renderGrid, expandAnimated, collapseAnimated, isExpanded, toggleView, setView,
     updatePreview, setPreview, setPreviewW, togglePreviewSide,
     toggleListMulti(shotId) {
         if (isExpanded(shotId)) collapseAnimated(shotId);

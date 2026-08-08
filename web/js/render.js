@@ -1164,8 +1164,11 @@ export function updateStats() {
 }
 
 // 视图切换（v0.9.2 丝滑过渡）：先定位到选中项，再以选中项为中心向外扩散 FLIP
-export function toggleView() {
-    state.viewMode = state.viewMode === 'grid' ? 'list' : 'grid';
+// v0.9.22：拆分「宫格视图/列表视图」两个独立按钮（setView 幂等直切），
+// toggleView 保留给 Tab 快捷键（keyboard.js）与 __sb 调试句柄
+export function setView(mode) {
+    if (state.viewMode === mode) return;
+    state.viewMode = mode;
     localStorage.setItem('sb-view', state.viewMode);
     syncViewToggleButton();
     grid.querySelectorAll('.shot-card').forEach(el => { el.dataset.key = ''; });
@@ -1182,8 +1185,13 @@ export function toggleView() {
     }
 }
 
+export function toggleView() {
+    setView(state.viewMode === 'grid' ? 'list' : 'grid');
+}
+
 export function syncViewToggleButton() {
-    const btn = document.getElementById('viewToggle');
-    btn.textContent = state.viewMode === 'grid' ? '列表视图' : '宫格视图';
-    btn.classList.toggle('active-view', state.viewMode === 'list');
+    const g = document.getElementById('viewGridBtn');
+    const l = document.getElementById('viewListBtn');
+    if (g) g.classList.toggle('active-view', state.viewMode === 'grid');
+    if (l) l.classList.toggle('active-view', state.viewMode === 'list');
 }

@@ -2,6 +2,16 @@
 
 > 给下一个 Agent（或下一个自己）的交接备忘录。**收工推送前必须更新「刚做完 / 正在做 / 下一步 / 坑」四个字段。**
 
+## 刚做完（v0.9.22：六项前端 + Delete bug 修复，2026-08-08 已部署+实测，全量 42/42+12/12+23/23 全 PASS）
+
+- **主菜单「关于」+ 大厂风面板**（main.js + index.html + style.css）：主菜单只剩「关于」（Refresh 已移除，forceRefresh 函数保留）；面板 = 渐变品牌区 + 剪刀 SVG logo（品牌蓝 #4a9eff）+ 产品名 + 徽章式版本号（**与 bl_info 同步，升版时一起改**）+ 数据版本（fetch /api/version 的 COUNT-rev 动态拉取）+ 作者/邮箱 mailto + 引擎/数据层/前端技术栈 + 页脚 © 2026；关闭 = ✕ / 点遮罩 / Esc；aboutIn 0.22s 淡入
+- **视图按钮拆分**：`#viewToggle` → `#viewGridBtn` + `#viewListBtn` 两个独立按钮（active-view 蓝底高亮当前视图、幂等直切）；render.js 抽 `setView(mode)`（幂等），`toggleView()` 包装保留给 Tab 快捷键 + `window.__sb` 句柄（**web_audit.py 用 `__sb.toggleView()` 驱动，保留则脚本零改动**；新挂编排函数必须同步进 __sb——本次 setView 漏挂探针 FAIL 才抓到）
+- **所有按钮 title hover 文字**：header/工具栏/预览框/主菜单 15 个静态按钮全补 title（Create Shot/Timeline/宫格/列表/垃圾桶等），动态菜单按钮（关于）也带
+- **快捷键清单补 Ctrl++/- 缩放**（v0.9.18 漏收录，SHORTCUTS 10 行）
+- **快捷键/关于面板文本 hover 光标固定 default**（cursor: default 继承，邮箱链接显式覆盖；关闭按钮等真按钮保留 pointer）
+- **画幅预设 19 chips**（aspect.js ASPECT_PRESETS）：电影工业（1.37/1.66/1.85/2.20/2.35/2.38/2.39/2.55/2.76:1）+ 屏幕（1:1/4:3/5:4/3:2/16:10/16:9/21:9）+ 竖屏（4:5/3:4/9:16）；点击 = 保持当前 H 按比例填 W（不自动提交，H 无效兜底 1080）
+- **Delete 帧级删除 bug 修复**（keyboard.js，用户实测确认）：选择器 `.frame-img.frame-focused` → `.frame-img.frame-focused, .frame-thumb.frame-focused`（列表蓝框漏匹配 → 误删整镜头，实测 3 镜头进垃圾桶）；shotId 双来源（宫格 closest('.frame-cell').dataset.id / 列表 frame-thumb.dataset.shotId 兜底）
+
 ## 刚做完（v0.9.21：三批十项，2026-08-08 已部署+实测）
 
 - **第一批**：①滑块两侧 +/- 步进按钮（zoom.js stepZoom 复用，与 Ctrl+滚轮/Ctrl++/- 同档位）②预览框时长/内容/台词双击就地编辑（rename.js startFieldEdit 判空适配非卡片元素 + preview.js currentShotId + dblclick 绑定；CDP 无 dblclick 但合成 dblclick dispatch 对 addEventListener 监听器有效——pitfall 21 的"无效"仅限 CDP 通道）③展开态折叠三角右移到「图右沿与底衬右沿 9px 间隔」上（collapse-btn right:9px→0）④Blender 端版本号+作品信息（bl_info author=邵保家、email=shaobaojia_313@163.com、version 0.9.21；面板 draw 顶部 v0.9.21·邵保家 + 邮箱两行）
@@ -92,7 +102,7 @@
 
 ## 正在做
 
-- 无进行中任务（v0.9.21 三批已交付，待推 GitHub 后进入下一轮）
+- 无进行中任务（v0.9.22 已交付，待推 GitHub 后进入下一轮）
 
 ## 下一步
 
@@ -194,6 +204,9 @@ CREATE INDEX IF NOT EXISTS idx_frames_shot ON frames(shot_id);
 
 ## 坑（已踩过的雷）
 
+- **v0.9.22：Delete 帧级删除选择器漏列表 class**（已修，用户实测确认）：keyboard.js `querySelector('.frame-img.frame-focused')` 只匹配宫格——列表展开态蓝框是 `.frame-thumb.frame-focused`（v0.9.2 双 class 机制），命中不到 → 落 deleteSelection() 误删整镜头（实测 3 镜头进垃圾桶）。修 = 双选择器 + shotId 双来源（宫格 closest('.frame-cell').dataset.id / 列表 frame-thumb.dataset.shotId 兜底）。**凡"帧级 vs 镜头级"判定，宫格/列表两视图 class 都要覆盖**（skill pitfall 172）
+- **v0.9.22：CSS grid 分列模板必须放实际子元素**（关于面板）：`.about-body { display:grid; grid-template-columns }` 对内部 `.about-row`（label/value 的直接父）不生效——row 内仍是 inline 流，label 和值连排一行。DOM 断言查不出（30/30 全 PASS），几何测量（label 列左缘交替/行高参差）才暴露（skill pitfall 169）
+- **v0.9.22：PIL 单点采样小字号文本会采到子像素 AA 条纹**（红/青/蓝三色偏，别当渲染 bug）：crop 区域 Counter 统计主色判定 + elementFromPoint/computed 交叉（skill pitfall 170）
 - **v0.9.20：pythonnet 控件属性赋值死锁（PyWebView 窗口假死 + 拖死 Blender 最小化）**：`native.ShowInTaskbar = False`（跨线程属性赋值）与 WebView2 初始化竞争 → UI 线程死锁 → 窗口外观正常但 WM_NULL 无响应（假死）；**作为 owned 窗口还会拖死 Blender 最小化**（ShowWindow 同步等 owned 窗口响应）。处置：纯 ctypes（SetWindowLongPtrW/SetWindowLongW）+ on_started 里 shown 后 sleep 1s 错开初始化。诊断：SendMessageTimeout(WM_NULL, SMTO_ABORTIFHUNG) 0=假死，立即 taskkill launcher 恢复 Blender
 - **v0.9.20：WebView2 CDP 限制三条**：①`Input.dispatchDragEvent` 完全无效（拖图测试用合成 DragEvent+File 主世界 dispatch，真建镜头）；②CDP 拒非 DevTools origin 的 WebSocket（403）→ 必须 `--remote-allow-origins=*`（pywebview 的 REMOTE_DEBUGGING_PORT 带不了额外参数 → 环境变量 + edgechromium.py 补丁合并）；③CDP 键盘事件可达主世界（keydown 计数实测），空格展开测试必须选多图镜头（单图被 multiShots 过滤静默跳过）
 - **v0.9.20：cairosvg 破坏 rlPyCairo**：装 cairosvg（带 cairocffi）后 rlPyCairo 优先走 cairocffi → 找不到 libcairo DLL 全崩；SVG→ICO 转换用 svglib + reportlab `drawToPIL(backendFmt='RGBA')`（drawToFile 无 alpha）+ PIL 存多尺寸 ICO；转换后必须自查（角落 alpha=0）

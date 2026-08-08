@@ -9,6 +9,30 @@ import { toast } from './ui.js';
 
 const STYLE_ID = 'aspectStyle';
 
+// 常用长宽比预设（v0.9.22）：电影工业 + 屏幕 + 摄影 + 竖屏，点击填充 W/H
+// （保持当前 H 不变，W = round(H × ratio)；H 无效时按 1080 兜底）
+export const ASPECT_PRESETS = [
+    { label: '1:1', ratio: 1 },
+    { label: '4:3', ratio: 4 / 3 },
+    { label: '5:4', ratio: 5 / 4 },
+    { label: '3:2', ratio: 3 / 2 },
+    { label: '16:10', ratio: 16 / 10 },
+    { label: '16:9', ratio: 16 / 9 },
+    { label: '21:9', ratio: 21 / 9 },
+    { label: '1.37:1', ratio: 1.37 },   // 学院比例（有声电影）
+    { label: '1.66:1', ratio: 1.66 },   // 欧洲宽银幕
+    { label: '1.85:1', ratio: 1.85 },   // 美国学院宽银幕
+    { label: '2.20:1', ratio: 2.2 },    // 70mm
+    { label: '2.35:1', ratio: 2.35 },   // 变形宽银幕 35mm
+    { label: '2.38:1', ratio: 2.38 },   // 变形宽银幕（通用发行）
+    { label: '2.39:1', ratio: 2.39 },   // 变形宽银幕（现行标准）
+    { label: '2.55:1', ratio: 2.55 },   // CinemaScope 初代
+    { label: '2.76:1', ratio: 2.76 },   // Ultra Panavision 70
+    { label: '4:5', ratio: 4 / 5 },
+    { label: '3:4', ratio: 3 / 4 },
+    { label: '9:16', ratio: 9 / 16 },
+];
+
 // 宽高比数字 → 最简分数显示（1.7778 → "16:9"，1.3333 → "4:3"，除不尽 → "2.39:1"）
 export function aspectLabel(a) {
     for (let d = 1; d <= 100; d++) {
@@ -115,6 +139,20 @@ export async function submitAspect() {
 export function initAspect() {
     applyAspect();  // 默认 16:9 注入（API 拉到真实值后 loadProjectTitle 会再调）
     document.getElementById('aspectBtn').addEventListener('click', openAspectModal);
+    // v0.9.22：预设比例 chips —— 点击只填 W/H（保持当前 H），不自动提交
+    const presetsEl = document.getElementById('aspectPresets');
+    presetsEl.innerHTML = ASPECT_PRESETS.map(p =>
+        `<button type="button" class="preset-chip" data-ratio="${p.ratio}" title="填充 ${p.label}">${p.label}</button>`
+    ).join('');
+    presetsEl.addEventListener('click', (e) => {
+        const chip = e.target.closest('.preset-chip');
+        if (!chip) return;
+        const ratio = parseFloat(chip.dataset.ratio);
+        const h = parseInt(document.getElementById('aspectH').value, 10);
+        const baseH = Number.isInteger(h) && h >= 16 ? h : 1080;
+        document.getElementById('aspectW').value = Math.round(baseH * ratio);
+        document.getElementById('aspectH').value = baseH;
+    });
     const modal = document.getElementById('aspectModal');
     modal.addEventListener('keydown', (e) => {
         if (e.key === 'Enter') submitAspect();

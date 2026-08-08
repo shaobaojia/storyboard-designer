@@ -16,6 +16,7 @@ export const SHORTCUTS = [
     { keys: 'Enter', desc: '打开镜头（选中单个时）' },
     { keys: 'Space', desc: '展开/折叠多图镜头（多选时批量）' },
     { keys: 'Tab', desc: '切换宫格/列表视图' },
+    { keys: 'Ctrl++ / Ctrl+-', desc: '放大/缩小（与滚轮/滑块同效）' },
     { keys: '↑↓←→', desc: '移动选择（展开态逐帧格移动）' },
     { keys: 'Shift+方向键', desc: '扩展多选范围' },
     { keys: 'Esc', desc: '退出垃圾桶模式' },
@@ -122,10 +123,16 @@ export function initKeyboard() {
         } else if (e.key === 'Delete' && state.selectedIds.size > 0) {
             e.preventDefault();
             // v0.8.2：帧级焦点优先——Delete 删焦点帧而非镜头（蓝框所在的帧）
-            const focused = document.querySelector('.frame-img.frame-focused');
+            // v0.9.22：宫格 .frame-img 与列表 .frame-thumb 双 class 都匹配——原只查
+            // .frame-img.frame-focused，列表展开态蓝框（.frame-thumb.frame-focused）
+            // 命中不到 → 直接落到 deleteSelection() 误删整个镜头（真 bug，用户实测确认）
+            const focused = document.querySelector('.frame-img.frame-focused, .frame-thumb.frame-focused');
             if (focused && state.focusedFrameId) {
+                // 宫格：frame-img 在 .frame-cell 内（data-id=shotId）；
+                // 列表：frame-thumb 自带 dataset.shotId（无 .frame-cell 结构）
                 const cell = focused.closest('.shot-card.frame-cell');
-                const shotId = cell ? cell.dataset.id : null;
+                const shotId = cell ? cell.dataset.id
+                                    : (focused.dataset.shotId || (focused.closest('.shot-card') || {}).dataset.id);
                 if (shotId) {
                     const frameNo = focused.dataset.frameNo;
                     const r = await postShotAction(shotId, {action: 'delete_frame', frame_id: state.focusedFrameId});
