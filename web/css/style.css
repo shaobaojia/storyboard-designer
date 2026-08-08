@@ -17,6 +17,16 @@
             overflow-y: scroll;
             overflow-anchor: none;
         }
+        /* v0.9.20: 暗色滚动条与页面融合（PyWebView 窗口 / Edge 统一深色主题） */
+        ::-webkit-scrollbar { width: 10px; height: 10px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb {
+            background: #3a3a3a;
+            border-radius: 5px;
+            border: 2px solid #1a1a1a;  /* 内缩一圈，与页面底色过渡 */
+        }
+        ::-webkit-scrollbar-thumb:hover { background: #4a4a4a; }
+        ::-webkit-scrollbar-corner { background: transparent; }
         /* #18: 高度全部折进 padding，sticky 冻结瞬间不再跳 */
         .header {
             position: sticky;

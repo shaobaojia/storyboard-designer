@@ -2,6 +2,16 @@
 
 > 给下一个 Agent（或下一个自己）的交接备忘录。**收工推送前必须更新「刚做完 / 正在做 / 下一步 / 坑」四个字段。**
 
+## 刚做完（v0.9.20：PyWebView 双端——桌面窗口外壳，2026-08-08 已部署+实测）
+
+- **PyWebView 双端启用**（用户拍板）：Blender 面板两个按钮——左「分镜管理器」（PyWebView 桌面窗口，主）/ 右「网页版」（Edge 浏览器，次），text 覆盖 label，tooltip 区分；**前端 web/ 零改动**——外壳只是 WebView2 加载同一 URL
+- **runtime 容器**：插件目录 `_runtime/` = Python 3.11 embeddable + pywebview 6.2.1（54MB 自包含，免安装零污染，整个插件目录拷到公司 PC 即可）；一键重建 `scripts/make_runtime.py`；launcher 源码 `scripts/pywebview_launcher.py`（git 跟踪）；测试工具 `scripts/cdp_tool.py` + `scripts/pwv_interact.py`
+- **launcher 行为**：单实例关旧开新（PID 锁 %LOCALAPPDATA%/storyboard-designer-webview/ + taskkill 旧进程）；watchdog 盯 Blender PID（Blender 任何方式关闭 → 窗口 1s 内销毁 + 锁清理，log 全轨迹）；localStorage 持久化（storage_path 固定，与 Edge 存储隔离）；pythonw 无黑窗
+- **窗口外观**：DWM 强制深色标题栏+圆角（DWMWA 20/38，不随系统浅色主题）；标题栏图标=用户 SVG 剪刀（scripts/sb_icon.svg → svg2ico.py 转多尺寸透明 ICO → _runtime/app.ico）；标题「分镜管理器 v0.9.20」（bl_info 0.8.1→0.9.20）；页面滚动条暗色（style.css ::-webkit-scrollbar，两端统一）
+- **悬浮化**：不占任务栏/Alt+Tab（exstyle 去 APPWINDOW 加 TOOLWINDOW）+ owner=Blender 主窗口（SetWindowLongPtrW GWLP_HWNDPARENT）——Blender 最小化→窗口隐藏、恢复→显示，实测两轮稳定
+- **测试体系**：WebView2 CDP（launcher --cdp-port + edgechromium.py 环境变量合并补丁 + --remote-allow-origins）；实测全链路：77 卡片/右键菜单/空格展开折叠多图/拖图建镜头（合成 DragEvent+File）/持久化/同进退/单实例/版本号标题
+- **坑**（详见 skill references/pywebview-v0.9.20.md）：pythonnet 属性赋值死锁（见坑列表）；WebView2 CDP 无 dispatchDragEvent → 合成事件；CDP origin 检查 → --remote-allow-origins；cairosvg 破坏 rlPyCairo（SVG 转 ICO 用 svglib+drawToPIL RGBA）
+
 ## 刚做完（v0.9.19：台词条/列表多行 + rename 丢图修复 + 审计两修，2026-08-07 空库全量验证 42/42+12/12+23/23）
 
 - **宫格台词条编辑/新建态高度自适应**（render.js + style.css）：input → textarea（autoResize 高随文字量、父条高度同步、Enter=保存/Shift+Enter=换行/Esc=取消/blur=保存）；提交后正常态高度 == 编辑态（122==122 实测）
@@ -181,6 +191,9 @@ CREATE INDEX IF NOT EXISTS idx_frames_shot ON frames(shot_id);
 
 ## 坑（已踩过的雷）
 
+- **v0.9.20：pythonnet 控件属性赋值死锁（PyWebView 窗口假死 + 拖死 Blender 最小化）**：`native.ShowInTaskbar = False`（跨线程属性赋值）与 WebView2 初始化竞争 → UI 线程死锁 → 窗口外观正常但 WM_NULL 无响应（假死）；**作为 owned 窗口还会拖死 Blender 最小化**（ShowWindow 同步等 owned 窗口响应）。处置：纯 ctypes（SetWindowLongPtrW/SetWindowLongW）+ on_started 里 shown 后 sleep 1s 错开初始化。诊断：SendMessageTimeout(WM_NULL, SMTO_ABORTIFHUNG) 0=假死，立即 taskkill launcher 恢复 Blender
+- **v0.9.20：WebView2 CDP 限制三条**：①`Input.dispatchDragEvent` 完全无效（拖图测试用合成 DragEvent+File 主世界 dispatch，真建镜头）；②CDP 拒非 DevTools origin 的 WebSocket（403）→ 必须 `--remote-allow-origins=*`（pywebview 的 REMOTE_DEBUGGING_PORT 带不了额外参数 → 环境变量 + edgechromium.py 补丁合并）；③CDP 键盘事件可达主世界（keydown 计数实测），空格展开测试必须选多图镜头（单图被 multiShots 过滤静默跳过）
+- **v0.9.20：cairosvg 破坏 rlPyCairo**：装 cairosvg（带 cairocffi）后 rlPyCairo 优先走 cairocffi → 找不到 libcairo DLL 全崩；SVG→ICO 转换用 svglib + reportlab `drawToPIL(backendFmt='RGBA')`（drawToFile 无 alpha）+ PIL 存多尺寸 ICO；转换后必须自查（角落 alpha=0）
 - **v0.9.19：rename 丢图根因 = frames.image_path 不随目录改名重指**（已修，cmd_rename_shot 第 4.5 步）：改名四层联动只更新 name/scene/camera/still/thumb，**frames 表绝对路径仍指旧目录 → 前端 imageUrl 全丢红格子**（多图镜头改名必现）。修复注意：**检查文件存在性必须查新路径**（目录已改名，查旧路径恒 False，白改一轮）；update_frame 重指顺带 bump 帧 ver = 前端恰好刷新
 - **v0.9.19：audit.py undo 排空循环误伤审计前操作**（已修，深度门控）：undo 栈全局共享（core/undo.py deque maxlen=20），R3 段"撤销栈排空"无条件弹到 empty 会回放审计前 push 的逆操作（实测：审计前 API 造数据 → STD_S10 被 purge、台词被清；**真实用户场景 = 审计前刚拖拽/改台词会被审计撤销**，2026-08-06"顺序变倒序"之谜即此）。修 = 审计开始前 MCP 记 undo depth，排空只弹到该深度
 - **v0.9.19：web_audit 假设初始 grid 的脆弱性**（已修，强制初始态）：localStorage 'sb-view' 残留 list（用户切过视图）时，多图折叠态帧格/台词条/--card-min 断言全查不到 → 连环假 FAIL（本次 6 FAIL 根因，非功能 bug）。修 = reload 后强制 viewMode='grid' + localStorage 同步

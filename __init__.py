@@ -1,7 +1,7 @@
 bl_info = {
     "name": "Storyboard Designer",
     "author": "Hermes",
-    "version": (0, 8, 1),
+    "version": (0, 9, 20),
     "blender": (4, 5, 0),
     "location": "View3D > Sidebar > Storyboard",
     "description": "Quick previs/storyboard design system",
@@ -130,6 +130,47 @@ class STORYBOARD_OT_open_manager(bpy.types.Operator):
             ensure_timer()
         webbrowser.open(f"http://localhost:{server.port}")
         self.report({'INFO'}, f"Opened http://localhost:{server.port}")
+        return {'FINISHED'}
+
+
+class STORYBOARD_OT_open_manager_webview(bpy.types.Operator):
+    """Open the storyboard grid page in a desktop window (PyWebView shell, same codebase as browser)"""
+    bl_idname = "storyboard.open_manager_webview"
+    bl_label = "打开分镜管理器"
+    bl_description = ("在独立桌面窗口中打开分镜管理器（PyWebView 外壳，"
+                      "与浏览器端共用同一套代码）。再次点击 = 关闭旧窗口开新窗口；"
+                      "Blender 关闭时窗口随之消失")
+    bl_options = {'REGISTER'}
+
+    def execute(self, context):
+        import subprocess
+        server = get_server()
+        if not (server and server.running):
+            # 服务没起就当场拉起（与 open_manager 同逻辑）
+            project_dir = _get_project_dir()
+            if not project_dir:
+                self.report({'ERROR'}, "Save blend file first")
+                return {'CANCELLED'}
+            server = start_server(project_dir, port=8089)
+            ensure_timer()
+
+        runtime = os.path.join(addon_dir, '_runtime')
+        pyw = os.path.join(runtime, 'python', 'pythonw.exe')
+        launcher = os.path.join(runtime, 'launcher.py')
+        if not (os.path.exists(pyw) and os.path.exists(launcher)):
+            self.report({'ERROR'},
+                        f"PyWebView runtime missing: {runtime}（跑 scripts/make_runtime.py 制作）")
+            return {'CANCELLED'}
+
+        cmd = [pyw, launcher,
+               '--url', f'http://localhost:{server.port}',
+               '--blender-pid', str(os.getpid())]
+        # 标题栏带插件版本号（bl_info.version）
+        ver = '.'.join(str(x) for x in bl_info.get('version', ()))
+        if ver:
+            cmd += ['--title', f'分镜管理器 v{ver}']
+        subprocess.Popen(cmd, creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+        self.report({'INFO'}, "Opening manager window (PyWebView)")
         return {'FINISHED'}
 
 
@@ -410,10 +451,12 @@ class STORYBOARD_PT_panel(bpy.types.Panel):
         server = get_server()
         if server and server.running:
             layout.label(text=f"Server: 0.0.0.0:{server.port} (LAN)", icon='URL')
-            layout.operator("storyboard.open_manager", icon='URL')
         else:
             layout.label(text="Server: starting...", icon='TIME')
-            layout.operator("storyboard.open_manager", icon='URL')
+        # 双端打开：桌面窗口「分镜管理器」（主）/ 浏览器「网页版」（次），tooltip 区分
+        row = layout.row(align=True)
+        row.operator("storyboard.open_manager_webview", text="分镜管理器", icon='URL')
+        row.operator("storyboard.open_manager", text="网页版", icon='URL')
 
         layout.separator()
 
@@ -462,6 +505,7 @@ classes = (
     STORYBOARD_OT_start_server,
     STORYBOARD_OT_stop_server,
     STORYBOARD_OT_open_manager,
+    STORYBOARD_OT_open_manager_webview,
     STORYBOARD_OT_create_shot,
     STORYBOARD_OT_snap_frame,
     STORYBOARD_OT_jump_frame,
