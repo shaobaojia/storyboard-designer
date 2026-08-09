@@ -6,6 +6,7 @@ import { fetchShots, postShotAction, postBatch, postOtherScene, openShot } from 
 import { updateSelectionUI, clearSelection } from './selection.js';
 import { startRename } from './rename.js';
 import { startDlgEdit, setDialogueAuto, isDialogueAuto } from './render.js';  // v0.9.11：台词框右键菜单
+import { startTlDlgEdit } from './timeline.js';  // v0.9.40：时间线台词就地编辑（菜单「编辑台词」分流）
 
 // ---- 台词框右键菜单（v0.9.11）：编辑 / 自动大小 ----
 // v0.9.12：去掉"台词"标题，直接显示功能项
@@ -171,7 +172,9 @@ async function menuAction(action) {
     switch (action) {
         // ---- 台词框菜单（v0.9.11）----
         case 'dlg-edit':
-            startDlgEdit(null, shotId);
+            // v0.9.40：时间线模式走时间线版编辑（宫格版会在时间线 lane 里插父条 = 错乱）
+            if (state.viewMode === 'timeline') startTlDlgEdit(shotId);
+            else startDlgEdit(null, shotId);
             break;
         case 'dlg-auto': {
             // 勾选 = 跟随卡片；取消 = 固定当前宽度（setDialogueAuto 内部处理）
@@ -406,7 +409,7 @@ export function initContextMenu() {
             lastX: e.clientX, lastY: e.clientY,
             panning: false,
             card: e.target.closest('.shot-card'),
-            dlgBox: e.target.closest('.dialogue-box'),  // v0.9.11：台词框右键（不在卡片内）
+            dlgBox: e.target.closest('.dialogue-box, .tl-dlg-clip'),  // v0.9.11 台词框右键（不在卡片内）；v0.9.40 时间线台词块同款
             samples: [{t: performance.now(), x: e.clientX, y: e.clientY}]
         };
     });

@@ -2,7 +2,7 @@
 import { state, grid } from './state.js';
 import { toast } from './ui.js';  // v0.9.8：台词就地编辑的保存反馈
 import { ICONS } from './icons.js';  // v0.9.26：动态图标（收起箭头/列表角标）
-import { renderTimeline } from './timeline.js';  // v0.9.36：时间线视图（renderGrid 分支转发）
+import { renderTimeline, tlClipW, applyTlDlgWidths } from './timeline.js';  // v0.9.36：时间线视图（renderGrid 分支转发）；v0.9.40：时间线台词自适应宽度
 
 // v0.9.6：XSS 防护——所有用户数据插 innerHTML 前统一过 esc（search.js 已有同款，此处补主渲染路径）
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
@@ -76,6 +76,12 @@ function dialogueWidthOf(shotId) {
     return colW;
 }
 
+// v0.9.40：跨模块读自定义宽度（时间线台词块用）——map 有值 = 自定义；无 = fallback（时间线 = clipW）
+export function getDialogueWidth(shotId, fallback) {
+    const w = dlgWidthMap[shotId];
+    return w > 0 ? w : fallback;
+}
+
 // 自动大小开关（右键菜单调用）：auto=true 恢复跟随卡片（删覆盖值）；
 // auto=false 固定当前显示宽度（取消勾选瞬间宽度不变，之后不再随缩放）
 export function setDialogueAuto(shotId, auto) {
@@ -83,11 +89,16 @@ export function setDialogueAuto(shotId, auto) {
         delete dlgWidthMap[shotId];
     } else {
         const box = grid.querySelector(`.dialogue-box[data-dlg-id="${shotId}"]`);
-        const w = Math.round(box ? box.getBoundingClientRect().width : dialogueWidthOf(shotId));
+        // v0.9.40：时间线模式无宫格 box——固定当前显示宽（时间线 = clip 宽）
+        const w = Math.round(box ? box.getBoundingClientRect().width : (state.viewMode === 'timeline' ? tlClipW() : dialogueWidthOf(shotId)));
         if (w > 0) dlgWidthMap[shotId] = w;
     }
     localStorage.setItem(DLG_MAP_KEY, JSON.stringify(dlgWidthMap));
-    updateDialogue();  // 立即应用（宽度就地更新，无需整页渲染）
+    if (state.viewMode === 'timeline') {
+        applyTlDlgWidths();  // v0.9.40：时间线台词块宽度就地更新（无宫格条可 update）
+    } else {
+        updateDialogue();  // 立即应用（宽度就地更新，无需整页渲染）
+    }
 }
 
 // 当前是否自动大小（右键菜单勾选状态用）
@@ -562,7 +573,8 @@ export function startDlgEdit(e, shotId) {
     input.addEventListener('blur', () => finish(true));
 }
 
-async function commitDialogue(shotId, newText) {
+// v0.9.40：导出——时间线台词就地编辑（timeline.js）复用同一提交链路（toast 一致）
+export async function commitDialogue(shotId, newText) {
     try {
         const res = await fetch(`/api/shot/${shotId}`, {
             method: 'POST',

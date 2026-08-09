@@ -1,7 +1,16 @@
 # AGENTS.md
 
 > 给下一个 Agent（或下一个自己）的交接备忘录。**收工推送前必须更新「刚做完 / 正在做 / 下一步 / 坑」四个字段。**
-> 2026-08-09 压缩维护：v0.9.38/37 详细保留，更早版本压成一行进历史轮次；坑区保留近三版详细 + 操作型坑，历史方法论坑合并。
+> 2026-08-09 压缩维护：v0.9.40/39/38 详细保留，更早版本压成一行进历史轮次；坑区保留近三版详细 + 操作型坑，历史方法论坑合并。
+
+## 刚做完（v0.9.40：时间线台词操作 + 分割自适应 + 图标，2026-08-09 已推，干净文件全量 77/77 全 PASS）
+
+- **时间线切换按钮图标更换**（库任务清单项）：shijianxian 图标 path 换用户指定 SVG（双画面块 + 向右大箭头），按 .ic 规范 fill=currentColor；验证 = 注入 path 断言 + PIL 三按钮笔画占比同量级 + ASCII 形状确认
+- **时间线预览/缩略图区比例按缩略图大小完全自适应**（用户拍板方案 A）：缩略图区高度恒 = 内容需要（38+clipH+12），预览区吃剩余；分隔条拖动机制整体移除（splitMinMax/currentSplitPct/setSplitPct/initTlDivider/TL_SPLIT_KEY 全删，sb-tl-split 作废）；stageHeightFor = max(总高-padding12-gap-needH, 180)，overhead 从 gap×2+10 减为单 gap
+- **时间线台词双击就地编辑**（单行 input，用户拍板无换行功能）：Enter 保存/Esc 取消/blur 保存，提交复用 render.js commitDialogue（已导出）；与宫格 textarea 多行版区分
+- **时间线台词框右键菜单：编辑台词 / 自动大小**（✓ 勾选态）：menu.js 右键检测扩展到 .tl-dlg-clip；宽度复用 sb-dialogue-w-map（自动=跟随 clipW 缩放 / 取消勾选=固定当前宽入 map，applyTlDlgWidths 就地更新）；**修复真 bug**：菜单「编辑台词」原调宫格版 startDlgEdit 会把宫格父条插进时间线 lane——按 viewMode 分流到 startTlDlgEdit
+- 验证：WebBridge 21/21（编辑/取消/菜单/自动大小双向/缩放联动/无父条注入）+ 推前全量干净文件 audit_clean.blend 42+12+23 = 77/77
+- 版本号 0.9.39 → 0.9.40（bl_info + index.html 关于徽章两处）
 
 ## 刚做完（v0.9.39：时间线三连 + 宫格排不满，2026-08-09 已推，跳过全量回归用户拍板）
 
@@ -63,8 +72,8 @@
 
 ## 正在做
 
-- **v0.9.39 已推**（时间线三连 + 宫格排不满，2026-08-09）；等用户指示开新需求（需求池待办见下）
-- 需求池（Obsidian Mark/2026_07_31 分镜设计系统-开发任务说明.md）待办，等用户逐项指派：时间线台词可拖拽调宽+字幕浮层、时间线多图镜头展开/折叠（状态与宫格分开保存）、时间线 ↑↓/滚轮=横向滚动、宫格台词操作盘点（调研）、缩略图无边框+两侧透视淡出、列表开预览字体大小一致、列表缩放最大极值×2+镜头名行宽减半
+- **v0.9.40 已推**（时间线台词编辑+右键菜单、分割自适应、图标更换，2026-08-09，干净文件全量 77/77）；等用户指示开新需求（需求池待办见下）
+- 需求池（Obsidian Mark/2026_07_31 分镜设计系统-开发任务说明.md）待办，等用户逐项指派：时间线台词可拖拽调宽+字幕浮层（被盖镜头选中显示两层字幕）、时间线多图镜头展开/折叠（状态与宫格分开保存）、时间线 ↑↓/滚轮=横向滚动、缩略图无边框+两侧透视淡出、列表开预览字体大小一致、列表缩放最大极值×2+镜头名行宽减半
 
 ## 下一步
 
@@ -169,6 +178,13 @@ CREATE INDEX IF NOT EXISTS idx_frames_shot ON frames(shot_id);
 | 视图切换 | `__sb.setView('grid'/'list'/'timeline')` 或 localStorage 直写 + reload（刷新直落路径）；切完 wait 渲染 |
 
 ## 坑（已踩过的雷）
+
+### 近期（v0.9.40，详细）
+- **菜单「编辑台词」必须按 viewMode 分流**：宫格版 startDlgEdit 查 grid 的 .dialogue-box，时间线模式下会走"新建父条"分支把 .dialogue-strip 插进时间线 lane（错乱）；时间线走 startTlDlgEdit。凡复用"宫格台词交互"的函数，先查它内部是否 querySelector grid 元素
+- **时间线台词编辑 = 单行 input**（用户拍板无换行功能），与宫格 textarea 多行/autoResize 区分；提交共用 commitDialogue（render.js 导出）
+- **时间线台词宽度 = sb-dialogue-w-map per-shot**：自动（map 无值）= 跟随 clipW 缩放；取消勾选/拖宽 = 固定值入 map。setDialogueAuto 时间线分支回退宽用 tlClipW() 不是 --card-min；应用走 applyTlDlgWidths 就地更新（updateDialogue 是宫格专用）
+- **menu.js 注释与代码会脱节**（v0.9.36 注释写"时间线台词编辑保留"实际 isTimeline 排除台词项）：改菜单行为以代码为准，注释随手核对
+- **测试脚本状态污染**：诊断脚本点过 dlg-auto 后不还原 = localStorage map 丢条目（用户自定义宽度被删）；测试/诊断脚本对持久化状态的写操作必须收尾还原（含被误删的条目值）
 
 ### 近期（v0.9.35~v0.9.38，详细）
 - **v0.9.38：flex item 的百分比高度在 main size indefinite 时解析为 auto → 塌 0**（.tl-inner height:100% 实测 computed 0px）：正解 = absolute inset:0。诊断：computed height 0 + 父是 flex item

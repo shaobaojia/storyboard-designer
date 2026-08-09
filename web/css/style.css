@@ -1740,7 +1740,7 @@
         }
         #timelineStage {
             flex: 0 0 auto;
-            flex-shrink: 0;   /* v0.9.38f：高度全由 JS 精确设（applyTlSplit/setSplitPct）——clip 超高时借空间收缩到 180 保底，flex 不自行压缩 */
+            flex-shrink: 0;   /* v0.9.40：高度全由 JS 精确设（applyTlSplit）——缩略图区自适应后 stage 吃剩余，保底 180，flex 不自行压缩 */
             min-height: 180px;
             display: flex;
             flex-direction: column;
@@ -1799,22 +1799,7 @@
             color: var(--text);
             font-weight: 600;
         }
-        /* v0.9.38c：预览区/缩略图区可拖动分隔条（默认 7:3） */
-        .tl-divider {
-            flex: 0 0 6px;
-            flex-shrink: 0;
-            margin: 0 0 4px;
-            border-radius: 3px;
-            background: var(--border);
-            cursor: ns-resize;
-            touch-action: none;   /* 指针拖动防浏览器滚动/缩放 */
-            transition: background 0.15s;
-            user-select: none;
-        }
-        .tl-divider:hover,
-        .tl-divider.dragging {
-            background: var(--accent);
-        }
+        /* v0.9.38c 分隔条已移除（v0.9.40 方案 A：比例按缩略图大小自适应） */
         #timeline {
             flex: 1 0 auto;   /* v0.9.38e：shrink 0 + JS min-height——clip 超高时撑开，不裁切 */
             min-height: 0;
@@ -1923,6 +1908,26 @@
             text-overflow: ellipsis;
             color: var(--text);
             box-sizing: border-box;
+        }
+        /* v0.9.40：时间线台词编辑态——input 撑满块（单行，无换行），编辑中高亮边框 */
+        .tl-dlg-clip.editing {
+            border-color: var(--accent);
+            box-shadow: 0 0 0 1px var(--accent);
+        }
+        .tl-dlg-clip .tl-dlg-edit {
+            display: block;
+            width: 100%;
+            height: 100%;
+            border: none;
+            background: transparent;
+            color: var(--text);
+            font: inherit;
+            line-height: 32px;
+            padding: 0 0;
+            margin: 0;
+            box-sizing: border-box;
+            outline: none;
+            text-overflow: ellipsis;
         }
         /* 时间线视图下侧边预览框不参与（决策 3A：时间线自带顶部预览区） */
         body:has(#grid.timeline-mode) .preview-panel {

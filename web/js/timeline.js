@@ -2,12 +2,14 @@
 // v0.9.37 用户拍板：去时间轴语义——时间标尺去掉、clip 等宽（不再按时长定长）。
 // v0.9.38 用户拍板：缩略图完整显示（contain 不裁切）+ 左对齐 + 宽 100% 跟随 clip 缩放；clip 宽下限 104→52。
 // v0.9.38b 用户拍板：缩略图等比缩放——aspect-ratio 4:3 区域随 clip 宽等比（纵向不再固定 78），clip 高动态。
-// v0.9.38c 用户拍板：预览区/缩略图区比例可拖动调节（分隔条），默认 7:3（预览 7 / 缩略图 3），localStorage 持久化。
+// v0.9.38c 用户拍板：预览区/缩略图区比例可拖动调节（分隔条），默认 7:3，localStorage 持久化。
+// v0.9.40 用户拍板（方案 A）：比例改为按缩略图大小完全自适应——缩略图区高度恒 = 内容需要
+// （台词轨道 38 + clip 高 + 留白 12），预览区吃剩余空间；分隔条拖动移除（sb-tl-split 作废）。
 // 复用：clip 带 .shot-card/.shot-name → 点击选中/右键菜单/删除/改名/搜索定位全部自动生效；
 // 大图链路复用 preview.js 的 showPreviewImage（先小图后大图 + 预载缓存）。
 import { state, grid } from './state.js';
 import { showPreviewImage, stillUrl } from './preview.js';
-import { updateStats } from './render.js';  // 循环引用：仅函数体引用，安全
+import { updateStats, getDialogueWidth, commitDialogue } from './render.js';  // 循环引用：仅函数体引用，安全；v0.9.40：时间线台词宽度/编辑复用宫格数据机制
 
 const CLIP_GAP = 12;     // clip 水平间距
 const NAME_H = 18;       // 名字条高（clip 底部）
@@ -20,7 +22,6 @@ export const TL_W_MIN = 52;     // clip 宽下限（v0.9.38：原 104 缩小 2 �
 export const TL_W_MAX = 320;          // clip 宽上限
 export const TL_W_STEP = 24;          // 缩放档位步进（52/76/100/.../316，12 档；320 非档位，clamp 到 316）
 const TL_W_KEY = 'sb-tl-w';    // clip 宽持久化键
-const TL_SPLIT_KEY = 'sb-tl-split';  // 预览区/缩略图区分割比例（stage 高度百分比，默认 70 = 7:3）
 let lastOrder = [];            // 最近一次渲染的镜头顺序（updateTimelineStage 复用，避免重算）
 
 // 当前 clip 宽（localStorage 持久化，缩放只改它）
@@ -94,14 +95,6 @@ function buildStage() {
             <span id="tlStageTime">—</span>
         </div>`;
     grid.appendChild(stage);
-    // v0.9.38c：预览/缩略图区分隔条（可拖动调节比例，默认 7:3）——必须在 stage 和 timeline 之间
-    if (!document.getElementById('tlDivider')) {
-        const dv = document.createElement('div');
-        dv.id = 'tlDivider';
-        dv.className = 'tl-divider';
-        dv.title = '拖动调节预览区/缩略图区比例';
-        grid.appendChild(dv);
-    }
 }
 
 // 时间线区（缩略图横排），每次渲染重建内部、容器常驻（v0.9.37：标尺已去掉）
@@ -178,9 +171,9 @@ export function renderTimeline() {
     // v0.9.36：清掉宫格/列表视图残留的卡片——timeline 是 flex column 布局，残留的
     // .shot-card 会以全宽 flex item 排开（每张 ~830px 高，76 张 ≈ 48000px），
     // 把 stage/timeline 推到页面深处（实测：DOM 断言全过但视觉全毁）
-    // 只清直接子元素，保留 stage/timeline/divider 容器自身
+    // 只清直接子元素，保留 stage/timeline 容器自身
     [...grid.children].forEach(el => {
-        if (el.id !== 'timelineStage' && el.id !== 'tlDivider' && el.id !== 'timeline') el.remove();
+        if (el.id !== 'timelineStage' && el.id !== 'timeline') el.remove();
     });
     // 模式 class：timeline 布局覆盖 grid 布局；列表列头隐藏
     grid.classList.add('timeline-mode');
@@ -195,17 +188,12 @@ export function renderTimeline() {
         grid.classList.add('grid-empty');
         const tl = document.getElementById('timeline');
         if (tl) tl.remove();
-        const dv = document.getElementById('tlDivider');
-        if (dv) dv.style.display = 'none';   // 空态隐藏分隔条（防孤线）
         updateTimelineStage();
         updateStats();  // 标题 + 右下角统计（空态 0 镜头）
         return;
     }
     buildTimeline();
-    const dv2 = document.getElementById('tlDivider');
-    if (dv2) dv2.style.display = '';
-    applyTlSplit();     // v0.9.38c：应用预览/缩略图分割比例（localStorage 持久化，默认 7:3）
-    initTlDivider();    // v0.9.38c：分隔条拖动（幂等，只绑一次）
+    applyTlSplit();     // v0.9.40：缩略图区高度自适应内容（stage 吃剩余）
 
     // v0.9.37：缩放控件在时间线可用（横轴缩放 clip 宽）——滑块范围/值同步
     syncTlSlider();
@@ -249,6 +237,7 @@ export function renderTimeline() {
     lane.appendChild(frag);
 
     // 台词轨道（v0.9.38：台词块移到镜头 clip 上方，同宽同位与镜头一一对齐；T 开关控制显隐）
+    // v0.9.40：宽度 = 自动大小（map 无值 → 跟随 clipW 缩放）或自定义（map 有值）；双击编辑/右键菜单见 startTlDlgEdit/applyTlDlgWidths
     const dlgLane = document.getElementById('tlDlgLane');
     dlgLane.innerHTML = '';
     if (state.dialogueOn && !state.trashMode) {
@@ -258,9 +247,10 @@ export function renderTimeline() {
             if (!dlg) return;
             const box = document.createElement('div');
             box.className = 'tl-dlg-clip';
+            box.dataset.dlgId = shot.id;
             box.title = dlg.replace(/\n/g, ' ');
             box.style.left = (16 + idx * (clipW + CLIP_GAP)) + 'px';
-            box.style.width = clipW + 'px';
+            box.style.width = getDialogueWidth(shot.id, clipW) + 'px';
             box.textContent = dlg.replace(/\n/g, ' ');
             dfrag.appendChild(box);
         });
@@ -287,11 +277,13 @@ function syncTlSlider() {
     if (inn) inn.disabled = false;
 }
 
-// ---- v0.9.38c/e：预览区/缩略图区可拖动分割比例（默认 7:3 = 70%）----
-// v0.9.38e：grid 高度改 min-height 后 stage 高度用像素（JS 基于基准高算），不再用百分比 flex-basis。
+// ---- v0.9.40：预览区/缩略图区按缩略图大小完全自适应（方案 A，用户拍板）----
+// 缩略图区（#timeline）高度恒 = 内容需要高（tlNeedHeight：台词 38 + clipH + 留白 12），
+// 预览区（#timelineStage）吃剩余空间；clip 缩放 → needH 变 → 分割自动跟随，无固定比例、无拖动条。
+// 约束：stage 保底 180px；needH 超过可用空间（极小视口/超大 clip）时 timeline minHeight
+// 撑 grid 页面滚动兜底（renderTimeline 的 tl.style.minHeight 同源）。
 // 基准高 = #grid.timeline-mode 的 min-height（calc(100vh - header 61 - 底部 92)），computed 读 px。
-// 约束：stage 下限 180px（min-height），缩略图区下限 150px（台词 38 + 最小 clip 60 + 余量）。
-// 开销：divider(6px + margin-bottom 4px) + 两处 grid gap（12×2）
+// 开销：padding-bottom 12 + 一处 grid gap（stage ↔ timeline 之间；divider 已移除）
 function tlGridBase() {
     const g = document.getElementById('grid');
     if (!g) return window.innerHeight - 61 - 92;
@@ -301,83 +293,90 @@ function tlGridBase() {
     return window.innerHeight - 61 - 92;
 }
 
-function splitMinMax() {
-    const base = tlGridBase();
-    const gap = parseFloat(getComputedStyle(document.getElementById('grid')).gap) || 0;
-    const contentH = Math.max(1, base - 12);       // padding-bottom 12px
-    const overhead = gap * 2 + 10;                 // divider(6px + margin 4px) + 两处 gap
-    const minPct = Math.min(85, Math.max(15, 180 / contentH * 100));
-    const maxPct = Math.min(85, Math.max(15, (contentH - 150 - overhead) / contentH * 100));
-    return [minPct, maxPct];
-}
-
-function currentSplitPct() {
-    return parseFloat(localStorage.getItem(TL_SPLIT_KEY) || '') || 70;
-}
-
 // v0.9.38f：timeline 内容需要高 = 台词轨道 38 + clip 总高 + 顶部留白 12（与 renderTimeline 的 minHeight 同源）
 function tlNeedHeight() {
     return 38 + tlClipH(tlClipW()) + 12;
 }
 
-// v0.9.38f：stage 高度——常规 = 分割比例×基准高；clip 超高时从 stage 借空间（timeline 上沿撑开 = 分隔条上移、预览区收缩，页面不滚动）。
-// 约束：stage 保底 180px（用户拍板 A 方案）；借到保底仍不够 → renderTimeline 的 timeline minHeight 撑 grid 页面滚动兜底。
-// avail = base - padding-bottom 12 - overhead（gap×2 + divider 6+4，与 splitMinMax 同源）
-function stageHeightFor(pct) {
+// stage 高度 = 可用空间 - 内容需要高（保底 180）。clip 越大 needH 越大 → stage 越小；clip 越小 stage 越大。
+function stageHeightFor() {
     const base = tlGridBase();
-    const [minPct, maxPct] = splitMinMax();
-    const v = Math.min(maxPct, Math.max(minPct, pct));
-    let stagePx = Math.round(base * v / 100);
     const needH = tlNeedHeight();
     const g = document.getElementById('grid');
     const gap = parseFloat(getComputedStyle(g).gap) || 0;
-    const avail = base - 12 - (gap * 2 + 10);
-    if (needH > avail - stagePx) stagePx = avail - needH;   // clip 超高：从 stage 借空间
-    return Math.max(stagePx, 180);
+    const avail = base - 12 - gap;   // padding-bottom 12 + 一处 gap（stage↔timeline）
+    return Math.max(avail - needH, 180);
 }
 
-// 应用存储的分割比例到 stage 高度（像素，renderTimeline 每次渲染调用）
+// 应用自适应分割到 stage 高度（像素，renderTimeline 每次渲染调用）
 function applyTlSplit() {
     const stage = document.getElementById('timelineStage');
     if (!stage) return;
-    stage.style.height = stageHeightFor(currentSplitPct()) + 'px';
+    stage.style.height = stageHeightFor() + 'px';
 }
 
-// 设置并持久化（拖动时实时调用）
-function setSplitPct(pct) {
-    const stage = document.getElementById('timelineStage');
-    if (!stage) return currentSplitPct();
-    const [minPct, maxPct] = splitMinMax();
-    const v = Math.round(Math.min(maxPct, Math.max(minPct, pct)));
-    stage.style.height = stageHeightFor(v) + 'px';
-    localStorage.setItem(TL_SPLIT_KEY, String(v));
-    return v;
-}
+// ---- v0.9.40：时间线台词块就地编辑（单行，无换行）+ 宽度自适应应用 ----
+// 用户拍板：时间线台词双击编辑，但不需要换行功能（宫格是 textarea 多行，时间线单行 input）。
+// 提交复用 render.js 的 commitDialogue（toast/API 一致）；宽度机制复用 sb-dialogue-w-map
+// （自动 = 跟随 clipW 缩放 / 自定义 = map 固定值，右键菜单自动大小勾选控制）。
 
-// 分隔条拖动（window 级 move/up——合成事件可驱动（pitfall 18 绕法 B），真浏览器正常）
-function initTlDivider() {
-    const divider = document.getElementById('tlDivider');
-    if (!divider || divider.dataset.init) return;
-    divider.dataset.init = '1';
-    let dragging = false, startY = 0, startPct = 0;
-    divider.addEventListener('pointerdown', (e) => {
-        if (e.button !== 0) return;
-        e.preventDefault();
-        dragging = true;
-        startY = e.clientY;
-        startPct = currentSplitPct();
-        divider.classList.add('dragging');
+// 编辑态 input：Enter 保存 / Esc 取消 / blur 保存；事件全 stopPropagation（防右键滑动/框选/拖拽）
+export function startTlDlgEdit(shotId) {
+    if (state.editingDlg || state.trashMode) return;
+    const shot = state.shots.find(s => s.id === shotId);
+    if (!shot) return;
+    const box = document.querySelector(`.tl-dlg-clip[data-dlg-id="${shotId}"]`);
+    if (!box) return;
+    const input = document.createElement('input');
+    input.className = 'tl-dlg-edit';
+    input.value = shot.dialogue || '';
+    input.draggable = false;
+    ['mousedown', 'mousemove', 'mouseup', 'dragstart', 'selectstart', 'click', 'dblclick'].forEach(t => {
+        input.addEventListener(t, (ev) => ev.stopPropagation());
     });
-    window.addEventListener('pointermove', (e) => {
-        if (!dragging) return;
-        const gh = grid.clientHeight || 1;
-        setSplitPct(startPct + (e.clientY - startY) / gh * 100);
-    });
-    const end = () => {
-        if (!dragging) return;
-        dragging = false;
-        divider.classList.remove('dragging');
+    box.textContent = '';
+    box.appendChild(input);
+    box.classList.add('editing');
+    state.editingDlg = shotId;
+    input.focus();
+    input.select();
+
+    let done = false;
+    const finish = (commit) => {
+        if (done) return;
+        done = true;
+        const newText = input.value.trim();
+        state.editingDlg = null;
+        box.classList.remove('editing');
+        if (commit && newText !== shot.dialogue) {
+            commitDialogue(shotId, newText);   // 成功 toast；心跳刷新 state.shots 后差分重建块
+            // 本地先更新显示（不等心跳）：内容换回文本
+            box.textContent = newText;
+            box.title = newText.replace(/\n/g, ' ');
+        } else {
+            box.textContent = shot.dialogue || '';
+            box.title = (shot.dialogue || '').replace(/\n/g, ' ');
+        }
     };
-    window.addEventListener('pointerup', end);
-    window.addEventListener('pointercancel', end);
+    input.addEventListener('keydown', (ev) => {
+        if (ev.key === 'Enter') { ev.preventDefault(); finish(true); }
+        else if (ev.key === 'Escape') finish(false);
+        ev.stopPropagation();
+    });
+    input.addEventListener('blur', () => finish(true));
+}
+
+// 双击台词块就地编辑（委托：块是动态 DOM；与宫格 .dialogue-text 委托互不干扰——时间线块无该 class）
+document.addEventListener('dblclick', (e) => {
+    const box = e.target.closest('.tl-dlg-clip');
+    if (!box || !box.dataset.dlgId) return;
+    startTlDlgEdit(box.dataset.dlgId);
+});
+
+// 时间线台词块宽度就地更新（右键菜单自动大小切换后调用；renderTimeline 重建也会按 map 重算）
+export function applyTlDlgWidths() {
+    const clipW = tlClipW();
+    document.querySelectorAll('.tl-dlg-clip[data-dlg-id]').forEach(box => {
+        box.style.width = getDialogueWidth(box.dataset.dlgId, clipW) + 'px';
+    });
 }
