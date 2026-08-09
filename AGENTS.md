@@ -2,6 +2,21 @@
 
 > 给下一个 Agent（或下一个自己）的交接备忘录。**收工推送前必须更新「刚做完 / 正在做 / 下一步 / 坑」四个字段。**
 
+## 刚做完（v0.9.35：Blender 面板 UX 四连 + web 八项，2026-08-09 已部署实测，推前全量回归干净文件跑）
+
+- **Blender 面板帧按钮当前帧高亮**：`jump_frame` 按钮加 `depress=(frame_no == scene.frame_current)`——当前帧号对上呈按下高亮；视觉验证（PIL 蓝底按钮）+ 联动验证（切帧后高亮消失）
+- **Blender 面板按钮布局**：创建|复制 并排（高频相邻）、删除独立一行防误触、删除与拍/删当前帧之间 body.separator() 分隔（Blender 无横线 API，separator 即标准做法）
+- **复制镜头后自动切场景**：queue 异步执行，duplicate_shot.execute 注册 0.2s 轮询 timer 等 `Shot_<新编号>` 场景出现后 window.scene 切换（同步切不到——queue 在独立线程）
+- **Blender 关于面板文案升级**（用户"再装逼再上档次"）：产品定位 + slogan「一镜一世界，帧帧皆故事」+ 功能诗化 + 署名
+- **垃圾桶/其它页互斥切换竞态修复**（用户报告"其它视图点垃圾桶没切过去"）：trashBtn click 里 `exitOtherMode()` 未 await + `enterTrashMode()` 未 await → 两个 fetchShots(true) 并发，/api/shots 响应后到覆盖 trash 数据 = **垃圾桶壳+正常镜头内容，此时点彻底删除会 purge 正常镜头**（危险）；修 = exitOtherMode/exitTrashMode 加 silent 参数（互斥切换静默退出不拉数据，目标视图单一请求），main.js 反向互斥监听器同修（坑 260）
+- **其它页 Delete 快捷键**（用户需求）：原 `!state.otherMode` 门控全拦；修 = 分支内特判，复用右键「删除场景」语义（askConfirm 确认 + postOtherScene 硬删，不可恢复），单选/多选都支持；正常视图帧级/镜头级删除逻辑一行未动
+- **垃圾桶红点角标浮层化**（用户方案，拍板右上角挂角）：#trashCount 流内 span → absolute top/right -6px 挂按钮右上角（.bar-btn 已有 position:relative，零新增定位上下文；pointer-events:none 点击穿透）；JS 零改动，图标不再被挤压（PIL 验证红点 bbox 与 DOM rect 吻合）
+- **主菜单重构**（用户需求）：去掉「主菜单」「皮肤」纯文本标题项；皮肤 → hover 二级子菜单（深色✓/浅色，勾选跟随，向左展开 right:100% 防视口溢出，子菜单是 .menu-item 子元素 hover 链不中断）；顺序皮肤在前关于在后
+- **T 快捷键开关台词**（用户需求）：台词开关逻辑从按钮 click 内联抽成 render.js `toggleDialogue()` 导出（按钮+T 共用，锚定动画/localStorage/按钮高亮同步全保留）；SHORTCUTS 面板加「T 开关台词显示」；dialogueBtn data-tip 加（T）
+- **空态提示整页居中**（用户需求）：垃圾桶/其它/正常空态 .empty-state 从"挤在第一格"改 flex 双轴居中——`#grid.grid-empty { display:flex; align-items:center; justify-content:center; min-height: calc(100vh - var(--header-h) - 90px) }`（absolute 方案会随容器高度塌缩，坑 263）；三模式实测偏差 hz≤5px/vt≤2px
+- **按钮点击残留焦点修复**（用户报告"按 T 键出现焦点框"）：根因 = 鼠标点击焦点残留 + 键盘输入触发 :focus-visible 启发式给按钮套默认 outline（CDP 复现 focusVisible false→true）；修 = 全局 click 里鼠标点击（e.detail≥1）的按钮立即 blur，键盘 Enter/Space（detail=0）焦点保留（无障碍不破坏）；mousedown blur 会被浏览器默认聚焦抢回，须 click 后（坑 261/262）
+- 版本号 0.9.34 → 0.9.35（bl_info；关于徽章动态取 bl_info.version 无需单独改）
+
 ## 刚做完（v0.9.34：台词条手柄图标 + 拖拽缩放 + 预览画幅标准 + 面板实时刷新，2026-08-09 已部署实测，跳过全量回归用户拍板直接推）
 
 - **台词条拖宽手柄视觉系列**（用户连轮指定）：默认 2px 竖线 → 用户 SVG 图标（星形 #707070 → 双右箭头 » #bfbfbf），14px→28px→19.6px（70%）；默认 opacity 0、台词条 hover 显示（opacity 1，0.15s 过渡）；中心锚定公式 `right = containing block 右缘偏移 - N/2`；光标去 col-resize 全程默认（同 v0.9.5 约定）。坑：[data-tip]::after 同特异性合并三坑（left/bottom/padding/border 显式清，坑 249）
@@ -18,16 +33,13 @@
 - 验证：WebBridge DOM + PIL 像素（右缘 border 区纯 accent、左缘不再被阴影压暗、角标不被盖、单图无 ::after 环、展开态帧格蓝框正常、折叠回焦点恢复）+ 推前全量干净库 77/77（audit 42 + ctx 12 + web 23，STD 数据完好无残留）
 - 版本号 0.9.32 → 0.9.33（bl_info + 关于徽章；v0.9.31/v0.9.32 当时未推，本次统一推）
 
-## 刚做完（v0.9.32：滑块三修 + 单图圆角 + 多图焦点框两 bug + 列表拖动结论，2026-08-09 已提交实测，随 v0.9.33 推）
-
-- 缩放滑块「拖不动」修复（marquee.js 排除列表补 .zoom-bar——v0.9.24 重构遗留）+ 拖动滑块后 Tab 切视图修复（keyboard.js 门控拆 range）+ Tab 后滑块焦点框常驻修复（blur + outline:none）
-- 单图封面直角伸出卡片圆角修复（.shot-thumb border-radius: 8px——v0.9.30 overflow:visible 连锁反应）
-- 多图焦点框两 bug（列表折叠态点击无框 / 列表折叠回丢框——img 移植顶掉新建 class）
-- 列表拖动卡顿调查结论：连续像素缩放贴 16.6ms 预算，外部波动偶发超帧，宫格离散跳变免疫——非 bug
-- 版本号 0.9.31 → 0.9.32（v0.9.31 同推）
-
 **历史轮次**（详情曾在本文件，已压缩；关键决策见「交互/设计约定」与「坑」）：
+- v0.9.32：缩放滑块三修（marquee 排除列表补 .zoom-bar / keyboard 门控拆 range / Tab 后 blur 修焦点框常驻）+ 单图封面直角伸出卡片圆角修复 + 多图焦点框两 bug（列表折叠态点击无框/折叠回丢框）+ 列表拖动卡顿调查结论（连续像素缩放贴 16.6ms 预算非 bug）
 - v0.9.29~v0.9.31：角标包角大三角（用户 SVG 直角三角+CSS 圆角）+ 全站防文本选中（user-select none + marquee preventDefault 修框选蓝块）+ Blender 初始化门控（未初始化不建目录/DB/服务）+ 面板删当前帧/复制镜头 + 角标四条标准（展开/折叠完全一致、宽=卡宽15%、数字左上角=圆角轴心）+ 焦点框修复两连（inset box-shadow 绘制在 img 替换内容之下不可见 → border 方案；折叠态多图点击焦点落封面帧，选择器放宽 + 折叠保留焦点）
+
+## 正在做
+
+- 无（v0.9.35 已部署实测，推前全量回归干净文件跑——推完待用户指示开新需求）
 - v0.9.28：Blender 面板 5 个独立子 Panel 卷展条（ARP 风格：卷展条分区 + 标题栏品牌图标 + 关于默认收起——后续面板 UI 风格沿用）+ 面板标题栏品牌剪刀图标（custom icons）
 - v0.9.27：PyWebView 窗口图标真修复（根因 WS_EX_TOOLWINDOW，去 toolwindow 改 owner 悬浮化）+ 其它页切换提速（1602→153ms，sync fire-and-forget）+ 面板三分区 + 折叠按钮高度翻倍 + 其它页隐藏创建 + 皮肤系统（45 语义 CSS 变量 + 浅色主题 + localStorage 持久化）
 - v0.9.26：收起按钮 9px + 缩放滑块去文字 + 标题栏垂直居中 + 图标全 SVG 化（icons.js 17 图标，删 iconfont -15KB）+ DWM 深色窗口图标修复（v0.9.27 证伪）
@@ -166,6 +178,10 @@ CREATE INDEX IF NOT EXISTS idx_frames_shot ON frames(shot_id);
 
 ## 坑（已踩过的雷）
 
+- **v0.9.35：async 互斥切换未 await = 双 fetchShots 并发竞态**（垃圾桶/其它页）：trashBtn click 里 `exitOtherMode()` 不 await 紧接 `enterTrashMode()`——两个 fetchShots(true) 并发，后到的 /api/shots 响应按当前 state（trashMode=true）渲染 = **垃圾桶壳 + 正常镜头内容，此时点「彻底删除」会 purge 正常镜头**（危险）。互斥切换（A 模式退出 + B 模式进入）必须串行：退出方加 silent 参数静默退（不拉数据），只让目标视图发一个请求
+- **v0.9.35：mousedown 里 blur 按钮焦点会被浏览器默认聚焦行为抢回**——mousedown 默认行为（聚焦最近可聚焦祖先）在 capture blur 之后执行；须在 **click 后 blur**，且用 `e.detail` 区分输入来源（鼠标点击 detail≥1；键盘 Enter/Space 激活 detail=0——键盘路径的焦点必须保留，否则无障碍导航断）
+- **v0.9.35：合成 KeyboardEvent（dispatchEvent）不触发 :focus-visible 启发式**——验证"按快捷键是否冒焦点框"必须用 CDP Input.dispatchKeyEvent（真实输入管线）才复现 focusVisible false→true（合成事件永远 false）
+- **v0.9.35：空态提示 absolute 定位会随容器高度塌缩消失**——空态时 #grid 高度=0（absolute 脱离文档流），#gridWrap 高度塌成 0，inset:0 的浮层 = 0 高不可见；正解 = 容器转 flex（`#grid.grid-empty { display:flex; align-items:center; justify-content:center; min-height: calc(100vh - var(--header-h) - 90px) }`）
 - **v0.9.33：折叠态多图焦点框被叠图盖住左右缘——selected 卡片 border 是元素自身绘制（低于子元素层），层牌 z1-3 盖右缘 border（层牌右缘=卡片右缘）、cover 阴影(0 2px 6px 黑)向左扩散 6px 压暗左缘 border（PIL 实测：右缘 border 区=图内容色 127-137、左缘=52,110,178 非纯 accent）**。正解 = 卡片上重画同位置环 `.shot-card:has(> .frame-stack).selected::after { inset:-2px; border:2px solid var(--accent); border-radius:8px; z-index:999; pointer-events:none }`（inset:-2px = border box 与卡片 border 完全重合、位置不变；z-999 盖过层牌/封面/角标；:has(> .frame-stack) 只命中多图折叠态——单图/展开帧格/列表不误伤）。**凡「卡片外框被内部叠层盖住」的焦点/选中指示，正解 = 在卡片上画独立覆盖环（z 高），别指望元素自身 border**（border 永远在子元素 z 之下）
 - **v0.9.33：多图层牌错位水平分量 > 卡片 border 厚 → 右缘伸出卡片（v0.9.30 overflow:visible 回归）**：层牌 translate(7px,7px) 右缘 = 卡片右缘 - border(2px) + 7px = 伸出 5px（4帧实测）；v0.9.30 前 overflow:hidden 裁掉伸出部分所以没暴露，v0.9.32 只修了单图 .shot-thumb 圆角，多图 frame-stack 层牌漏修（AGENTS 曾判断「同心数学上不伸出」是错的）。修 = 水平错位统一 2px（=border 厚，右缘贴卡片右缘 0 伸出），垂直 7/5/3 保留。**验证「图片是否伸出容器」用 getBoundingClientRect 比较 max(层牌 right) vs 卡片 right，别只信 CSS 注释**
 - **v0.9.33：列表折叠态封面内框语义撤销**（v0.9.32 加的 .shot-thumb frame-focused + data-frame-id 移除）——折叠态统一「只 selected 外框」；改语义必须同步 focusFrame 加框/清框选择器、main.js 单图清框、render.js 新建/复用分支、CSS 规则五处，漏一处就是残留/假 FAIL

@@ -1,6 +1,6 @@
 // 入口：接线所有模块，启动心跳与首次拉取
 import { grid, state } from './state.js';
-import { syncViewToggleButton, setView, toggleView, showSkeleton, renderGrid, updateStats, initDialogueResize, initDialogueDrag, startDlgEdit } from './render.js';
+import { syncViewToggleButton, setView, toggleView, showSkeleton, renderGrid, updateStats, initDialogueResize, initDialogueDrag, startDlgEdit, toggleDialogue } from './render.js';
 import { fetchShots, heartbeat, loadProjectTitle, openShot, openTimeline, syncScenes } from './data.js';
 import { cardClick } from './selection.js';
 import { initCardDnd, initFileDrop } from './dnd.js';
@@ -63,14 +63,30 @@ document.getElementById('btnTimeline').addEventListener('click', openTimeline);
 // v0.9.27：主菜单加「皮肤」小节（深色/浅色，当前项勾选）
 const menuBtn = document.getElementById('menuBtn');
 const mainMenu = document.getElementById('mainMenu');
+// v0.9.35：鼠标点击按钮后立即 blur 不残留焦点——否则下次按键盘快捷键（T/V/Delete 等）
+// 会触发浏览器 :focus-visible 启发式，给刚才点过的按钮套默认焦点框（outline）。
+// 用 click + e.detail（鼠标点击 detail≥1；键盘 Enter/Space 激活 detail=0）区分输入来源——
+// 键盘导航的焦点必须保留（无障碍）。mousedown 里 blur 会被默认聚焦行为抢回，须在 click 后。
+document.addEventListener('click', (e) => {
+    if (!e.detail) return;  // 键盘/程序触发的 click 不动（保留键盘导航焦点）
+    const t = e.target;
+    if (t && t.closest) {
+        const btn = t.closest('button');
+        if (btn && document.activeElement === btn) btn.blur();
+    }
+}, true);
 const fillMainMenu = () => {
     const cur = document.documentElement.dataset.theme || 'dark';
+    // v0.9.35：去掉纯文本标题项（主菜单/皮肤）；皮肤做成二级子菜单（hover 展开）并提到关于前面
     mainMenu.innerHTML = `
-        <div class="menu-title">主菜单</div>
+        <div class="menu-item has-sub">
+            <button data-action="theme">皮肤<span class="menu-arrow">›</span></button>
+            <div class="sub-menu">
+                <button data-action="theme-dark" class="${cur === 'dark' ? 'checked' : ''}">深色</button>
+                <button data-action="theme-light" class="${cur === 'light' ? 'checked' : ''}">浅色</button>
+            </div>
+        </div>
         <button data-action="about" data-tip="版本与项目信息">关于</button>
-        <div class="menu-title">皮肤</div>
-        <button data-action="theme-dark" class="${cur === 'dark' ? 'checked' : ''}">深色</button>
-        <button data-action="theme-light" class="${cur === 'light' ? 'checked' : ''}">浅色</button>
     `;
 };
 fillMainMenu();
@@ -231,7 +247,9 @@ initTrash();
 initOther();  // 「其它」页（v0.9.25）
 // v0.9.25：进「其它」先退垃圾桶（反向互斥在 trash.js initTrash）——先注册先执行
 document.getElementById('otherBtn').addEventListener('click', () => {
-    if (state.trashMode) exitTrashMode();
+    // v0.9.35：silent 静默退垃圾桶——马上进其它页，防两个 fetchShots 并发竞态
+    //（旧版 exitTrashMode() 与 enterOtherMode() 并发，/api/shots 响应后到会覆盖其它页数据）
+    if (state.trashMode) exitTrashMode(true);
 });
 initSearch();
 initShortcutsHelp();
@@ -256,31 +274,8 @@ window.__sb = { state, renderGrid, expandAnimated, collapseAnimated, isExpanded,
 function initDialogueToggle() {
     const btn = document.getElementById('dialogueBtn');
     const syncBtn = () => btn.classList.toggle('active-view', state.dialogueOn);
-    // v0.9.17：开关台词以选中镜头为中心锚定（同缩放语义，zoom.js v0.9.2）。
-    // FLIP 播放中 getBoundingClientRect 含 transform（起点补偿位移动画），恢复必须用
-    // offsetTop（布局值免疫 transform）：target = grid 文档 top + 镜头新 offsetTop + 半高
-    // - 视口半高 - 开关前相对偏移。FLIP 起点=旧视口位置、终点=新视口位置（=旧 rel）
-    // → 动画全程焦点镜头钉在原位，周围卡片围绕它 FLIP，正是"以焦点镜头为中心"。
-    const anchorDlg = () => {
-        if (!state.selectedIds || state.selectedIds.size === 0) return null;
-        const id = [...state.selectedIds][0];
-        const sel = grid.querySelector(`.shot-card[data-id="${id}"]`);
-        if (!sel) return null;
-        const r = sel.getBoundingClientRect();  // 开关前无 FLIP，视口坐标准确
-        return { id, rel: r.top + r.height / 2 - window.innerHeight / 2,
-                 gridDocTop: grid.getBoundingClientRect().top + window.scrollY };
-    };
-    // v0.9.18：滚动逻辑已挪进 renderGrid（state.pendingAnchor，FLIP 前滚动）——
-    // 原来 renderGrid 返回后 scrollTo 与 FLIP transform 同帧叠加，起点帧焦点不在原位
-    // （页面末尾镜头开关台词上下抖，实测 ±476px）。见 render.js pendingAnchor 块。
-    btn.addEventListener('click', () => {
-        const a = anchorDlg();
-        state.dialogueOn = !state.dialogueOn;
-        localStorage.setItem('sb-dialogue-on', state.dialogueOn ? '1' : '0');
-        syncBtn();
-        state.pendingAnchor = a;
-        renderGrid();
-    });
+    // v0.9.35：点击走 render.js 的 toggleDialogue（与 T 快捷键共用，锚定逻辑注释在 render.js）
+    btn.addEventListener('click', () => toggleDialogue());
     syncBtn();
     // 双击台词框就地编辑（委托：父条/box 是动态 DOM，事件绑 document）
     // v0.9.9：data-dlg-id 移到 .dialogue-box（父条不再带 id），查 box 链

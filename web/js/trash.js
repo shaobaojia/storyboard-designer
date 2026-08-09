@@ -18,7 +18,7 @@ export async function enterTrashMode() {
     await fetchShots(true);  // renderGrid -> updateStats 会同步标题为 垃圾桶 · N
 }
 
-export async function exitTrashMode() {
+export async function exitTrashMode(silent) {
     if (!state.trashMode) return;
     state.trashMode = false;
     clearSelection();
@@ -27,13 +27,18 @@ export async function exitTrashMode() {
     btn.classList.remove('active-view');
     btn.dataset.tip = '垃圾桶：查看/恢复已删除的镜头';
     loadProjectTitle();  // 恢复项目名标题
-    await fetchShots(true);
+    // v0.9.35：silent = 静默退出（互斥切换用，不拉数据，防两个 fetchShots 并发竞态）
+    if (!silent) await fetchShots(true);
 }
 
 export function initTrash() {
     document.getElementById('trashBtn').addEventListener('click', () => {
-        // v0.9.25：进垃圾桶先退「其它」页（两模式互斥）
-        if (state.otherMode) exitOtherMode();
+        // v0.9.35：进垃圾桶先静默退「其它」页（silent 不拉数据——马上进垃圾桶，
+        // 旧版未 await 的 exitOtherMode() 与 enterTrashMode() 两个 fetchShots 并发，
+        // /api/shots 响应后到会覆盖 trash 数据 = 垃圾桶模式渲染正常镜头，且危险：
+        // 此时点「彻底删除」会 purge 正常镜头）
+        if (state.otherMode) exitOtherMode(true);
+        // 退出垃圾桶不 silent：要拉正常镜头数据刷新视图（静默会残留 trash 数据）
         state.trashMode ? exitTrashMode() : enterTrashMode();
     });
 }

@@ -24,7 +24,7 @@ export async function enterOtherMode() {
     } catch (e) { /* server down, keep quiet */ }
 }
 
-export async function exitOtherMode() {
+export async function exitOtherMode(silent) {
     if (!state.otherMode) return;
     state.otherMode = false;
     clearSelection();
@@ -35,7 +35,9 @@ export async function exitOtherMode() {
     // v0.9.27：恢复新建按钮（其它页隐藏的）
     document.getElementById('btnCreate').style.display = '';
     updateStats();
-    await fetchShots(true);
+    // v0.9.35：silent = 静默退出（互斥切换用，不拉数据——调用方马上会拉目标视图数据，
+    // 两个 fetchShots 并发会竞态：后到的响应按 state 渲染，造成"垃圾桶壳+正常镜头内容"错乱）
+    if (!silent) await fetchShots(true);
 }
 
 export function initOther() {

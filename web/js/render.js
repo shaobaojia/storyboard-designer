@@ -21,6 +21,34 @@ function cardKey(shot) {
     return base + '' + frames + '' + expanded + '' + mode + '' + dlg;
 }
 
+// ---- 全局台词开关（v0.9.35：按钮点击 + T 快捷键共用，抽自 main.js initDialogueToggle）----
+// v0.9.17：开关台词以选中镜头为中心锚定（同缩放语义，zoom.js v0.9.2）。
+// FLIP 播放中 getBoundingClientRect 含 transform（起点补偿位移动画），恢复必须用
+// offsetTop（布局值免疫 transform）：target = grid 文档 top + 镜头新 offsetTop + 半高
+// - 视口半高 - 开关前相对偏移。FLIP 起点=旧视口位置、终点=新视口位置（=旧 rel）
+// → 动画全程焦点镜头钉在原位，周围卡片围绕它 FLIP，正是"以焦点镜头为中心"。
+// v0.9.18：滚动逻辑已挪进 renderGrid（state.pendingAnchor，FLIP 前滚动）——
+// 原来 renderGrid 返回后 scrollTo 与 FLIP transform 同帧叠加，起点帧焦点不在原位
+// （页面末尾镜头开关台词上下抖，实测 ±476px）。见 renderGrid pendingAnchor 块。
+export function toggleDialogue() {
+    const btn = document.getElementById('dialogueBtn');
+    const anchorDlg = () => {
+        if (!state.selectedIds || state.selectedIds.size === 0) return null;
+        const id = [...state.selectedIds][0];
+        const sel = grid.querySelector(`.shot-card[data-id="${id}"]`);
+        if (!sel) return null;
+        const r = sel.getBoundingClientRect();  // 开关前无 FLIP，视口坐标准确
+        return { id, rel: r.top + r.height / 2 - window.innerHeight / 2,
+                 gridDocTop: grid.getBoundingClientRect().top + window.scrollY };
+    };
+    const a = anchorDlg();
+    state.dialogueOn = !state.dialogueOn;
+    localStorage.setItem('sb-dialogue-on', state.dialogueOn ? '1' : '0');
+    btn.classList.toggle('active-view', state.dialogueOn);
+    state.pendingAnchor = a;
+    renderGrid();
+}
+
 // ---- 宫格台词条（v0.9.8 / v0.9.9 重构：同排合并为一条父条）----
 // v0.9.9：原实现"每台词镜头一条独立整行条"——同排多个台词镜头 = 多行条（台词被拆多行），
 // 且每排凭空多 N 行。重构为：每个"有台词的排"一条父条（grid-column:1/-1 占一行），
@@ -901,12 +929,14 @@ export function renderGrid() {
     if (state.shots.length === 0) {
         // 空态：必须先揭掉骨架层，否则提示被盖住 = 卡骨架屏（v0.8.2）
         removeSkeleton();
+        grid.classList.add('grid-empty');  // v0.9.35：空态转 flex 容器，提示整页垂直+水平居中
         grid.innerHTML = state.trashMode
             ? '<div class="empty-state"><p>垃圾桶是空的</p></div>'
             : '<div class="empty-state"><p>No shots yet. Create one in Blender.</p></div>';
         updateStats();
         return;
     }
+    grid.classList.remove('grid-empty');  // v0.9.35：有内容恢复 grid 布局
 
     // DOM 差分：按 id 复用未变化的卡片，只重建变了的
     // 展开态多图：一个 shot 渲染 N 个格位，复用键 = shotId 或 shotId:frameId
@@ -1196,10 +1226,12 @@ export function updateStats() {
 export function renderOtherGrid() {
     removeSkeleton();
     if (state.shots.length === 0) {
+        grid.classList.add('grid-empty');  // v0.9.35：其它页空态同样整页居中
         grid.innerHTML = '<div class="empty-state"><p>没有其它场景——手动在 Blender 创建的场景会出现在这里</p></div>';
         updateStats();
         return;
     }
+    grid.classList.remove('grid-empty');
     const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
     const frag = document.createDocumentFragment();
     for (const s of state.shots) {

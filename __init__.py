@@ -1,7 +1,7 @@
 bl_info = {
     "name": "Storyboard Designer",
     "author": "邵保家",
-    "version": (0, 9, 34),
+    "version": (0, 9, 35),
     "blender": (4, 5, 0),
     "location": "View3D > Sidebar > Storyboard",
     "description": "Quick previs/storyboard design system",
@@ -305,6 +305,19 @@ class STORYBOARD_OT_duplicate_shot(bpy.types.Operator):
         except Exception as e:
             self.report({'ERROR'}, f"复制失败: {e}")
             return {'CANCELLED'}
+        # v0.9.35：复制完成后自动切到新镜头（queue 异步执行，轮询新场景出现后切换）
+        target_scene = f"Shot_{new_name}"
+        def _poll_switch():
+            sc = bpy.data.scenes.get(target_scene)
+            if sc:
+                try:
+                    if bpy.context.window:
+                        bpy.context.window.scene = sc
+                except Exception:
+                    pass
+                return None  # 已切换，停止轮询
+            return 0.2  # 还没建出来，继续等
+        bpy.app.timers.register(_poll_switch, first_interval=0.2)
         undo.push(f"复制 {shot['name']}", {
             "purge": [{"id": new_id, "name": new_name, "scene_name": f"Shot_{new_name}"}]
         })
@@ -631,10 +644,12 @@ def _sb_draw_shot_info_body(body, scene):
 def _sb_draw_shot_ops_body(body, scene):
     row = body.row(align=True)
     row.operator("storyboard.create_shot", text="创建镜头", icon='ADD')
-    row.operator("storyboard.delete_shot", text="删除", icon='TRASH')
-    # v0.9.29：创建镜头下一行加「复制镜头」（复制当前场景镜头，独立副本）
-    row = body.row(align=True)
+    # v0.9.35：复制镜头与删除对调——创建/复制两个高频操作并排，删除独立一行
     row.operator("storyboard.duplicate_shot", text="复制镜头", icon='DUPLICATE')
+    row = body.row(align=True)
+    row.operator("storyboard.delete_shot", text="删除", icon='TRASH')
+    # v0.9.35：删除与拍/删当前帧之间加分隔线（镜头级操作 vs 帧级操作分区）
+    body.separator()
 
     project_dir = _get_project_dir()
     if project_dir and os.path.exists(project_dir) and scene.camera:
@@ -653,8 +668,10 @@ def _sb_draw_shot_ops_body(body, scene):
                 for f in frames:
                     missing = not f["image_path"] or not os.path.exists(f["image_path"])
                     icon = 'ERROR' if missing else ('IMAGE_DATA' if f["is_cover"] else 'NONE')
+                    # v0.9.35：场景当前帧号对上的帧按钮高亮（depress 按下态）
                     row.operator("storyboard.jump_frame",
-                                 text=f"F{f['frame_no']}", icon=icon).frame_no = f["frame_no"]
+                                 text=f"F{f['frame_no']}", icon=icon,
+                                 depress=(f['frame_no'] == scene.frame_current)).frame_no = f["frame_no"]
                 nav = fr_col.row(align=True)
                 nav.scale_y = 1.4
                 nav.operator("storyboard.step_frame", text="◀ 上一个").direction = -1
@@ -663,7 +680,13 @@ def _sb_draw_shot_ops_body(body, scene):
 
 def _sb_draw_about_body(body):
     version = '.'.join(str(x) for x in bl_info.get('version', ()))
-    body.label(text=f"版本：v{version}", icon='FILE_BLEND')
+    # v0.9.35：关于面板文案升级——产品定位 + slogan + 功能诗化 + 署名
+    body.label(text="Blender 分镜系统", icon='SCENE_DATA')
+    body.label(text="镜头叙事的数字工作台", icon='SEQUENCE')
+    body.label(text="「一镜一世界，帧帧皆故事」", icon='SOLO_ON')
+    body.label(text="拍屏 · 编排 · 台词 · 画幅 —— 让灵感凝固成章", icon='CAMERA_DATA')
+    body.separator()
+    body.label(text=f"版本 v{version}", icon='FILE_BLEND')
     body.label(text=f"作者：{bl_info.get('author', '')}", icon='USER')
     email = bl_info.get('email', '')
     if email:

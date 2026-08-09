@@ -1,12 +1,12 @@
 // 键盘快捷键：Ctrl+A 全选 / Delete 删除 / Enter 打开 / 空格 展开折叠 / Tab 切换视图 / Ctrl+Z 撤销 / 方向键跳格 / Esc 出垃圾桶
 import { state } from './state.js';
-import { selectAll, deleteSelection, updateSelectionUI } from './selection.js';
-import { openShot, undoLast, fetchShots, postShotAction, postBatch } from './data.js';
+import { selectAll, deleteSelection, updateSelectionUI, clearSelection } from './selection.js';
+import { openShot, undoLast, fetchShots, postShotAction, postBatch, postOtherScene } from './data.js';
 import { exitTrashMode } from './trash.js';
 import { exitOtherMode } from './other.js';
-import { toast } from './ui.js';
+import { toast, askConfirm } from './ui.js';
 import { isExpanded, expandAnimated, collapseAnimated, focusFrame } from './frames.js';
-import { renderGrid, toggleView } from './render.js';
+import { renderGrid, toggleView, toggleDialogue } from './render.js';
 import { updatePreview, setPreview } from './preview.js';
 
 // 快捷键清单（唯一事实源：改快捷键必须同步这里——右下角「快捷键」面板用它渲染）
@@ -20,6 +20,7 @@ export const SHORTCUTS = [
     { keys: 'Space', desc: '展开/折叠多图镜头（多选时批量）' },
     { keys: 'Tab', desc: '切换宫格/列表视图' },
     { keys: 'V', desc: '开关预览窗口' },
+    { keys: 'T', desc: '开关台词显示' },
     { keys: 'Ctrl.+ / Ctrl.-', desc: '放大/缩小（与滚轮/滑块同效）' },
     { keys: '↑↓←→', desc: '移动选择（展开态逐帧格移动）' },
     { keys: 'Shift+方向键', desc: '扩展多选范围' },
@@ -164,8 +165,21 @@ export function initKeyboard() {
             // 会让滑块常驻浏览器默认焦点框；切完视图把焦点从滑块移走
             const ae = document.activeElement;
             if (ae && ae.tagName === 'INPUT' && ae.type === 'range') ae.blur();
-        } else if (e.key === 'Delete' && state.selectedIds.size > 0 && !state.otherMode) {
+        } else if (e.key === 'Delete' && state.selectedIds.size > 0) {
             e.preventDefault();
+            if (state.otherMode) {
+                // v0.9.35：其它页 Delete = 删除场景（复用右键「删除场景」语义：确认 + postOtherScene 硬删，不可恢复）
+                const scenes = [...state.selectedIds].map(id => state.shots.find(s => s.id === id)).filter(Boolean);
+                if (scenes.length === 0) return;
+                const label = scenes.length > 1 ? `${scenes.length} 个场景` : `场景「${scenes[0].name}」`;
+                if (await askConfirm(`删除 ${label}？不可恢复。`)) {
+                    for (const s of scenes) await postOtherScene(s.scene_name, {action: 'delete'});
+                    toast(scenes.length > 1 ? '已排队删除' : '已删除');
+                    clearSelection();
+                    fetchShots(true);
+                }
+                return;
+            }
             // v0.8.2：帧级焦点优先——Delete 删焦点帧而非镜头（蓝框所在的帧）
             // v0.9.22：宫格 .frame-img 与列表 .frame-thumb 双 class 都匹配——原只查
             // .frame-img.frame-focused，列表展开态蓝框（.frame-thumb.frame-focused）
@@ -210,6 +224,10 @@ export function initKeyboard() {
             // v0.9.23：v 开关预览窗口（垃圾桶/其它模式禁用——预览框只服务镜头页）
             e.preventDefault();
             setPreview(!state.previewOn);
+        } else if (e.key.toLowerCase() === 't' && !e.ctrlKey && !e.metaKey && !e.altKey && !state.trashMode && !state.otherMode) {
+            // v0.9.35：T 开关台词显示（与 dialogueBtn 同效；垃圾桶/其它模式无台词语义，禁用）
+            e.preventDefault();
+            toggleDialogue();
         } else if (e.key.startsWith('Arrow') && !state.otherMode) {
             arrowMove(e);
         }

@@ -784,10 +784,18 @@
 
         .empty-state {
             text-align: center;
-            padding: 60px 20px;
+            padding: 20px;
             color: var(--text-muted);
         }
         .empty-state p { margin-top: 12px; }
+        /* v0.9.35：空态提示整页垂直+水平居中（垃圾桶/其它/正常空态）——
+           grid 空态转 flex 容器，min-height 撑满 header 以下视口，不再挤在第一格 */
+        #grid.grid-empty {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: calc(100vh - var(--header-h) - 90px);
+        }
         .context-menu {
             position: fixed;
             background: var(--bg-elevated);
@@ -848,6 +856,30 @@
            font-size:13px（0,1,2）会覆盖 .hamburger（0,1,0），须同级特异性补回 16px */
         .header .actions button.hamburger { font-size: 16px; }
         .main-menu { min-width: 160px; }
+        /* v0.9.35：主菜单二级子菜单（皮肤 → 深色/浅色，hover 展开；主菜单贴视口右缘，
+           子菜单向左展开不溢出；子菜单是 .menu-item 的子元素，鼠标移入 hover 链不中断） */
+        .main-menu .menu-item { position: relative; }
+        .main-menu .menu-item .menu-arrow {
+            float: right;
+            margin-left: 12px;
+            color: var(--text-muted);
+            font-size: 14px;
+            line-height: 1;
+        }
+        .main-menu .menu-item .sub-menu {
+            display: none;
+            position: absolute;
+            right: 100%;       /* 紧贴父项左缘向左展开 */
+            top: -4px;         /* 对齐父菜单内边距（.context-menu padding 4px） */
+            background: var(--bg-elevated);
+            border: 1px solid var(--border-input);
+            border-radius: 6px;
+            padding: 4px 0;
+            min-width: 130px;
+            box-shadow: 0 4px 16px rgba(0,0,0,0.5);
+            z-index: 1300;
+        }
+        .main-menu .menu-item:hover .sub-menu { display: block; }
 
         /* 左下角缩放滑块（v0.9.24：独立容器，高度与右下角统计块/快捷键按钮一致 35px） */
         .zoom-bar {
@@ -993,15 +1025,21 @@
             vertical-align: top;
         }
         #trashCount {
+            /* v0.9.35：流内 span → absolute 浮层角标（挂按钮右上角，脱离文档流不再挤压图标；
+               按钮 .bar-btn 本身 position:relative，角标天然跟随按钮位置） */
+            position: absolute;
+            top: -6px;
+            right: -6px;
             background: var(--danger);
             color: var(--text-strong);
             border-radius: 8px;
             font-size: 10px;
             padding: 1px 5px;
-            margin-left: 4px;
+            line-height: 1.4;
+            pointer-events: none;   /* 角标探出按钮外，点击穿透到按钮 */
             display: none;
         }
-        #trashCount.on { display: inline-block; }
+        #trashCount.on { display: block; }
 
         /* v0.9.25：「其它」页场景卡片（无帧图——场景名 + 相机，右键只剩转为镜头/删除） */
         .other-card {
