@@ -289,6 +289,21 @@
             border-color: var(--accent);
             box-shadow: 0 0 0 2px rgba(var(--accent-rgb), 0.3);
         }
+        /* v0.9.33c：折叠态多图（有 .frame-stack）selected 焦点框层级提升——
+           层牌 z1-3/封面 z4 盖住卡片自身 border（右缘层牌本体盖、左缘 cover 阴影盖，
+           左右缘焦点框不完整）；::after 在卡片上重画同位置 2px accent 环
+           （inset:-2px = border box，与卡片 border 完全重合、位置不变），
+           z-index 999 盖过叠图/角标(6)，左右缘完整可见；border-radius 跟随卡片圆角；
+           pointer-events none；仅多图折叠态命中（单图/展开帧格/列表无 .frame-stack） */
+        .shot-card:has(> .frame-stack).selected::after {
+            content: '';
+            position: absolute;
+            inset: -2px;
+            border: 2px solid var(--accent);
+            border-radius: 8px;
+            pointer-events: none;
+            z-index: 999;
+        }
         .shot-card.dragging {
             opacity: 0.5;
             /* v0.9.5：Pointer Events 自定义拖拽——transform 实时跟随必须禁用过渡
@@ -355,10 +370,14 @@
             user-select: none;
             box-shadow: 0 2px 6px rgba(0,0,0,0.5);
         }
-        /* 错位层：向右下偏移，深度越大偏移越小（贴近封面） */
-        .frame-stack .layer-3 { transform: translate(7px, 7px); z-index: 1; }
-        .frame-stack .layer-2 { transform: translate(5px, 5px); z-index: 2; }
-        .frame-stack .layer-1 { transform: translate(3px, 3px); z-index: 3; }
+        /* 错位层：向右下偏移，深度越大偏移越小（贴近封面）
+           v0.9.33：水平错位统一收进 2px（= 卡片透明 border 厚度）——v0.9.30
+           overflow:visible 后 7/5/3px 水平错位让层牌右缘伸出卡片右边界
+           (dx-2)px（4帧 5px 实测），图片直角悬出底衬；2px 贴 border 内缘
+           恰好 0 伸出，垂直露边 7/5/3px 保留 */
+        .frame-stack .layer-3 { transform: translate(2px, 7px); z-index: 1; }
+        .frame-stack .layer-2 { transform: translate(2px, 5px); z-index: 2; }
+        .frame-stack .layer-1 { transform: translate(2px, 3px); z-index: 3; }
         .frame-stack .cover { z-index: 4; }
         /* 左上角张数角标（v0.9.26：选择器加 button 前缀——防 v0.9.24 的 [data-tip]{position:relative}
            同特异性靠后覆盖把 absolute 拉回流内，角标掉到图下方）
@@ -446,10 +465,12 @@
            box-sizing: border-box 下元素尺寸不变（内容区缩 4px 由 object-fit cover 吸收），
            角标（z=6）正常盖住重叠区；折叠态多图封面帧焦点框同款
            （v0.9.30b：点击折叠态多图 → 焦点落封面帧，焦点框盖在封面上） */
-        .shot-card.frame-cell .frame-img.frame-focused,
-        .shot-card .frame-stack .frame-img.cover.frame-focused {
+        .shot-card.frame-cell .frame-img.frame-focused {
             border: 2px solid var(--accent);
         }
+        /* v0.9.33：折叠态（宫格 .frame-stack .cover / 列表 .shot-thumb）不再有
+           封面内框——折叠态焦点 = 只有卡片 selected 外框（用户拍板）；
+           封面蓝框规则已删，展开态帧格蓝框走上面 frame-cell 规则 */
         .shot-card.frame-cell {
             position: relative;
         }

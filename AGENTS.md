@@ -2,6 +2,21 @@
 
 > 给下一个 Agent（或下一个自己）的交接备忘录。**收工推送前必须更新「刚做完 / 正在做 / 下一步 / 坑」四个字段。**
 
+## 刚做完（v0.9.33：折叠态多图焦点框语义定稿 + 层牌伸出修复，2026-08-09 已部署实测，与 v0.9.32/v0.9.31 一起推 GitHub）
+
+- **折叠态多图焦点框语义（用户三轮拍板定稿）**：①v0.9.31 封面蓝框（内框）→ ②用户「折叠态只能有焦点外框」去掉封面内框（列表 .shot-thumb 的 data-frame-id/frame-focused 一并移除）→ ③用户「焦点框盖在叠图上面」——selected 卡片外框被层牌（z1-3）盖住左右缘（右缘层牌本体盖、左缘 cover 阴影盖，PIL 实测）；正解 = `.shot-card:has(> .frame-stack).selected::after` 在卡片上重画同位置 2px accent 环（inset:-2px = border box 与卡片 border 完全重合，z-index 999 盖过叠图/角标，border-radius 8px 跟随圆角，pointer-events none）——仅多图折叠态命中，单图/展开帧格/列表不受影响
+- **多图层牌右缘伸出卡片修复**（用户报告）：v0.9.30 overflow:visible 后层牌向右下错位 7/5/3px，右缘伸出卡片右边界 (dx-2)px（4帧 5px、3帧 3px、2帧 1px 实测——AGENTS 曾判断「多图同心数学上不伸出」是错的）；修 = 水平错位统一收进 2px（= 卡片透明 border 厚）：translate(2px,7px)/(2px,5px)/(2px,3px)，垂直露边保留，右缘恰好贴卡片右缘 0 伸出
+- 验证：WebBridge DOM + PIL 像素（右缘 border 区纯 accent、左缘不再被阴影压暗、角标不被盖、单图无 ::after 环、展开态帧格蓝框正常、折叠回焦点恢复）+ 推前全量干净库 77/77（audit 42 + ctx 12 + web 23，STD 数据完好无残留）
+- 版本号 0.9.32 → 0.9.33（bl_info + 关于徽章；v0.9.31/v0.9.32 当时未推，本次统一推）
+
+## 刚做完（v0.9.32：滑块三修 + 单图圆角 + 多图焦点框两 bug + 列表拖动结论，2026-08-09 已提交实测，随 v0.9.33 推）
+
+- 缩放滑块「拖不动」修复（marquee.js 排除列表补 .zoom-bar——v0.9.24 重构遗留）+ 拖动滑块后 Tab 切视图修复（keyboard.js 门控拆 range）+ Tab 后滑块焦点框常驻修复（blur + outline:none）
+- 单图封面直角伸出卡片圆角修复（.shot-thumb border-radius: 8px——v0.9.30 overflow:visible 连锁反应）
+- 多图焦点框两 bug（列表折叠态点击无框 / 列表折叠回丢框——img 移植顶掉新建 class）
+- 列表拖动卡顿调查结论：连续像素缩放贴 16.6ms 预算，外部波动偶发超帧，宫格离散跳变免疫——非 bug
+- 版本号 0.9.31 → 0.9.32（v0.9.31 同推）
+
 ## 刚做完（v0.9.31：焦点框修复两连 + 滑块诊断结论，2026-08-08 已部署实测，与 v0.9.30/v0.9.29 一起推 GitHub）
 
 - **展开态焦点框丢失修复**（用户报告）：v0.9.30 把焦点框从 outline 改 inset box-shadow 的动机对（outline 穿透 z-index 在角标上划线），但 **inset box-shadow 绘制在 img 替换内容之下，实测不可见**（PIL 采样帧图边缘内侧无蓝）→ 展开态焦点框完全丢失
@@ -71,14 +86,7 @@
 
 ## 正在做
 
-- **v0.9.32 候选（2026-08-09 已部署待推，共 6 项，均未升号/未推 GitHub）**：
-  1. 缩放滑块"拖不动"修复（marquee.js 排除列表补 .zoom-bar——v0.9.24 重构遗留，详见坑）
-  2. 拖动滑块后 Tab 切视图修复（keyboard.js 门控拆 range）
-  3. Tab 后滑块焦点框常驻修复（keyboard.js blur + style.css outline:none）
-  4. 单图封面直角伸出卡片圆角修复（.shot-thumb border-radius: 8px——v0.9.30 overflow:visible 连锁反应）
-  5. 多图焦点框两 bug 修复（列表折叠态无框 / 列表折叠回丢框——img 移植顶掉新建 class，坑 238/239）
-  6. 列表拖动卡顿调查结论（无代码修复）：连续像素缩放贴 16.6ms 预算，外部波动时偶发超帧，宫格离散跳变免疫——非 bug
-  - 待办：用户实测确认手感 → 推 GitHub 前全量回归 + 版本号统一升 v0.9.32
+- 无（v0.9.32 六项已提交 ef33c61，v0.9.33 本轮待提交，均未推 GitHub——待用户指示推或开新需求）
 
 ## 下一步
 
@@ -179,6 +187,9 @@ CREATE INDEX IF NOT EXISTS idx_frames_shot ON frames(shot_id);
 
 ## 坑（已踩过的雷）
 
+- **v0.9.33：折叠态多图焦点框被叠图盖住左右缘——selected 卡片 border 是元素自身绘制（低于子元素层），层牌 z1-3 盖右缘 border（层牌右缘=卡片右缘）、cover 阴影(0 2px 6px 黑)向左扩散 6px 压暗左缘 border（PIL 实测：右缘 border 区=图内容色 127-137、左缘=52,110,178 非纯 accent）**。正解 = 卡片上重画同位置环 `.shot-card:has(> .frame-stack).selected::after { inset:-2px; border:2px solid var(--accent); border-radius:8px; z-index:999; pointer-events:none }`（inset:-2px = border box 与卡片 border 完全重合、位置不变；z-999 盖过层牌/封面/角标；:has(> .frame-stack) 只命中多图折叠态——单图/展开帧格/列表不误伤）。**凡「卡片外框被内部叠层盖住」的焦点/选中指示，正解 = 在卡片上画独立覆盖环（z 高），别指望元素自身 border**（border 永远在子元素 z 之下）
+- **v0.9.33：多图层牌错位水平分量 > 卡片 border 厚 → 右缘伸出卡片（v0.9.30 overflow:visible 回归）**：层牌 translate(7px,7px) 右缘 = 卡片右缘 - border(2px) + 7px = 伸出 5px（4帧实测）；v0.9.30 前 overflow:hidden 裁掉伸出部分所以没暴露，v0.9.32 只修了单图 .shot-thumb 圆角，多图 frame-stack 层牌漏修（AGENTS 曾判断「同心数学上不伸出」是错的）。修 = 水平错位统一 2px（=border 厚，右缘贴卡片右缘 0 伸出），垂直 7/5/3 保留。**验证「图片是否伸出容器」用 getBoundingClientRect 比较 max(层牌 right) vs 卡片 right，别只信 CSS 注释**
+- **v0.9.33：列表折叠态封面内框语义撤销**（v0.9.32 加的 .shot-thumb frame-focused + data-frame-id 移除）——折叠态统一「只 selected 外框」；改语义必须同步 focusFrame 加框/清框选择器、main.js 单图清框、render.js 新建/复用分支、CSS 规则五处，漏一处就是残留/假 FAIL
 - **v0.9.32 候选：多图焦点框两真 bug（用户要求检查"折叠只有外框/展开只有内框"顺带揪出）**（2026-08-09 实测修复）：①**列表折叠态多图点击后焦点框不显示**——focusFrame 加框选择器只覆盖 .frame-img/.frame-thumb，列表折叠态封面是 .shot-thumb（无 data-frame-id）；修 = 缩略图加 data-frame-id/frame-no + 新建路径带 frame-focused + 加框/清框/Delete/复用同步 6 个选择器点全补（坑 239）。②**列表折叠回焦点框丢失**——renderGrid 的 img 移植（src 相同零闪烁 replaceWith）用旧无框 img 顶掉新建带框 img（同一状态复用路径有框/新建路径无框）；修 = 移植前同步 frame-focused + dataset（坑 238）。验证 8/8：宫格折叠=封面框/展开=帧格框/折叠回恢复/列表同矩阵/视图往返差分复用保留/单图点击清焦点。坑 238/239 详见 skill pitfalls-v0.9.30b.md
 - **v0.9.32 候选：单图封面直角伸出卡片圆角 = v0.9.30 overflow:visible 的连锁反应**（2026-08-09 实测修复）：v0.9.30 为救角标把 `.shot-card` overflow 改 visible，但单图 `.shot-thumb` 自身 border-radius 0——原来图片直角靠卡片 overflow hidden 裁进 8px 圆角，改后直角伸出（图角距圆角圆心 8.49px > 8px 弧线；用户报告"图片两个角支出去了"）。修 = `.shot-thumb { border-radius: 8px }`（与卡片同值同心贴合）；多图 frame-stack 6px 因同心数学上不伸出未动；列表 .thumb-wrap .shot-thumb 4px 更高特异性不受影响。坑 237 详见 skill pitfalls-v0.9.30b.md
 - **v0.9.32 候选：Tab 切视图后滑块焦点框常驻 = :focus-visible + 焦点滞留**（2026-08-09 实测修复）：拖动滑块（鼠标路径无框）→ 按 Tab 切视图（preventDefault 阻断焦点循环，焦点留在滑块）→ Tab 是键盘导航触发 `:focus-visible` → 滑块常驻浏览器默认焦点框。修两层：①keyboard.js Tab 分支切完视图后 blur 掉 range 焦点（连续 Tab 不受影响，handler 在 document keydown）；②style.css `.zoom-bar input[type="range"]` 加 `outline: none`（输入框 Tab 循环键盘聚焦到滑块的路径兜底；滑块有 accent-color 手柄反馈不需要 ring）。坑 236 详见 skill pitfalls-v0.9.30b.md

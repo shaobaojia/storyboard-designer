@@ -597,11 +597,9 @@ function stackHtml(shot, eager) {
         const depth = others.length - i;  // 越靠后越贴近封面
         html += frameImgHtml(f, shot, eager, `stack-layer layer-${depth}`);
     });
-    // 封面在顶（v0.9.30b：focusedFrameId 属于本镜头任意帧 → 焦点框盖在封面帧图上，
-    // 折叠态只露出封面，焦点帧不可见时也由封面承载焦点指示）
-    const focusId = state.focusedFrameId;
-    const hasFocus = focusId && frames.some(fr => fr.id === focusId);
-    if (cover) html += frameImgHtml(cover, shot, eager, 'cover' + (hasFocus ? ' frame-focused' : ''));
+    // 封面在顶（v0.9.33：折叠态不再带 frame-focused——折叠态焦点只有卡片
+    // selected 外框（用户拍板），封面蓝框已废除；展开态帧格蓝框由 focusFrame 管）
+    html += frameImgHtml(cover, shot, eager, 'cover');
     html += `<button class="stack-badge" onclick="window.__sb.toggleListMulti('${shot.id}');event.stopPropagation();" data-tip="展开/折叠">${frames.length}</button>`;
     html += '</div>';
     return html;
@@ -792,12 +790,10 @@ function buildCard(shot, eager) {
         // v0.8.4: 所有镜头折叠态缩略图 = 封面帧图（统一 frames 模型，单图=1 帧镜头；
         // 封面变更立即跟随；thumb.jpg 仅作 legacy 兜底）
         const coverFrame = frames.find(f => f.isCover) || frames[0];
-        // v0.9.32：列表折叠态封面缩略图也参与帧焦点——新建路径带 frame-focused
-        //（焦点属于本镜头任意帧即显示，复用路径在 renderGrid 差分分支同步）
-        const thumbFocusId = state.focusedFrameId;
-        const thumbHasFocus = thumbFocusId && frames.some(fr => fr.id === thumbFocusId);
+        // v0.9.33：列表折叠态缩略图不再参与帧焦点（折叠态焦点 = 只有卡片 selected
+        // 外框，用户拍板）；data-frame-id 一并移除（无消费者）
         const thumbHtml = coverFrame && coverFrame.imageUrl
-            ? `<img class="shot-thumb${thumbHasFocus ? ' frame-focused' : ''}" data-frame-id="${coverFrame.id}" data-frame-no="${coverFrame.frame_no}" draggable="false" src="${coverFrame.imageUrl}" loading="${eager ? 'eager' : 'lazy'}" onerror="this.src='${SVG_NOIMG}'">`
+            ? `<img class="shot-thumb" draggable="false" src="${coverFrame.imageUrl}" loading="${eager ? 'eager' : 'lazy'}" onerror="this.src='${SVG_NOIMG}'">`
             : thumbImgHtml(shot, eager);
         // 展开态：封面图保持行高，帧缩略图浮层叠加
         let framesOverlay = '';
@@ -939,19 +935,8 @@ export function renderGrid() {
             if (oldEl && oldEl.dataset.key === key && !oldEl.querySelector('input')) {
                 existing.delete(reuseKey);
                 oldEl.classList.toggle('selected', state.selectedIds.has(shot.id));
-                // v0.9.30b：折叠态封面帧焦点框——差分复用不重建 DOM，须同步 frame-focused
-                //（新建路径由 stackHtml 带 class；复用路径在此补齐；焦点属于本镜头任意帧即显示）
-                // v0.9.32：列表折叠态封面缩略图（.thumb-wrap .shot-thumb）同语义
-                const focusId = state.focusedFrameId;
-                const hasFocus = focusId && (shot.frames || []).some(fr => fr.id === focusId);
-                const coverImg = oldEl.querySelector('.frame-stack .frame-img.cover');
-                if (coverImg) {
-                    coverImg.classList.toggle('frame-focused', hasFocus);
-                }
-                const listThumb = oldEl.querySelector('.thumb-wrap .shot-thumb');
-                if (listThumb) {
-                    listThumb.classList.toggle('frame-focused', hasFocus);
-                }
+                // v0.9.33：折叠态封面不再有帧级焦点框（只有卡片 selected 外框），
+                // 复用分支无需同步 cover/缩略图的 frame-focused（展开态帧格由 focusFrame 管）
                 // v0.9.4 展开态底衬跟随重排：其它镜头展开/折叠会改变本镜头的
                 // 实际行分段（换行），行首/行尾 class 必须按新分段重算，
                 // 否则底衬按旧分段画 → 同镜头帧格间 12px 断层
