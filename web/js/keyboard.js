@@ -22,7 +22,7 @@ export const SHORTCUTS = [
     { keys: 'V', desc: '开关预览窗口' },
     { keys: 'T', desc: '开关台词显示' },
     { keys: 'Ctrl.+ / Ctrl.-', desc: '放大/缩小（与滚轮/滑块同效）' },
-    { keys: '↑↓←→', desc: '移动选择（展开态逐帧格移动）' },
+    { keys: '↑↓←→', desc: '移动选择（展开态逐帧格移动；时间线视图：←→ 线性移动）' },
     { keys: 'Shift+方向键', desc: '扩展多选范围' },
     { keys: 'Esc', desc: '退出垃圾桶/其它模式' },
 ];
@@ -39,6 +39,38 @@ function gridColumns() {
 function arrowMove(e) {
     const shots = state.shots;
     if (!shots.length) return;
+    // v0.9.37：时间线视图 = 线性序列——每镜头 1 格（无展开帧格）、只响应横向 ←/→
+    // （时间线横向布局，↑↓ 无格子语义）、不设帧焦点（timeline clip 无帧格 DOM，
+    // 残留 focusedFrameId 会在切回宫格时带出蓝框状态）
+    if (state.viewMode === 'timeline') {
+        const step = {ArrowLeft: -1, ArrowRight: 1}[e.key];
+        if (step === undefined) return;
+        const ids = shots.map(s => s.id);
+        const curShotId = [...state.selectedIds][0] ?? state.anchorId;
+        let cur = ids.indexOf(curShotId);
+        if (cur === -1) cur = step > 0 ? -1 : ids.length;
+        const next = Math.min(ids.length - 1, Math.max(0, cur + step));
+        if (next === cur && cur !== -1) return;
+        const targetId = ids[next];
+        if (e.shiftKey) {
+            // Shift+方向键：从锚点扩到新区间端点（镜头级，与宫格/列表一致）
+            const a = ids.indexOf(state.anchorId ?? targetId);
+            const b = ids.indexOf(targetId);
+            const [lo, hi] = a < b ? [a, b] : [b, a];
+            state.selectedIds = new Set(ids.slice(lo, hi + 1));
+            state.lastClickId = targetId;
+        } else {
+            state.selectedIds = new Set([targetId]);
+            state.anchorId = targetId;
+            state.lastClickId = targetId;
+        }
+        updateSelectionUI();
+        updatePreview();  // timeline 下转发 updateTimelineStage（顶部预览区跟随）
+        const card = document.querySelector(`.timeline-clip[data-id="${targetId}"]`);
+        if (card) card.scrollIntoView({block: 'nearest', inline: 'nearest'});
+        e.preventDefault();
+        return;
+    }
     const step = {ArrowLeft: -1, ArrowRight: 1}[e.key] ?? {ArrowUp: -gridColumns(), ArrowDown: gridColumns()}[e.key];
 
     // 构造格子序列（DOM 视觉顺序 = shots 顺序 + 展开帧格顺序）
@@ -117,7 +149,10 @@ export function initKeyboard() {
         if (tag === 'TEXTAREA') return;
         if (tag === 'INPUT') {
             if (e.target.type !== 'range') return;
-            if (e.key !== 'Tab') return;
+            // v0.9.37：range 滑块上放行 Tab（切视图）与 Ctrl/Meta 组合键（Ctrl++/- 缩放、
+            // Ctrl+A 全选等快捷键——拖动滑块后焦点留在滑块，不放行会导致按 Ctrl++ 无反应，
+            // 2026-08-09 实测）；其余键（含 ←/→）维持门控——方向键是滑块原生调值行为，快捷键不该抢
+            if (e.key !== 'Tab' && !(e.ctrlKey || e.metaKey)) return;
         }
 
         if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') {
@@ -229,8 +264,9 @@ export function initKeyboard() {
             // v0.9.35：T 开关台词显示（与 dialogueBtn 同效；垃圾桶/其它模式无台词语义，禁用）
             e.preventDefault();
             toggleDialogue();
-        } else if (e.key.startsWith('Arrow') && !state.otherMode && state.viewMode !== 'timeline') {
-            // v0.9.36：时间线视图无格子概念，方向键禁用（横向滚动用鼠标/触摸板）
+        } else if (e.key.startsWith('Arrow') && !state.otherMode) {
+            // v0.9.37：时间线视图放开方向键——arrowMove 内 timeline 分支 = 线性移动
+            // （←→ 移选中，Shift+←→ 扩展选区，↑↓ 无操作）
             arrowMove(e);
         }
     });

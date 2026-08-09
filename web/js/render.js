@@ -932,6 +932,10 @@ export function renderGrid() {
     // v0.9.4：增量维护 class——整体重设 className 会冲掉其它模块挂的 class
     // （预览框的 preview-on/preview-right/preview-left，展开多图 renderGrid 后预览布局丢）
     grid.classList.toggle('list-mode', isList);
+    // v0.9.37：切回宫格必须摘掉 timeline-mode class——v0.9.36 只清了 stage/timeline 元素，
+    // class 残留让 grid 保持 flex column（.timeline-mode { display:flex; height 固定; overflow:hidden }），
+    // auto-fill 列网格失效 = 缩放无视觉反应（2026-08-09 实测：切时间线再切回，列数读数 2 但卡片/变量正常）
+    grid.classList.remove('timeline-mode');
     document.getElementById('listHeader').classList.toggle('on', isList && state.shots.length > 0);
 
     if (state.shots.length === 0) {
@@ -1266,11 +1270,7 @@ export function setView(mode) {
     state.viewMode = mode;
     localStorage.setItem('sb-view', state.viewMode);
     syncViewToggleButton();
-    // v0.9.36：时间线刻度固定（决策 5A），缩放控件在时间线视图禁用（返回自动恢复）
-    ['sizeSlider', 'zoomOut', 'zoomIn'].forEach(id => {
-        const el = document.getElementById(id);
-        if (el) el.disabled = mode === 'timeline';
-    });
+    // v0.9.37：时间线横轴缩放启用——缩放控件不再按视图禁用（renderTimeline 内 syncTlSlider 同步档位）
     grid.querySelectorAll('.shot-card').forEach(el => { el.dataset.key = ''; });
     const selId = [...state.selectedIds][0] || null;
     state.viewSpreadId = selId;  // 扩散 FLIP 中心（renderGrid 内部消费后清空）

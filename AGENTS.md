@@ -2,14 +2,14 @@
 
 > 给下一个 Agent（或下一个自己）的交接备忘录。**收工推送前必须更新「刚做完 / 正在做 / 下一步 / 坑」四个字段。**
 
-## 刚做完（v0.9.36：时间线视图——顶部预览 + 横向时间线 + 台词轨道 + 电影字幕，2026-08-09 已部署实测，跳过全量回归用户拍板直接推）
+## 刚做完（v0.9.37：时间线去时间轴改版 + 快捷键全盘落地 + 宫格缩放两修复，2026-08-09 已部署实测，跳过全量回归用户拍板直接推）
 
-- **时间线视图**（用户需求，header Timeline 按钮 Phase 2 占位转正；拍板 5 决策：1B 宽∝时长真时间线带标尺 / 2A 台词块=镜头时间区间零数据模型改动 / 3A 自带顶部预览区 / 4B Tab 不纳入循环 / 5A 固定刻度 100px/s）：`viewMode` 三态 grid/list/timeline（localStorage 持久化，刷新直落 timeline）；新模块 `web/js/timeline.js`（第 20 个 JS）；renderGrid 开头分支转发（同 otherMode 先例）；布局 = grid 内上下分栏（#timelineStage 顶部预览 + #timeline 横向滚动：标尺 5s 刻度 + 镜头轨道 64px + 台词轨道 34px）
-- **复用架构**：timeline clip 带 `.shot-card`/`.shot-name` → 点击选中/右键菜单（timeline 分支去展开/台词项）/改名/Delete/搜索定位自动生效；大图链路复用 preview.js `showPreviewImage`（加 target 参数——原实现写死模块内 img）；字幕浮层 `.subtitle-overlay` 纯 CSS（大图下方居中，电影字幕位，跟随 T 开关）；垃圾桶/其它页进入自动退 timeline（互斥，trash.js/other.js 加 syncViewToggleButton）
-- **交互范围 v1**：点击选中 + 双击打开镜头 + 右键菜单 + 改名 + Delete；拖拽排序/框选/方向键/空格/缩放/文件拖入全部门控禁用（zoom.js apply/stepZoom/wheel、dnd.js pointerdown+dragenter+drop、marquee.js mousedown、keyboard.js 空格+方向键）
-- 修 4 真 bug：①timeline 分支跳过 updatePreview 顶部预览不跟随 ②showPreviewImage 写死侧边预览框 img（stage 大图 display=block 但 src 空）③刷新直落 timeline 滑块未禁用（setView 不执行——放 renderTimeline 内强制）④宫格残留卡片以 flex 全宽排开把 stage/timeline 推飞 48000px（DOM 断言全过但视觉全毁——第四层验证立功）；双向清理 + buildStage/buildTimeline 改纯 DOM 存在性判断（标志位被外部清除后失真）
-- 验证：WebBridge 功能 25/25 + 互斥 6/6 + 几何 8/8 + PIL 视觉 8 区域（字幕黑底白字居中/台词轨道 accent 蓝块/大图 1920 加载/标尺刻度）
-- 版本号 0.9.35 → 0.9.36（bl_info + index.html 关于徽章——⚠️ index.html 的 #aboutVersion 是硬编码，v0.9.35 段"徽章动态取无需改"记录有误，实际每次推都要改两处）
+- **时间线去时间轴改版**（用户三轮拍板确认）：时间标尺去掉（.tl-ruler/.tl-tick 规则+生成逻辑全删）；clip 等宽不再∝时长（初始 200px，顺序均布 gap 12，left = 16 + idx×(clipW+12)）；缩略图统一 4:3（104×78 居中 cover，clip 高 100 固定）；缩放只缩放横轴（clip 宽档位 104~320 步进 24 共 10 档，滑块/Ctrl滚轮/Ctrl++-/±按钮全入口生效，纵向纹丝不动）；台词块与 clip 同宽同位对齐；顶部预览区时间区间显示改"第 N 镜"；sb-tl-w localStorage 持久化
+- **时间线快捷键全盘落地**（用户拍板"先全盘挪过来再逐项调整"）：方向键放开——arrowMove timeline 分支 = 线性序列（←→ 移动选中/Shift 扩展选区/↑↓ 无操作/不设帧焦点防 focusedFrameId 残留污染宫格蓝框）；空格保持禁用（时间线无展开语义 + 放开会 toggleExpand 污染 expandedShotIds 触发无意义整树重渲染）；Tab 两态/V 内部 return/Ctrl++- 走 zoom 分流/Esc 语义全维持；SHORTCUTS 面板方向键描述同步
+- **宫格缩放两修复**：①v0.9.32 range 滑块门控过宽——焦点在滑块时 Ctrl++/- 被拦（用户拖完滑块按快捷键无反应），改放行 Ctrl/Meta 组合键（方向键仍门控保原生调值、Tab 仍放行）②renderGrid 切回宫格不摘 timeline-mode class（v0.9.36 只清 stage/timeline 元素）→ grid 保持 flex column（.timeline-mode { display:flex; height 固定; overflow:hidden }）→ auto-fill 列网格失效 = 缩放无视觉反应（列数读数 2 假象、变量正常）
+- **时间线横轴缩放 apply 幂等修复**：刷新直落 timeline 时 initZoom 的 apply() 读未同步滑块值污染持久化档位（实测 200→176）；改以 sb-tl-w 持久化为唯一事实源（档位化后写回），滑块只做显示同步，stepZoom/input 入口先写持久化再 apply
+- 验证：时间线快捷键 19/19（CDP 真实键盘）+ 宫格缩放四入口 + timeline-mode 往返修复 12/12 + 改版 22/22（标尺消失/clip 等宽/thumb 4:3/横轴缩放全入口/clamp/持久化刷新直落/台词对齐/stage 序号/切回宫格回归）+ 滑块聚焦修复 5/5；测试残留全清
+- 版本号 0.9.36 → 0.9.37（bl_info + index.html 关于徽章硬编码两处，跳过全量回归用户拍板直接推）
 
 ## 刚做完（v0.9.35：Blender 面板 UX 四连 + web 八项，2026-08-09 已部署实测，推前全量回归干净文件跑）
 
@@ -36,6 +36,7 @@
 - 版本号 0.9.33 → 0.9.34（bl_info + 关于徽章）
 
 **历史轮次**（详情曾在本文件，已压缩；关键决策见「交互/设计约定」与「坑」）：
+- v0.9.36：时间线视图首版（顶部预览+横向时间线 100px/s+5s 标尺+台词轨道+字幕浮层；clip 复用 .shot-card 选中/右键/改名/Delete；垃圾桶其它页互斥自动退；修 4 bug：预览不跟随/写死 img/直落滑块未禁用/残留卡片推飞 48000px；验证 25/25+6/6+8/8+8 区域；v0.9.37 已按用户拍板去时间轴改版）
 - v0.9.33：折叠态多图焦点框语义定稿（封面蓝框→只外框→外框盖叠图：`.shot-card:has(> .frame-stack).selected::after` inset:-2px 重画 2px accent 环 z-999）+ 多图层牌右缘伸出修复（水平错位收进 2px=border 厚，垂直露边保留）
 - v0.9.32：缩放滑块三修（marquee 排除列表补 .zoom-bar / keyboard 门控拆 range / Tab 后 blur 修焦点框常驻）+ 单图封面直角伸出卡片圆角修复 + 多图焦点框两 bug（列表折叠态点击无框/折叠回丢框）+ 列表拖动卡顿调查结论（连续像素缩放贴 16.6ms 预算非 bug）
 - v0.9.29~v0.9.31：角标包角大三角（用户 SVG 直角三角+CSS 圆角）+ 全站防文本选中（user-select none + marquee preventDefault 修框选蓝块）+ Blender 初始化门控（未初始化不建目录/DB/服务）+ 面板删当前帧/复制镜头 + 角标四条标准（展开/折叠完全一致、宽=卡宽15%、数字左上角=圆角轴心）+ 焦点框修复两连（inset box-shadow 绘制在 img 替换内容之下不可见 → border 方案；折叠态多图点击焦点落封面帧，选择器放宽 + 折叠保留焦点）
@@ -170,6 +171,10 @@ CREATE INDEX IF NOT EXISTS idx_frames_shot ON frames(shot_id);
 
 ## 坑（已踩过的雷）
 
+- **v0.9.37：renderGrid 切回宫格必须摘 timeline-mode class**（v0.9.36 只清了 stage/timeline 元素）：class 残留 → grid 保持 flex column（.timeline-mode { display:flex; height 固定; overflow:hidden }）→ grid-template-columns auto-fill 失效 = 缩放无视觉反应但 CSS 变量/滑块值正常（列数读数 2 假象、卡片 1007px 全宽排开）。凡"模式切换布局 class"必须双向清理（renderTimeline 加 class、renderGrid 摘 class），别只清元素
+- **v0.9.37：range 滑块门控放行 Ctrl/Meta 组合键**（v0.9.32 只放行 Tab 的坑）：拖动滑块后焦点留在 range，Ctrl++/- 等组合键全被 `if (e.key !== 'Tab') return` 拦掉（用户按了没反应）；正解 = `if (e.key !== 'Tab' && !(e.ctrlKey || e.metaKey)) return`；方向键仍门控（原生调值保护，v0.9.32 拍板语义）
+- **v0.9.37：时间线横轴缩放 apply 必须幂等**（刷新直落 timeline 污染持久化档位 200→176 实测）：initZoom 的 apply() 在 timeline 分支读未同步的滑块 value 写 sb-tl-w → 用户档位被覆盖；正解 = 以 localStorage 持久化为唯一事实源（读→档位化→写回→滑块仅显示同步），stepZoom/input 入口先写持久化再 apply
+- **v0.9.37：缩放测试断言防 clamp 边界**：滑块 CDP 点击 track 右端直接跳到 max 档，后续"放大"断言恒 FAIL 但功能正常（clamp）；测试序列先腾空间（zoomOut）或断言前查 slVal==slMax 跳过；同坑还踩过 Ctrl+= 被误判失效（实际是 value 已到 max）
 - **v0.9.36：独立布局视图（flex 覆盖 grid）必须清残留卡片**——renderTimeline 没清 grid 里宫格卡片：timeline 是 flex column，残留 .shot-card 以全宽 flex item 排开（每张 ~830px 高，76 张 ≈ 48000px）把 stage/timeline 推到页面深处。**DOM 断言全过但视觉全毁**（元素存在、数量正确，唯独布局飞了——截图才暴露）。切视图双向清理：renderTimeline 清 grid 直接子元素（保留 stage/timeline 自身）、renderGrid 清 stage/timeline
 - **v0.9.36：惰性容器"已建"标志位会被外部清除 DOM 后失真**——buildStage/buildTimeline 的 stageBuilt/tlBuilt 标志在 renderGrid remove 容器后仍 true → 重建被跳过（空预览区/无时间线，且无报错）。正解 = 纯 DOM 存在性判断（getElementById 存在即复用），别用标志位
 - **v0.9.36：复用模块内函数必须注意其内部绑定的 DOM 引用**——preview.js 的 showPreviewImage 内部写死模块级 img（侧边预览框 #previewImg），timeline 复用后 stage 大图永不显示（img display=block 但 src 空、naturalW=0——**display 状态能过断言，src 才是判据**）；修 = 加 target 参数（默认原 img）。凡跨模块复用带 DOM 副作用的函数，先看它内部引用了哪些模块级元素

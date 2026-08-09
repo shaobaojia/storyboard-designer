@@ -1813,40 +1813,18 @@
             height: 100%;
             min-width: 100%;
         }
-        .tl-ruler {
-            position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            height: 22px;
-            border-bottom: 1px solid var(--border);
-        }
-        .tl-tick {
-            position: absolute;
-            top: 0;
-            bottom: 0;
-            width: 1px;
-            background: var(--border);
-        }
-        .tl-tick span {
-            position: absolute;
-            top: 3px;
-            left: 4px;
-            font-size: 10px;
-            color: var(--text-secondary);
-            white-space: nowrap;
-        }
         .tl-lane {
             position: absolute;
             left: 0;
             right: 0;
         }
-        .tl-shot-lane { top: 23px; height: 64px; }
-        .tl-dlg-lane { top: 91px; height: 34px; }
+        /* v0.9.37：标尺已去掉（用户拍板去时间轴语义），镜头轨道顶到容器顶部 */
+        .tl-shot-lane { top: 0; height: 100px; }
+        .tl-dlg-lane { top: 104px; height: 34px; }
         .timeline-clip {
             position: absolute;
             top: 0;
-            height: 64px;
+            height: 100px;
             background: var(--bg-card);
             border: 1px solid var(--border);
             border-radius: 6px;
@@ -1865,11 +1843,16 @@
             box-shadow: 0 0 0 1px var(--accent);
         }
         .timeline-clip .tl-clip-thumb {
-            width: 100%;
-            height: calc(100% - 18px);
+            /* v0.9.37：缩略图统一 4:3（104×78）居中显示，object-fit cover 裁切原图；
+               不随 clip 宽缩放——纵向固定（只缩放横轴） */
+            width: 104px;
+            height: 78px;
+            margin: 4px auto 0;
             object-fit: cover;
             display: block;
+            border-radius: 4px;
             background: var(--bg-card);
+            flex-shrink: 0;
         }
         .timeline-clip .tl-clip-nothumb {
             display: flex;
@@ -1877,6 +1860,7 @@
             justify-content: center;
             font-size: 11px;
             color: var(--text-secondary);
+            flex-shrink: 0;
         }
         .timeline-clip .tl-clip-name {
             height: 18px;
