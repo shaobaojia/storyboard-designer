@@ -2,6 +2,15 @@
 
 > 给下一个 Agent（或下一个自己）的交接备忘录。**收工推送前必须更新「刚做完 / 正在做 / 下一步 / 坑」四个字段。**
 
+## 刚做完（v0.9.36：时间线视图——顶部预览 + 横向时间线 + 台词轨道 + 电影字幕，2026-08-09 已部署实测，跳过全量回归用户拍板直接推）
+
+- **时间线视图**（用户需求，header Timeline 按钮 Phase 2 占位转正；拍板 5 决策：1B 宽∝时长真时间线带标尺 / 2A 台词块=镜头时间区间零数据模型改动 / 3A 自带顶部预览区 / 4B Tab 不纳入循环 / 5A 固定刻度 100px/s）：`viewMode` 三态 grid/list/timeline（localStorage 持久化，刷新直落 timeline）；新模块 `web/js/timeline.js`（第 20 个 JS）；renderGrid 开头分支转发（同 otherMode 先例）；布局 = grid 内上下分栏（#timelineStage 顶部预览 + #timeline 横向滚动：标尺 5s 刻度 + 镜头轨道 64px + 台词轨道 34px）
+- **复用架构**：timeline clip 带 `.shot-card`/`.shot-name` → 点击选中/右键菜单（timeline 分支去展开/台词项）/改名/Delete/搜索定位自动生效；大图链路复用 preview.js `showPreviewImage`（加 target 参数——原实现写死模块内 img）；字幕浮层 `.subtitle-overlay` 纯 CSS（大图下方居中，电影字幕位，跟随 T 开关）；垃圾桶/其它页进入自动退 timeline（互斥，trash.js/other.js 加 syncViewToggleButton）
+- **交互范围 v1**：点击选中 + 双击打开镜头 + 右键菜单 + 改名 + Delete；拖拽排序/框选/方向键/空格/缩放/文件拖入全部门控禁用（zoom.js apply/stepZoom/wheel、dnd.js pointerdown+dragenter+drop、marquee.js mousedown、keyboard.js 空格+方向键）
+- 修 4 真 bug：①timeline 分支跳过 updatePreview 顶部预览不跟随 ②showPreviewImage 写死侧边预览框 img（stage 大图 display=block 但 src 空）③刷新直落 timeline 滑块未禁用（setView 不执行——放 renderTimeline 内强制）④宫格残留卡片以 flex 全宽排开把 stage/timeline 推飞 48000px（DOM 断言全过但视觉全毁——第四层验证立功）；双向清理 + buildStage/buildTimeline 改纯 DOM 存在性判断（标志位被外部清除后失真）
+- 验证：WebBridge 功能 25/25 + 互斥 6/6 + 几何 8/8 + PIL 视觉 8 区域（字幕黑底白字居中/台词轨道 accent 蓝块/大图 1920 加载/标尺刻度）
+- 版本号 0.9.35 → 0.9.36（bl_info + index.html 关于徽章——⚠️ index.html 的 #aboutVersion 是硬编码，v0.9.35 段"徽章动态取无需改"记录有误，实际每次推都要改两处）
+
 ## 刚做完（v0.9.35：Blender 面板 UX 四连 + web 八项，2026-08-09 已部署实测，推前全量回归干净文件跑）
 
 - **Blender 面板帧按钮当前帧高亮**：`jump_frame` 按钮加 `depress=(frame_no == scene.frame_current)`——当前帧号对上呈按下高亮；视觉验证（PIL 蓝底按钮）+ 联动验证（切帧后高亮消失）
@@ -26,28 +35,11 @@
 - **cmd_delete_frame 删帧残留 fNNNNN_still.jpg**：删文件还按旧格式 replace _still.png（v0.9.4 JPG 化后永不删）；修 = 三候选全删（thumb.jpg + still.jpg + still.png 兼容）；验证删帧后目录 fNNNNN_* 全空（坑 259）
 - 版本号 0.9.33 → 0.9.34（bl_info + 关于徽章）
 
-## 刚做完（v0.9.33：折叠态多图焦点框语义定稿 + 层牌伸出修复，2026-08-09 已部署实测，与 v0.9.32/v0.9.31 一起推 GitHub）
-
-- **折叠态多图焦点框语义（用户三轮拍板定稿）**：①v0.9.31 封面蓝框（内框）→ ②用户「折叠态只能有焦点外框」去掉封面内框（列表 .shot-thumb 的 data-frame-id/frame-focused 一并移除）→ ③用户「焦点框盖在叠图上面」——selected 卡片外框被层牌（z1-3）盖住左右缘（右缘层牌本体盖、左缘 cover 阴影盖，PIL 实测）；正解 = `.shot-card:has(> .frame-stack).selected::after` 在卡片上重画同位置 2px accent 环（inset:-2px = border box 与卡片 border 完全重合，z-index 999 盖过叠图/角标，border-radius 8px 跟随圆角，pointer-events none）——仅多图折叠态命中，单图/展开帧格/列表不受影响
-- **多图层牌右缘伸出卡片修复**（用户报告）：v0.9.30 overflow:visible 后层牌向右下错位 7/5/3px，右缘伸出卡片右边界 (dx-2)px（4帧 5px、3帧 3px、2帧 1px 实测——AGENTS 曾判断「多图同心数学上不伸出」是错的）；修 = 水平错位统一收进 2px（= 卡片透明 border 厚）：translate(2px,7px)/(2px,5px)/(2px,3px)，垂直露边保留，右缘恰好贴卡片右缘 0 伸出
-- 验证：WebBridge DOM + PIL 像素（右缘 border 区纯 accent、左缘不再被阴影压暗、角标不被盖、单图无 ::after 环、展开态帧格蓝框正常、折叠回焦点恢复）+ 推前全量干净库 77/77（audit 42 + ctx 12 + web 23，STD 数据完好无残留）
-- 版本号 0.9.32 → 0.9.33（bl_info + 关于徽章；v0.9.31/v0.9.32 当时未推，本次统一推）
-
 **历史轮次**（详情曾在本文件，已压缩；关键决策见「交互/设计约定」与「坑」）：
+- v0.9.33：折叠态多图焦点框语义定稿（封面蓝框→只外框→外框盖叠图：`.shot-card:has(> .frame-stack).selected::after` inset:-2px 重画 2px accent 环 z-999）+ 多图层牌右缘伸出修复（水平错位收进 2px=border 厚，垂直露边保留）
 - v0.9.32：缩放滑块三修（marquee 排除列表补 .zoom-bar / keyboard 门控拆 range / Tab 后 blur 修焦点框常驻）+ 单图封面直角伸出卡片圆角修复 + 多图焦点框两 bug（列表折叠态点击无框/折叠回丢框）+ 列表拖动卡顿调查结论（连续像素缩放贴 16.6ms 预算非 bug）
 - v0.9.29~v0.9.31：角标包角大三角（用户 SVG 直角三角+CSS 圆角）+ 全站防文本选中（user-select none + marquee preventDefault 修框选蓝块）+ Blender 初始化门控（未初始化不建目录/DB/服务）+ 面板删当前帧/复制镜头 + 角标四条标准（展开/折叠完全一致、宽=卡宽15%、数字左上角=圆角轴心）+ 焦点框修复两连（inset box-shadow 绘制在 img 替换内容之下不可见 → border 方案；折叠态多图点击焦点落封面帧，选择器放宽 + 折叠保留焦点）
 
-## 正在做
-
-- 无（v0.9.35 已部署实测，推前全量回归干净文件跑——推完待用户指示开新需求）
-- v0.9.28：Blender 面板 5 个独立子 Panel 卷展条（ARP 风格：卷展条分区 + 标题栏品牌图标 + 关于默认收起——后续面板 UI 风格沿用）+ 面板标题栏品牌剪刀图标（custom icons）
-- v0.9.27：PyWebView 窗口图标真修复（根因 WS_EX_TOOLWINDOW，去 toolwindow 改 owner 悬浮化）+ 其它页切换提速（1602→153ms，sync fire-and-forget）+ 面板三分区 + 折叠按钮高度翻倍 + 其它页隐藏创建 + 皮肤系统（45 语义 CSS 变量 + 浅色主题 + localStorage 持久化）
-- v0.9.26：收起按钮 9px + 缩放滑块去文字 + 标题栏垂直居中 + 图标全 SVG 化（icons.js 17 图标，删 iconfont -15KB）+ DWM 深色窗口图标修复（v0.9.27 证伪）
-- v0.9.25：其它场景页（shots.origin 字段 + 转镜头/删除）+ 心跳自动对账（_auto_sync 5s timer 取代手动 Sync 按钮）
-- v0.9.24：底部工具条重构（缩放滑块挪左下角独立容器）+ 按钮图标化（iconfont base64 内联）+ tooltip 替换原生 title（data-tip）+ FLIP 横向溢出水平滚动条抖动修复 + 主菜单 SVG 图标
-- v0.9.23：画幅预设下拉 + 锁定长宽比 + 新快捷键（v 预览/Ctrl+D 复制/Ctrl+F 聚焦搜索）+ 菜单全中文化 + 列表菜单去台词项
-- v0.9.22：主菜单关于面板 + 视图按钮拆分（viewGridBtn/viewListBtn）+ 按钮 title 全补 + 快捷键清单补全 + 画幅 19 预设 + Delete 帧级删除 bug 修复（列表蓝框漏匹配误删整镜头）
-- v0.9.21：三批十项（滑块 ± 步进/预览框就地编辑/折叠三角右移 9px/版本署名/缩放抖动修复/预览框贴底/快捷键并排统计块/面板标题带版本号/Sync 双端移除/骨架屏底板/预览详情避让/快捷键面板间距）
 - v0.9.20：PyWebView 双端桌面窗口外壳（_runtime 54MB 自包含/单实例 PID 锁/watchdog 盯 Blender/深色标题栏/悬浮化 owner/WebView2 CDP 测试体系）
 - v0.9.19：台词条编辑/新建态高度自适应 + 列表多行文本框 + rename 丢图真修复（frames.image_path 四层联动补第 4.5 步）+ 审计两修（undo 深度门控/强制宫格初始态）
 - v0.9.18：台词开关 FLIP 锚定滚动补偿 + Ctrl++/- 缩放 + 拖拽指示线消失修复（nearestCard 几何兜底）+ 右上角主菜单 + 标题栏垂直对齐 + 搜索下拉键盘预选
@@ -69,15 +61,15 @@
 - 第六轮：右键菜单三修（折叠态帧级误弹/「展开」项/列表 frame-thumb 帧级）/ CSS 孤儿块吞规则排查法 / 列表缩放动态上限公式
 - 第五轮：帧级实时刷新（frames.ver 双轨版本戳，封面=帧ver+thumb_ver，非封面只帧ver）
 - v0.8.0：连片底衬 margin-right:-12px / 展开折叠弹簧动效 / 面板帧号列表+拍当前帧 / __sb 调试句柄
-- v0.7.0：多图镜头（frames 数据层 / 4 queue 命令 / 一叠牌折叠态 / 展开态 N 格连片 / 帧级右键菜单 / 红格子 / 双击空格=展开）
+
+## 正在做
+
+- 无（v0.9.36 已部署实测，跳过全量回归用户拍板直接推——推完待用户指示开新需求）- v0.7.0：多图镜头（frames 数据层 / 4 queue 命令 / 一叠牌折叠态 / 展开态 N 格连片 / 帧级右键菜单 / 红格子 / 双击空格=展开）
 - v0.4.0：纯重构（前端 13 ES modules / 后端 ROUTES 表 / 多实例端口顺延 / instances.json / audit 21 项）
 - v0.3.0：拖图建镜头 / 相机背景图 alpha=1.0 / 列表视图+FLIP / 批量重命名两阶段 / Ctrl+滚轮缩放 / 键盘 / header sticky
 - v0.2.0：网页大改版（删除 type 字段 / 创建弹框 c0010 编号 / 拖图 / 自动拍屏 / 心跳 / 滑块 / 框选批量 / 右键惯性拖动）
 - 第四轮~第二轮：骨架屏揭幕 / thumb_ver 门控 / 垃圾桶模式 / 橡皮筋过冲 / 软删+撤销栈（见「撤销栈设计」）/ 方向键跳格 / DOM 差分渲染 / FLIP 双根因（offset 系测量+复合键）/ 焦点框跟手 / 帧格禁拖 / queue falsy 缺参误杀
 
-## 正在做
-
-- 无（v0.9.34 已提交实测，本次推 GitHub——推完待用户指示开新需求）
 
 ## 下一步
 
@@ -178,6 +170,10 @@ CREATE INDEX IF NOT EXISTS idx_frames_shot ON frames(shot_id);
 
 ## 坑（已踩过的雷）
 
+- **v0.9.36：独立布局视图（flex 覆盖 grid）必须清残留卡片**——renderTimeline 没清 grid 里宫格卡片：timeline 是 flex column，残留 .shot-card 以全宽 flex item 排开（每张 ~830px 高，76 张 ≈ 48000px）把 stage/timeline 推到页面深处。**DOM 断言全过但视觉全毁**（元素存在、数量正确，唯独布局飞了——截图才暴露）。切视图双向清理：renderTimeline 清 grid 直接子元素（保留 stage/timeline 自身）、renderGrid 清 stage/timeline
+- **v0.9.36：惰性容器"已建"标志位会被外部清除 DOM 后失真**——buildStage/buildTimeline 的 stageBuilt/tlBuilt 标志在 renderGrid remove 容器后仍 true → 重建被跳过（空预览区/无时间线，且无报错）。正解 = 纯 DOM 存在性判断（getElementById 存在即复用），别用标志位
+- **v0.9.36：复用模块内函数必须注意其内部绑定的 DOM 引用**——preview.js 的 showPreviewImage 内部写死模块级 img（侧边预览框 #previewImg），timeline 复用后 stage 大图永不显示（img display=block 但 src 空、naturalW=0——**display 状态能过断言，src 才是判据**）；修 = 加 target 参数（默认原 img）。凡跨模块复用带 DOM 副作用的函数，先看它内部引用了哪些模块级元素
+- **v0.9.36：刷新直落持久化视图时 setView 不执行**——localStorage 直读 viewMode='timeline' 走初始渲染（renderGrid→renderTimeline），setView 的副作用（缩放控件禁用）全部缺失（实测滑块可用）。**依赖视图状态的一次性副作用放 renderXxx 函数内（每次渲染强制），别只放 setView**
 - **v0.9.35：async 互斥切换未 await = 双 fetchShots 并发竞态**（垃圾桶/其它页）：trashBtn click 里 `exitOtherMode()` 不 await 紧接 `enterTrashMode()`——两个 fetchShots(true) 并发，后到的 /api/shots 响应按当前 state（trashMode=true）渲染 = **垃圾桶壳 + 正常镜头内容，此时点「彻底删除」会 purge 正常镜头**（危险）。互斥切换（A 模式退出 + B 模式进入）必须串行：退出方加 silent 参数静默退（不拉数据），只让目标视图发一个请求
 - **v0.9.35：mousedown 里 blur 按钮焦点会被浏览器默认聚焦行为抢回**——mousedown 默认行为（聚焦最近可聚焦祖先）在 capture blur 之后执行；须在 **click 后 blur**，且用 `e.detail` 区分输入来源（鼠标点击 detail≥1；键盘 Enter/Space 激活 detail=0——键盘路径的焦点必须保留，否则无障碍导航断）
 - **v0.9.35：合成 KeyboardEvent（dispatchEvent）不触发 :focus-visible 启发式**——验证"按快捷键是否冒焦点框"必须用 CDP Input.dispatchKeyEvent（真实输入管线）才复现 focusVisible false→true（合成事件永远 false）
@@ -344,7 +340,7 @@ CREATE INDEX IF NOT EXISTS idx_frames_shot ON frames(shot_id);
 
 - 架构：Blender 插件 + 内嵌 HTTP（0.0.0.0:8089）+ `bpy.app.timers` 主线程队列
 - 后端模块地图：`core/server.py`（ROUTES 表 + 静态服务）→ `core/actions.py`（每端点一函数）→ `core/queue.py`（COMMANDS 注册表 + 错误回传）/ `core/db.py`（含 next_c_name/next_c_number，软删字段 deleted/content/dialogue）/ `core/undo.py`（撤销栈）/ `core/paths.py`（目录）/ `core/scenes.py`（场景工厂）/ `core/sync.py`（同步唯一实现）/ `core/render.py`（拍屏公共函数）
-- 前端模块地图（19 个 JS）：`web/index.html`（骨架+CSS）+ `web/js/`：state（共享状态）/ ui（toast+确认条）/ render（宫格+列表+FLIP+DOM差分+首屏门控）/ data（拉取+心跳+错误toast+undoLast）/ selection / dnd（卡片拖拽+拖图分区）/ rename（改名+字段就地编辑）/ menu（右键/中键滑动+回弹+菜单）/ create（弹框）/ marquee（框选）/ zoom（滑块+Ctrl滚轮连续缩放）/ keyboard（快捷键+方向键）/ trash（垃圾桶弹窗）/ search（搜索栏定位）/ preview（预览框：开关/贴边/调宽/详情）/ shortcuts（快捷键面板）/ aspect（画幅比：applyAspect 注入 + 对话框）/ main（入口接线）
+- 前端模块地图（20 个 JS）：`web/index.html`（骨架+CSS）+ `web/js/`：state（共享状态）/ ui（toast+确认条）/ render（宫格+列表+FLIP+DOM差分+首屏门控）/ data（拉取+心跳+错误toast+undoLast）/ selection / dnd（卡片拖拽+拖图分区）/ rename（改名+字段就地编辑）/ menu（右键/中键滑动+回弹+菜单）/ create（弹框）/ marquee（框选）/ zoom（滑块+Ctrl滚轮连续缩放）/ keyboard（快捷键+方向键）/ trash（垃圾桶弹窗）/ search（搜索栏定位）/ preview（预览框：开关/贴边/调宽/详情）/ shortcuts（快捷键面板）/ aspect（画幅比：applyAspect 注入 + 对话框）/ timeline（时间线视图：顶部预览+横向时间线+台词轨道+字幕，v0.9.36）/ main（入口接线）
 - 改名：`cmd_rename_shot`（queue.py）四层联动实现
 - 测试：改完跑 `python3 scripts/audit.py`（42 项，含 v0.2-v0.5 全部端点+垃圾桶/撤销链+多图保帧/rename 四层/时长对齐）+ `python3 scripts/audit_context_menu.py`（12 项：打开/重拍封面/复制/软删+purge）；网页 JS 改动另需 webbridge 全交互回归
 - 152. **rename_seq 撞 Blender scene 名而非 DB 名**：candidate 生成只查 DB name_exists，scene 层撞名查不到（幽灵场景 DB 无记录）→ `Scene Shot_cXXX0 already exists` → phase 2 卡死镜头停 `__ren_` 临时名 → audit 超时。清理：孤儿场景改名 `__ghost_` 前缀 + 存盘

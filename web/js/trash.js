@@ -5,9 +5,16 @@ import { fetchShots } from './data.js';
 import { clearSelection } from './selection.js';
 import { loadProjectTitle } from './data.js';
 import { exitOtherMode } from './other.js';  // v0.9.25：与「其它」页互斥
+import { syncViewToggleButton } from './render.js';  // v0.9.36：进垃圾桶退出时间线视图
 
 export async function enterTrashMode() {
     if (state.trashMode) return;
+    // v0.9.36：时间线视图与垃圾桶互斥——进垃圾桶先退回 grid（时间线渲染分支在
+    // renderGrid 最前，不退出的话垃圾桶内容会被时间线布局吞掉）
+    if (state.viewMode === 'timeline') {
+        state.viewMode = 'grid';
+        syncViewToggleButton();
+    }
     state.trashMode = true;
     clearSelection();
     document.body.classList.add('trash-mode');

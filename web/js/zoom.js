@@ -60,6 +60,7 @@ export function initZoom() {
     };
 
     const apply = () => {
+        if (window.__sb && window.__sb.state.viewMode === 'timeline') return;  // v0.9.36：时间线刻度固定（决策 5A）
         const a = anchor();  // 缩放前捕获选中项位置
         if (window.__sb && window.__sb.state.viewMode === 'list') {
             // 列表：线性像素，最大 = 最大帧数镜头展开浮层刚顶到页面右缘
@@ -130,6 +131,7 @@ export function initZoom() {
     // 步进一档（v0.9.18：Ctrl+滚轮与 Ctrl++/- 键盘共用）——dir: +1 放大 / -1 缩小
     // 列表走 12 级档位序号（round 反推，消除累计取整漂移）；宫格列数少=卡片大
     const stepZoom = (dir) => {
+        if (window.__sb && window.__sb.state.viewMode === 'timeline') return;  // v0.9.36：时间线无缩放
         if (window.__sb && window.__sb.state.viewMode === 'list') {
             const maxW = listMaxW();
             const s = (maxW - LIST_MIN_W) / 12;
@@ -146,6 +148,7 @@ export function initZoom() {
     let pending = 0;
     document.addEventListener('wheel', (e) => {
         if (!e.ctrlKey && !e.metaKey) return;
+        if (window.__sb && window.__sb.state.viewMode === 'timeline') return;  // v0.9.36：时间线无缩放
         e.preventDefault();
         if (window.__sb && window.__sb.state.viewMode === 'list') {
             // v0.9.3：Ctrl+滚轮全程 12 级（用户拍板），v0.9.18 起走 stepZoom 共用档位逻辑

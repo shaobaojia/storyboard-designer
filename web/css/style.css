@@ -1723,3 +1723,205 @@
             content: '✓ ';
             color: var(--accent);
         }
+
+        /* ═══ v0.9.36 时间线视图：顶部预览区 + 底部时间线区（决策 1B 宽∝时长 / 2A 台词块=镜头区间 / 3A 自带预览 / 5A 固定刻度）═══ */
+        #grid.timeline-mode {
+            display: flex;
+            flex-direction: column;
+            height: calc(100vh - var(--header-h) - 92px);  /* header + 底部工具条留白 */
+            margin-top: 0;
+            overflow: hidden;
+            padding: 0 16px 12px;
+        }
+        /* 空态：整页居中提示（同 v0.9.35 grid-empty 语义） */
+        #grid.timeline-mode.grid-empty {
+            align-items: center;
+            justify-content: center;
+        }
+        #timelineStage {
+            flex: 0 0 42%;
+            min-height: 180px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        .tl-stage-body {
+            position: relative;
+            flex: 1;
+            min-height: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: var(--bg-preview);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        .tl-stage-body img {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+            display: block;
+        }
+        .tl-stage-empty {
+            color: var(--text-secondary);
+            font-size: 14px;
+        }
+        /* 字幕浮层：大图下方居中（电影字幕位，跟随 T 开关） */
+        .subtitle-overlay {
+            position: absolute;
+            bottom: 14px;
+            left: 50%;
+            transform: translateX(-50%);
+            max-width: 80%;
+            background: rgba(0, 0, 0, 0.68);
+            color: #fff;
+            padding: 6px 16px;
+            border-radius: 6px;
+            font-size: 15px;
+            line-height: 1.5;
+            text-align: center;
+            pointer-events: none;
+            z-index: 2;
+            box-sizing: border-box;
+        }
+        .tl-stage-info {
+            display: flex;
+            align-items: center;
+            gap: 18px;
+            font-size: 13px;
+            color: var(--text-secondary);
+            padding: 0 4px;
+            flex-shrink: 0;
+        }
+        .tl-stage-info #tlStageName {
+            color: var(--text);
+            font-weight: 600;
+        }
+        #timeline {
+            flex: 1;
+            min-height: 0;
+            overflow-x: auto;
+            overflow-y: hidden;
+            position: relative;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            background: var(--bg-card);
+        }
+        .tl-inner {
+            position: relative;
+            height: 100%;
+            min-width: 100%;
+        }
+        .tl-ruler {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 22px;
+            border-bottom: 1px solid var(--border);
+        }
+        .tl-tick {
+            position: absolute;
+            top: 0;
+            bottom: 0;
+            width: 1px;
+            background: var(--border);
+        }
+        .tl-tick span {
+            position: absolute;
+            top: 3px;
+            left: 4px;
+            font-size: 10px;
+            color: var(--text-secondary);
+            white-space: nowrap;
+        }
+        .tl-lane {
+            position: absolute;
+            left: 0;
+            right: 0;
+        }
+        .tl-shot-lane { top: 23px; height: 64px; }
+        .tl-dlg-lane { top: 91px; height: 34px; }
+        .timeline-clip {
+            position: absolute;
+            top: 0;
+            height: 64px;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            cursor: default;
+            transition: box-shadow 0.15s;
+            box-sizing: border-box;
+        }
+        .timeline-clip:hover {
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+        }
+        .timeline-clip.selected {
+            border-color: var(--accent);
+            box-shadow: 0 0 0 1px var(--accent);
+        }
+        .timeline-clip .tl-clip-thumb {
+            width: 100%;
+            height: calc(100% - 18px);
+            object-fit: cover;
+            display: block;
+            background: var(--bg-card);
+        }
+        .timeline-clip .tl-clip-nothumb {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 11px;
+            color: var(--text-secondary);
+        }
+        .timeline-clip .tl-clip-name {
+            height: 18px;
+            line-height: 18px;
+            font-size: 11px;
+            padding: 0 5px;
+            overflow: hidden;
+            white-space: nowrap;
+            text-overflow: ellipsis;
+            color: var(--text);
+            background: var(--bg-card);
+            flex-shrink: 0;
+        }
+        /* 时间线 clip 内改名输入框（复用 startRename，窄条适配） */
+        .timeline-clip .shot-name-input {
+            height: 18px;
+            width: 100%;
+            min-width: 0;
+            font-size: 11px;
+            padding: 0 4px;
+            box-sizing: border-box;
+        }
+        .tl-dlg-clip {
+            position: absolute;
+            top: 0;
+            height: 34px;
+            background: rgba(var(--accent-rgb), 0.14);
+            border: 1px solid var(--accent);
+            border-radius: 4px;
+            font-size: 11px;
+            line-height: 32px;
+            padding: 0 6px;
+            overflow: hidden;
+            white-space: nowrap;
+            text-overflow: ellipsis;
+            color: var(--text);
+            box-sizing: border-box;
+        }
+        /* 时间线视图下侧边预览框不参与（决策 3A：时间线自带顶部预览区） */
+        body:has(#grid.timeline-mode) .preview-panel {
+            display: none !important;
+        }
+        /* 缩放控件禁用态（时间线刻度固定，决策 5A） */
+        .zoom-bar input:disabled,
+        .zoom-bar button:disabled {
+            opacity: 0.35;
+            cursor: default;
+        }

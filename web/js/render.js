@@ -1,7 +1,8 @@
-// 渲染：宫格/列表两种视图 + FLIP 动效 + DOM 差分 + 骨架屏首屏门控
+// 渲染：宫格/列表/时间线三种视图 + FLIP 动效 + DOM 差分 + 骨架屏首屏门控
 import { state, grid } from './state.js';
 import { toast } from './ui.js';  // v0.9.8：台词就地编辑的保存反馈
 import { ICONS } from './icons.js';  // v0.9.26：动态图标（收起箭头/列表角标）
+import { renderTimeline } from './timeline.js';  // v0.9.36：时间线视图（renderGrid 分支转发）
 
 // v0.9.6：XSS 防护——所有用户数据插 innerHTML 前统一过 esc（search.js 已有同款，此处补主渲染路径）
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
@@ -915,6 +916,13 @@ function removeSkeleton() {
 export function renderGrid() {
     // v0.9.25：其它模式渲染由 renderOtherGrid 负责（镜头渲染逻辑不适用无帧场景）
     if (state.otherMode) { renderOtherGrid(); return; }
+    // v0.9.36：时间线视图由 renderTimeline 负责（时间线是独立布局，不走 grid/FLIP/差分）
+    if (state.viewMode === 'timeline') { renderTimeline(); return; }
+    // v0.9.36：清时间线视图残留——stage/timeline 是 grid 的直接子元素，grid 布局下会占格子
+    const _tlStage = document.getElementById('timelineStage');
+    if (_tlStage) _tlStage.remove();
+    const _tlEl = document.getElementById('timeline');
+    if (_tlEl) _tlEl.remove();
     // v0.9.3：差分重建会经过"grid 短暂变空"的中间态（复用节点移入 fragment 再挂回），
     // 浏览器在渲染帧把 scrollY clamp 掉 = 页面跳顶。任务内保存并在末尾恢复滚动位置，
     // 恢复后渲染帧时内容已完整、scrollY 有效，浏览器不再调整。
@@ -1258,6 +1266,11 @@ export function setView(mode) {
     state.viewMode = mode;
     localStorage.setItem('sb-view', state.viewMode);
     syncViewToggleButton();
+    // v0.9.36：时间线刻度固定（决策 5A），缩放控件在时间线视图禁用（返回自动恢复）
+    ['sizeSlider', 'zoomOut', 'zoomIn'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.disabled = mode === 'timeline';
+    });
     grid.querySelectorAll('.shot-card').forEach(el => { el.dataset.key = ''; });
     const selId = [...state.selectedIds][0] || null;
     state.viewSpreadId = selId;  // 扩散 FLIP 中心（renderGrid 内部消费后清空）

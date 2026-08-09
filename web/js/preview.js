@@ -4,6 +4,7 @@
 import { state } from './state.js';
 import { renderGrid, relocateDialogue } from './render.js';
 import { startFieldEdit } from './rename.js';
+import { updateTimelineStage } from './timeline.js';  // v0.9.36：时间线视图预览区（循环引用，函数体引用安全）
 
 const GAP = 12;
 const panel = document.getElementById('previewPanel');
@@ -40,30 +41,32 @@ function stillFallback(url) {
 
 // 先小图后清晰：立即显示缩略图（已缓存，即时），大图就绪后替换（同帧渲染无闪烁）
 // dataset.pending 防竞态：快速切换时只认最后一次的请求
-function showPreviewImage(thumbUrl, bigUrl) {
+// v0.9.36：target 参数——时间线顶部预览区复用本函数（默认 = 侧边预览框 #previewImg）
+function showPreviewImage(thumbUrl, bigUrl, target) {
+    const el = target || img;
     const pending = String(bigUrl);
-    img.dataset.pending = pending;
+    el.dataset.pending = pending;
     const cached = preloadCache.get(bigUrl);
     if (cached && cached.ready) {
-        img.src = bigUrl;  // 已预载/加载过 → 秒显
+        el.src = bigUrl;  // 已预载/加载过 → 秒显
         return;
     }
-    img.src = thumbUrl;  // 先小图
+    el.src = thumbUrl;  // 先小图
     const loader = new Image();
     loader.onload = () => {
-        if (img.dataset.pending === pending) {
-            img.src = bigUrl;
+        if (el.dataset.pending === pending) {
+            el.src = bigUrl;
             preloadCache.set(bigUrl, { ready: true });
         }
     };
     loader.onerror = () => {
-        if (img.dataset.pending !== pending) return;
+        if (el.dataset.pending !== pending) return;
         const pngUrl = stillFallback(bigUrl);
         if (pngUrl === bigUrl) return;
         const p2 = new Image();
         p2.onload = () => {
-            if (img.dataset.pending === pending) {
-                img.src = pngUrl;
+            if (el.dataset.pending === pending) {
+                el.src = pngUrl;
                 preloadCache.set(pngUrl, { ready: true });
             }
         };
@@ -172,6 +175,9 @@ function setDetail(shot, frame) {
 }
 
 export function updatePreview() {
+    // v0.9.36：时间线视图的预览 = 顶部预览区（决策 3A），转发到 timeline.js——点击/清空/心跳
+    // 全走这条既有调用链，零新增调用点
+    if (state.viewMode === 'timeline') { updateTimelineStage(); return; }
     if (!state.previewOn) return;
     const shots = state.shots;
     let targetId = (state.lastClickId && shots.some(s => s.id === state.lastClickId))
@@ -208,6 +214,8 @@ export function updatePreview() {
 }
 
 export function setPreview(on) {
+    // v0.9.36：时间线视图自带顶部预览区（决策 3A），侧边预览框在时间线模式下不参与
+    if (state.viewMode === 'timeline') return;
     if (on === state.previewOn) return;
     state.previewOn = on;
     const gridEl = document.getElementById('grid');
@@ -342,3 +350,6 @@ export function initPreview() {
         });
     });
 }
+
+// v0.9.36：导出大图加载链路给 timeline.js 复用（先小图后大图 + 预载缓存 + jpg/png 兜底）
+export { showPreviewImage, stillUrl };

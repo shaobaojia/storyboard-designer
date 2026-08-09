@@ -1,6 +1,6 @@
 // 数据层：拉取、心跳（含 Blender 端错误回传）、通用 POST
 import { state, grid } from './state.js';
-import { renderGrid, renderOtherGrid, updateStats } from './render.js';
+import { renderGrid, renderOtherGrid, updateStats, setView } from './render.js';
 import { toast } from './ui.js';
 
 export async function fetchShots(force) {
@@ -147,7 +147,7 @@ export function openShot(shotId) {
     toast('已切换到该镜头');
 }
 
-export function openTimeline() { toast('Timeline view - Phase 2'); }
+export function openTimeline() { setView('timeline'); }  // v0.9.36：真实现（原 Phase 2 占位）
 
 export async function syncScenes() {
     await fetch('/api/sync', {method: 'POST'});

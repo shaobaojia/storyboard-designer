@@ -4,10 +4,16 @@
 import { state } from './state.js';
 import { fetchShots } from './data.js';
 import { clearSelection } from './selection.js';
-import { updateStats } from './render.js';
+import { updateStats, syncViewToggleButton } from './render.js';  // v0.9.36：进其它页退出时间线视图
 
 export async function enterOtherMode() {
     if (state.otherMode) return;
+    // v0.9.36：时间线视图与其它页互斥——进其它页先退回 grid（renderGrid 的
+    // otherMode 分支在前，但 grid 的 timeline-mode class 会让其它页卡片变块布局）
+    if (state.viewMode === 'timeline') {
+        state.viewMode = 'grid';
+        syncViewToggleButton();
+    }
     state.otherMode = true;
     clearSelection();
     document.body.classList.add('other-mode');

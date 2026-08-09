@@ -207,9 +207,10 @@ export function initKeyboard() {
             e.preventDefault();
             const id = [...state.selectedIds][0];
             openShot(id);
-        } else if (e.key === ' ' && state.selectedIds.size >= 1 && !state.trashMode && !state.otherMode) {
+        } else if (e.key === ' ' && state.selectedIds.size >= 1 && !state.trashMode && !state.otherMode && state.viewMode !== 'timeline') {
             // 空格 = 展开/折叠多图镜头（单选 v0.7.0，与双击同效；v0.8.0 弹簧动效；
             // v0.9.0 多选批量：全部已展开→全部折叠，否则→全部展开；单图镜头跳过）
+            // v0.9.36：时间线视图无展开语义，禁用
             e.preventDefault();  // 阻止页面滚动
             const ids = [...state.selectedIds];
             const multiShots = ids.map(id => state.shots.find(s => s.id === id))
@@ -228,7 +229,8 @@ export function initKeyboard() {
             // v0.9.35：T 开关台词显示（与 dialogueBtn 同效；垃圾桶/其它模式无台词语义，禁用）
             e.preventDefault();
             toggleDialogue();
-        } else if (e.key.startsWith('Arrow') && !state.otherMode) {
+        } else if (e.key.startsWith('Arrow') && !state.otherMode && state.viewMode !== 'timeline') {
+            // v0.9.36：时间线视图无格子概念，方向键禁用（横向滚动用鼠标/触摸板）
             arrowMove(e);
         }
     });

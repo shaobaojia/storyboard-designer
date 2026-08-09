@@ -119,6 +119,8 @@ export function initCardDnd() {
 
     document.addEventListener('pointerdown', (e) => {
         if (e.button !== 0) return;
+        // v0.9.36：时间线视图 clip 不支持拖拽排序（横向滚动区，拖拽语义后续再做）
+        if (state.viewMode === 'timeline') return;
         const card = e.target.closest('.shot-card');
         if (!card || state.editingId || state.trashMode) return;
         // 交互控件按下不启动拖拽，保留原交互（按钮/角标/折叠钮/输入框/缺帧占位）
@@ -280,6 +282,7 @@ export function initFileDrop() {
 
     document.addEventListener('dragenter', (e) => {
         if (!isFileDrag(e)) return;
+        if (state.viewMode === 'timeline') return;  // v0.9.36：时间线视图禁文件拖入（v1 保守）
         dragCounter++;
         overlay.style.display = 'flex';
     });
@@ -305,6 +308,7 @@ export function initFileDrop() {
     });
     document.addEventListener('drop', async (e) => {
         if (!isFileDrag(e)) return;
+        if (state.viewMode === 'timeline') return;  // v0.9.36：时间线视图禁文件拖入
         e.preventDefault();
         e.stopPropagation();
         dragCounter = 0;

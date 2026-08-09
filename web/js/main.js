@@ -16,6 +16,7 @@ import { initSearch } from './search.js';
 import { initShortcutsHelp } from './shortcuts.js';
 import { initPreview, updatePreview, setPreview, setPreviewW, togglePreviewSide } from './preview.js';
 import { initAspect, applyAspect } from './aspect.js';
+import { renderTimeline, updateTimelineStage } from './timeline.js';  // v0.9.36：时间线视图
 import { isExpanded, expandAnimated, collapseAnimated, jumpToFrame, initStackHover, focusFrame } from './frames.js';
 import { ICONS } from './icons.js';
 
@@ -156,6 +157,12 @@ grid.addEventListener('click', (e) => {
         return;
     }
     cardClick(e, card.dataset.id);
+    // v0.9.36：时间线 clip 点击 = 纯选中（无折叠按钮/帧焦点语义，跳过 grid 专属逻辑）；
+    // updatePreview 不能跳——时间线模式下它转发到顶部预览区（preview.js 内部）
+    if (state.viewMode === 'timeline') {
+        updatePreview();
+        return;
+    }
     // 折叠按钮（展开态左上角）
     const collapseBtn = e.target.closest('.collapse-btn');
     if (collapseBtn && card.dataset.id) {
@@ -191,6 +198,12 @@ grid.addEventListener('click', (e) => {
 });
 
 grid.addEventListener('dblclick', (e) => {
+    // v0.9.36：时间线视图双击 clip 任意处 = 打开镜头（Blender）；时间线无展开/改名语义
+    if (state.viewMode === 'timeline') {
+        const card = e.target.closest('.shot-card');
+        if (card && card.dataset.id) openShot(card.dataset.id);
+        return;
+    }
     // 双击可编辑单元格（时长/内容/台词）= 就地编辑 (#15)
     const cellEl = e.target.closest('.cell-edit');
     if (cellEl) {
@@ -264,6 +277,7 @@ initStackHover();  // 多图镜头折叠态悬停扫视（v0.7.0）
 window.__aspectApply = applyAspect;  // loadProjectTitle 拉到项目画幅后调用
 window.__sb = { state, renderGrid, expandAnimated, collapseAnimated, isExpanded, toggleView, setView,
     updatePreview, setPreview, setPreviewW, togglePreviewSide,
+    renderTimeline, updateTimelineStage,  // v0.9.36：时间线视图调试句柄
     toggleListMulti(shotId) {
         if (isExpanded(shotId)) collapseAnimated(shotId);
         else expandAnimated(shotId);

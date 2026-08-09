@@ -84,7 +84,7 @@ export function showContextMenu(x, y, shotId, frameId = null) {
             .filter(s => s && (s.frames || []).length > 1);
         menu.innerHTML = `
             <div class="menu-title">已选 ${state.selectedIds.size} 个镜头</div>
-            ${multiSel.length > 0 ? `<button data-action="batch-expand">全部展开</button><button data-action="batch-collapse">全部折叠</button>` : ''}
+            ${state.viewMode !== 'timeline' && multiSel.length > 0 ? `<button data-action="batch-expand">全部展开</button><button data-action="batch-collapse">全部折叠</button>` : ''}
             <button data-action="batch-duplicate">批量复制<span class="menu-kbd">Ctrl+D</span></button>
             <button data-action="batch-rerender">批量重渲染</button>
             <button data-action="batch-rename">批量重命名</button>
@@ -97,11 +97,13 @@ export function showContextMenu(x, y, shotId, frameId = null) {
         // v0.9.23/24：列表视图条目菜单去掉全部台词项（台词条只在宫格渲染，列表无台词编辑入口）
         const hasDlg = shot && shot.dialogue && shot.dialogue.trim();
         const isList = state.viewMode === 'list';
+        // v0.9.36：时间线视图菜单——无展开语义（clip 不支持展开/折叠），台词编辑保留（时间线有台词轨道）
+        const isTimeline = state.viewMode === 'timeline';
         menu.innerHTML = `
-            ${isMulti ? `<button data-action="toggle-expand">${expandLabel}<span class="menu-kbd">Space</span></button>` : ''}
+            ${isMulti && !isTimeline ? `<button data-action="toggle-expand">${expandLabel}<span class="menu-kbd">Space</span></button>` : ''}
             <button data-action="open">打开镜头<span class="menu-kbd">Enter</span></button>
             <button data-action="rerender">重拍封面</button>
-            ${isList ? '' : `
+            ${isList || isTimeline ? '' : `
             <button data-action="dlg-edit">${hasDlg ? '编辑台词' : '添加台词'}</button>
             <button data-action="dlg-auto">${isDialogueAuto(shotId) ? '✓ ' : ''}自动台词大小</button>`}
             <button data-action="rename">重命名</button>

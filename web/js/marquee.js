@@ -8,6 +8,7 @@ export function initMarquee() {
 
     document.addEventListener('mousedown', (e) => {
         if (e.button !== 0) return;
+        if (state.viewMode === 'timeline') return;  // v0.9.36：时间线视图禁框选
         if (e.target.closest('.shot-card') || e.target.closest('.context-menu') ||
             e.target.closest('.modal-overlay') || e.target.closest('.size-slider') ||
             // v0.9.24：缩放滑块挪到独立 .zoom-bar 容器（左下角），排除列表必须同步——
