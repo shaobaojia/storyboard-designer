@@ -224,9 +224,10 @@ export function renderTimeline() {
     const lane = document.getElementById('tlShotLane');
     lane.innerHTML = '';
     const clipH = tlClipH(clipW);   // v0.9.38b：等比缩放后 clip 总高动态
-    // v0.9.38e：缩略图区域高度自适应 clip——timeline 最小高 = 台词轨道 38 + clipH + 顶部留白 12；
-    // clip 超高时撑开 timeline（flex-shrink 0 + min-height），grid 随之撑高，页面滚动
-    tl.style.minHeight = (38 + clipH + 12) + 'px';
+    // v0.9.38f：timeline 最小高 = 内容需要高（台词 38 + clipH + 留白 12，tlNeedHeight 同源）。
+    // 常规下 timeline 靠 flex grow 吃剩余空间（≥ needH）；clip 超高时 stage 已借空间收缩（applyTlSplit），
+    // 借到 stage 保底 180 仍不够 → 此 minHeight 撑 grid 页面滚动兜底
+    tl.style.minHeight = tlNeedHeight() + 'px';
     // 下沿对齐：lane 高 = 容器可用高 - 台词轨道 38，clip bottom:0 贴容器底
     lane.style.height = Math.max(0, inner.clientHeight - 38) + 'px';
     const frag = document.createDocumentFragment();
@@ -314,13 +315,32 @@ function currentSplitPct() {
     return parseFloat(localStorage.getItem(TL_SPLIT_KEY) || '') || 70;
 }
 
+// v0.9.38f：timeline 内容需要高 = 台词轨道 38 + clip 总高 + 顶部留白 12（与 renderTimeline 的 minHeight 同源）
+function tlNeedHeight() {
+    return 38 + tlClipH(tlClipW()) + 12;
+}
+
+// v0.9.38f：stage 高度——常规 = 分割比例×基准高；clip 超高时从 stage 借空间（timeline 上沿撑开 = 分隔条上移、预览区收缩，页面不滚动）。
+// 约束：stage 保底 180px（用户拍板 A 方案）；借到保底仍不够 → renderTimeline 的 timeline minHeight 撑 grid 页面滚动兜底。
+// avail = base - padding-bottom 12 - overhead（gap×2 + divider 6+4，与 splitMinMax 同源）
+function stageHeightFor(pct) {
+    const base = tlGridBase();
+    const [minPct, maxPct] = splitMinMax();
+    const v = Math.min(maxPct, Math.max(minPct, pct));
+    let stagePx = Math.round(base * v / 100);
+    const needH = tlNeedHeight();
+    const g = document.getElementById('grid');
+    const gap = parseFloat(getComputedStyle(g).gap) || 0;
+    const avail = base - 12 - (gap * 2 + 10);
+    if (needH > avail - stagePx) stagePx = avail - needH;   // clip 超高：从 stage 借空间
+    return Math.max(stagePx, 180);
+}
+
 // 应用存储的分割比例到 stage 高度（像素，renderTimeline 每次渲染调用）
 function applyTlSplit() {
     const stage = document.getElementById('timelineStage');
     if (!stage) return;
-    const [minPct, maxPct] = splitMinMax();
-    const pct = Math.min(maxPct, Math.max(minPct, currentSplitPct()));
-    stage.style.height = Math.round(tlGridBase() * pct / 100) + 'px';
+    stage.style.height = stageHeightFor(currentSplitPct()) + 'px';
 }
 
 // 设置并持久化（拖动时实时调用）
@@ -329,7 +349,7 @@ function setSplitPct(pct) {
     if (!stage) return currentSplitPct();
     const [minPct, maxPct] = splitMinMax();
     const v = Math.round(Math.min(maxPct, Math.max(minPct, pct)));
-    stage.style.height = Math.round(tlGridBase() * v / 100) + 'px';
+    stage.style.height = stageHeightFor(v) + 'px';
     localStorage.setItem(TL_SPLIT_KEY, String(v));
     return v;
 }

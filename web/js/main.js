@@ -1,7 +1,7 @@
 // 入口：接线所有模块，启动心跳与首次拉取
 import { grid, state } from './state.js';
 import { syncViewToggleButton, setView, toggleView, showSkeleton, renderGrid, updateStats, initDialogueResize, initDialogueDrag, startDlgEdit, toggleDialogue } from './render.js';
-import { fetchShots, heartbeat, loadProjectTitle, openShot, openTimeline, syncScenes } from './data.js';
+import { fetchShots, heartbeat, loadProjectTitle, openShot, syncScenes } from './data.js';
 import { cardClick } from './selection.js';
 import { initCardDnd, initFileDrop } from './dnd.js';
 import { startRename, startFieldEdit } from './rename.js';
@@ -56,7 +56,8 @@ mountIcons();
 document.getElementById('viewGridBtn').addEventListener('click', () => setView('grid'));
 document.getElementById('viewListBtn').addEventListener('click', () => setView('list'));
 document.getElementById('btnCreate').addEventListener('click', openCreateModal);
-document.getElementById('btnTimeline').addEventListener('click', openTimeline);
+// v0.9.38g：时间线按钮从 header 挪到工具条（列表和预览之间），走 setView('timeline') 幂等直切
+document.getElementById('viewTimelineBtn').addEventListener('click', () => setView('timeline'));
 
 // v0.9.18：右上角主菜单（三条横线图标）——Refresh 移入（原 header 按钮删除）
 // v0.9.21：Sync DB 按钮已移除（sync 由自动对账/启动时执行覆盖）

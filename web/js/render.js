@@ -1292,6 +1292,12 @@ export function toggleView() {
 export function syncViewToggleButton() {
     const g = document.getElementById('viewGridBtn');
     const l = document.getElementById('viewListBtn');
+    const t = document.getElementById('viewTimelineBtn');
     if (g) g.classList.toggle('active-view', state.viewMode === 'grid');
     if (l) l.classList.toggle('active-view', state.viewMode === 'list');
+    if (t) t.classList.toggle('active-view', state.viewMode === 'timeline');
+    // v0.9.38g：时间线自带顶部预览区（决策 3A）——预览按钮锁定高亮不可关闭；
+    // 非时间线模式按 state.previewOn 恢复（preview.js setPreview 也管这里，二者互补）
+    const p = document.getElementById('previewBtn');
+    if (p) p.classList.toggle('active-view', state.viewMode === 'timeline' || state.previewOn);
 }

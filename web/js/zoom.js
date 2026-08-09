@@ -19,7 +19,11 @@ export function initZoom() {
     const sizeSlider = document.getElementById('sizeSlider');
     const grid = document.getElementById('grid');
 
-    const availWidth = () => grid.clientWidth || (window.innerWidth - 32);
+    // v0.9.38h：clientWidth 返回整数（实测 grid 真实 940.739 → clientWidth 941，误差 0.26px）——
+    // auto-fill 用真实小数宽算列数，临界时 JS 算的列宽偏大 → 少一列 + 右侧大空白。
+    // 改用 getBoundingClientRect().width（小数精度；grid 无 padding/border = 内容宽）。
+    // 注意：开预览时 margin 变化不影响 border-box 宽（rect.width 就是窄后的内容宽），无需特判
+    const availWidth = () => grid.getBoundingClientRect().width || (window.innerWidth - 32);
     const widthFor = (n) => (availWidth() - (n - 1) * GAP) / n;
     // 列表缩略图最大宽度：最大帧数镜头展开浮层刚顶到页面右缘（v0.8.2 公式）
     const listMaxW = () => {
@@ -92,7 +96,10 @@ export function initZoom() {
             // 宫格：列数段落
             const [nMin, nMax] = nRange();
             cols = Math.min(nMax, Math.max(nMin, cols));
-            const w = widthFor(cols);
+            // v0.9.38h：auto-fill 列数余量——--card-min 用 toFixed(2) 四舍五入可能使 n×w+gap > avail
+            // （实测 983 宽 3 列临界：305.667→305.67，305.67×3+24=941.01 > 941 放不下 → 少一列 + 右侧 318px 空白）。
+            // 减 0.05px 保证 n 列恰好放下且 n+1 列放不下（安全区间宽 ≈ (avail+gap)/n(n+1) ≥ 6px，余量恒有效）
+            const w = widthFor(cols) - 0.05;
             document.documentElement.style.setProperty('--card-min', w.toFixed(2) + 'px');
             document.documentElement.style.setProperty('--list-thumb-w', Math.round(w * 0.4) + 'px');
             sizeSlider.min = 0;
