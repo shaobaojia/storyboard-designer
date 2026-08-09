@@ -2,6 +2,7 @@
 // 宫格：段落式列数缩放，每排 N 张
 // 列表：线性像素缩放，滑块无极
 import { applyExpandedLayout, relocateDialogue } from './render.js';
+import { TL_W_MIN, TL_W_MAX, TL_W_STEP, tlAnchor, tlRestoreAnchor } from './timeline.js';  // v0.9.38d：档位常量 + 缩放锚定
 const GAP = 12;
 const MIN_W = 120;
 const MAX_W = 480;
@@ -60,18 +61,20 @@ export function initZoom() {
     };
 
     const apply = () => {
-        // v0.9.37：时间线横轴缩放——只改 clip 宽（档位 104~320），纵向固定；直接重渲染时间线。
+        // v0.9.38：时间线横轴缩放——只改 clip 宽（档位 52~320，纵向固定）；直接重渲染时间线。
         // 幂等：以持久化 sb-tl-w 为唯一事实源（档位化后写回），滑块只做显示同步——
         // 刷新直落 timeline 时 initZoom 的 apply 也会走这里，若读滑块 value 会用未同步值
         // 覆盖用户持久化档位（实测 200→176 污染）
         if (window.__sb && window.__sb.state.viewMode === 'timeline') {
+            const a = tlAnchor();   // v0.9.38d：缩放中心锚定焦点镜头（水平）
             const w0 = parseInt(localStorage.getItem('sb-tl-w') || '', 10) || 200;
-            const idx = Math.round((w0 - 104) / 24);
-            const w = Math.min(320, Math.max(104, 104 + idx * 24));
+            const idx = Math.round((w0 - TL_W_MIN) / TL_W_STEP);
+            const w = Math.min(TL_W_MAX, Math.max(TL_W_MIN, TL_W_MIN + idx * TL_W_STEP));
             localStorage.setItem('sb-tl-w', String(w));
             const sl2 = document.getElementById('sizeSlider');
             if (sl2) sl2.value = idx;
             if (window.__sb.renderTimeline) window.__sb.renderTimeline();
+            tlRestoreAnchor(a);
             return;
         }
         const a = anchor();  // 缩放前捕获选中项位置
@@ -129,8 +132,8 @@ export function initZoom() {
         if (window.__sb && window.__sb.state.viewMode === 'list') {
             listThumbW = parseInt(sizeSlider.value, 10);
         } else if (window.__sb && window.__sb.state.viewMode === 'timeline') {
-            // v0.9.37：时间线横轴——滑块档位序号先写持久化，apply 幂等消费
-            localStorage.setItem('sb-tl-w', String(104 + parseInt(sizeSlider.value, 10) * 24));
+            // v0.9.38：时间线横轴——滑块档位序号先写持久化，apply 幂等消费
+            localStorage.setItem('sb-tl-w', String(TL_W_MIN + parseInt(sizeSlider.value, 10) * TL_W_STEP));
         } else {
             const [, nMax] = nRange();
             cols = nMax - parseInt(sizeSlider.value, 10);
@@ -148,14 +151,14 @@ export function initZoom() {
     // 列表走 12 级档位序号（round 反推，消除累计取整漂移）；宫格列数少=卡片大
     const stepZoom = (dir) => {
         if (window.__sb && window.__sb.state.viewMode === 'timeline') {
-            // v0.9.37：时间线横轴档位步进（Ctrl+滚轮 / Ctrl++/- / ± 按钮共用）
+            // v0.9.38：时间线横轴档位步进（Ctrl+滚轮 / Ctrl++/- / ± 按钮共用）
             // 以持久化值为基准（apply 幂等不会消费滑块值，必须在这里写档位）
             const cur = parseInt(localStorage.getItem('sb-tl-w') || '', 10) || 200;
-            const idx = Math.round((cur - 104) / 24) + dir;
-            const w = Math.min(320, Math.max(104, 104 + idx * 24));
+            const idx = Math.round((cur - TL_W_MIN) / TL_W_STEP) + dir;
+            const w = Math.min(TL_W_MAX, Math.max(TL_W_MIN, TL_W_MIN + idx * TL_W_STEP));
             localStorage.setItem('sb-tl-w', String(w));
             const sl3 = document.getElementById('sizeSlider');
-            if (sl3) sl3.value = (w - 104) / 24;
+            if (sl3) sl3.value = (w - TL_W_MIN) / TL_W_STEP;
             apply();
             return;
         }

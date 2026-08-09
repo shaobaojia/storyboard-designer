@@ -1728,7 +1728,7 @@
         #grid.timeline-mode {
             display: flex;
             flex-direction: column;
-            height: calc(100vh - var(--header-h) - 92px);  /* header + 底部工具条留白 */
+            min-height: calc(100vh - var(--header-h) - 92px);  /* v0.9.38e：min-height——clip 超高时内容撑开，页面可滚动 */
             margin-top: 0;
             overflow: hidden;
             padding: 0 16px 12px;
@@ -1739,7 +1739,8 @@
             justify-content: center;
         }
         #timelineStage {
-            flex: 0 0 42%;
+            flex: 0 0 auto;
+            flex-shrink: 0;   /* v0.9.38e：内容超高时 stage 不被压缩，撑开落到 grid 高度 */
             min-height: 180px;
             display: flex;
             flex-direction: column;
@@ -1798,19 +1799,40 @@
             color: var(--text);
             font-weight: 600;
         }
+        /* v0.9.38c：预览区/缩略图区可拖动分隔条（默认 7:3） */
+        .tl-divider {
+            flex: 0 0 6px;
+            flex-shrink: 0;
+            margin: 0 0 4px;
+            border-radius: 3px;
+            background: var(--border);
+            cursor: ns-resize;
+            touch-action: none;   /* 指针拖动防浏览器滚动/缩放 */
+            transition: background 0.15s;
+            user-select: none;
+        }
+        .tl-divider:hover,
+        .tl-divider.dragging {
+            background: var(--accent);
+        }
         #timeline {
-            flex: 1;
+            flex: 1 0 auto;   /* v0.9.38e：shrink 0 + JS min-height——clip 超高时撑开，不裁切 */
             min-height: 0;
             overflow-x: auto;
-            overflow-y: hidden;
+            overflow-y: auto;   /* v0.9.38b：缩略图等比缩放后 clip 高动态，超高时纵向滚动兜底 */
             position: relative;
             border: 1px solid var(--border);
             border-radius: 8px;
             background: var(--bg-card);
         }
         .tl-inner {
-            position: relative;
-            height: 100%;
+            /* v0.9.38e：absolute inset 0——flex item 的百分比高度在 main size indefinite 时解析为 auto（塌 0），
+               inset 定位不受影响 */
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
             min-width: 100%;
         }
         .tl-lane {
@@ -1818,13 +1840,15 @@
             left: 0;
             right: 0;
         }
-        /* v0.9.37：标尺已去掉（用户拍板去时间轴语义），镜头轨道顶到容器顶部 */
-        .tl-shot-lane { top: 0; height: 100px; }
-        .tl-dlg-lane { top: 104px; height: 34px; }
+        /* v0.9.38：台词轨道挪到镜头轨道上方（用户拍板：台词块放镜头块上面）——
+           台词 lane top:0 高 34，镜头 lane 下移 38px（34 + 4 间距）；
+           v0.9.38b：镜头 lane 高 JS 动态设（缩略图等比缩放，clip 高 = (clipW-2)×3/4 + 22） */
+        .tl-shot-lane { top: 38px; }
+        .tl-dlg-lane { top: 0; height: 34px; }
         .timeline-clip {
             position: absolute;
-            top: 0;
-            height: 100px;
+            bottom: 0;   /* v0.9.38e：下沿对齐（clip 底部贴缩略图区域底部，放大向上长） */
+            /* v0.9.38b：height 由 JS 动态设（缩略图等比缩放，clip 高 = (clipW-2)×3/4 + 22） */
             background: var(--bg-card);
             border: 1px solid var(--border);
             border-radius: 6px;
@@ -1843,12 +1867,13 @@
             box-shadow: 0 0 0 1px var(--accent);
         }
         .timeline-clip .tl-clip-thumb {
-            /* v0.9.37：缩略图统一 4:3（104×78）居中显示，object-fit cover 裁切原图；
-               不随 clip 宽缩放——纵向固定（只缩放横轴） */
-            width: 104px;
-            height: 78px;
-            margin: 4px auto 0;
-            object-fit: cover;
+            /* v0.9.38：完整显示（contain）+ 左对齐 + 宽 100% 跟随 clip；
+               v0.9.38b：等比缩放——aspect-ratio 4:3，高随宽自动（不再固定 78） */
+            width: 100%;
+            aspect-ratio: 4 / 3;
+            margin: 4px 0 0;
+            object-fit: contain;
+            object-position: left center;
             display: block;
             border-radius: 4px;
             background: var(--bg-card);

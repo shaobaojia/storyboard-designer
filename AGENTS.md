@@ -2,6 +2,15 @@
 
 > 给下一个 Agent（或下一个自己）的交接备忘录。**收工推送前必须更新「刚做完 / 正在做 / 下一步 / 坑」四个字段。**
 
+## 刚做完（v0.9.38：时间线五项 + 缩放锚定，2026-08-09 已部署实测，跳过全量回归用户拍板直接推）
+
+- **时间线台词块移到镜头块上方**（库任务清单项）：台词轨道从镜头轨道下方（top 104）上移到顶部（top 0），镜头轨道下移 38px（34 台词 + 4 间距）；CSS 两行位置对调，JS 零改动
+- **时间线缩略图三连**：①显示全（object-fit cover→contain + object-position left，完整显示不裁切）②左对齐（宽 100% 跟随 clip + 图内容贴左）③最小极值缩小 2 倍（clip 宽下限 104→52，滑块 10 档→12 档 52~316）；档位常量 TL_W_MIN/MAX/STEP 加 export 供 zoom.js 同源引用（原三处硬编码 104/24/320 全替换）
+- **时间线缩略图等比缩放**：aspect-ratio 4:3 区域随 clip 宽等比（推翻 v0.9.37「只缩放横轴」决策），clip 总高动态 = (clipW-2)×0.75+22；坑 292 的几何约束结论随之作废（等比必然纵向变，用户拍板）
+- **预览区/缩略图区可拖动分割**：分隔条 #tlDivider 默认 7:3（stage 70%），拖动调节 + localStorage 持久化（sb-tl-split），clamp 保底（stage ≥180、timeline ≥150，计入 grid gap 12×2 + divider 开销）；空态隐藏分隔条
+- **缩略图下沿对齐 + 区域自适应撑开 + 缩放中心=焦点下沿**：clip bottom:0 贴区域底部（放大向上长）；timeline min-height 动态 = 38+clipH+12，clip 超高时撑开（flex-shrink 0 + grid 高度改 min-height + 页面滚动）；缩放锚定焦点 clip 水平位置（下沿中点 x = 中心 x，垂直贴底天然锚定）；stage 高度改 JS 像素（grid 高度 auto 后百分比 flex-basis 失效，基准读 computed min-height）
+- 版本号 0.9.37 → 0.9.38（bl_info + index.html 关于徽章硬编码两处，跳过全量回归用户拍板直接推）
+
 ## 刚做完（v0.9.37：时间线去时间轴改版 + 快捷键全盘落地 + 宫格缩放两修复，2026-08-09 已部署实测，跳过全量回归用户拍板直接推）
 
 - **时间线去时间轴改版**（用户三轮拍板确认）：时间标尺去掉（.tl-ruler/.tl-tick 规则+生成逻辑全删）；clip 等宽不再∝时长（初始 200px，顺序均布 gap 12，left = 16 + idx×(clipW+12)）；缩略图统一 4:3（104×78 居中 cover，clip 高 100 固定）；缩放只缩放横轴（clip 宽档位 104~320 步进 24 共 10 档，滑块/Ctrl滚轮/Ctrl++-/±按钮全入口生效，纵向纹丝不动）；台词块与 clip 同宽同位对齐；顶部预览区时间区间显示改"第 N 镜"；sb-tl-w localStorage 持久化
@@ -26,16 +35,8 @@
 - **按钮点击残留焦点修复**（用户报告"按 T 键出现焦点框"）：根因 = 鼠标点击焦点残留 + 键盘输入触发 :focus-visible 启发式给按钮套默认 outline（CDP 复现 focusVisible false→true）；修 = 全局 click 里鼠标点击（e.detail≥1）的按钮立即 blur，键盘 Enter/Space（detail=0）焦点保留（无障碍不破坏）；mousedown blur 会被浏览器默认聚焦抢回，须 click 后（坑 261/262）
 - 版本号 0.9.34 → 0.9.35（bl_info；关于徽章动态取 bl_info.version 无需单独改）
 
-## 刚做完（v0.9.34：台词条手柄图标 + 拖拽缩放 + 预览画幅标准 + 面板实时刷新，2026-08-09 已部署实测，跳过全量回归用户拍板直接推）
-
-- **台词条拖宽手柄视觉系列**（用户连轮指定）：默认 2px 竖线 → 用户 SVG 图标（星形 #707070 → 双右箭头 » #bfbfbf），14px→28px→19.6px（70%）；默认 opacity 0、台词条 hover 显示（opacity 1，0.15s 过渡）；中心锚定公式 `right = containing block 右缘偏移 - N/2`；光标去 col-resize 全程默认（同 v0.9.5 约定）。坑：[data-tip]::after 同特异性合并三坑（left/bottom/padding/border 显式清，坑 249）
-- **拖拽中卡片 scale(0.7)**（dnd.js 一行：transform 加 scale(0.7)，释放自动清）
-- **预览窗口画幅标准（用户拍板：只能裁上下不能裁左右）**：原 .preview-body img 100%×100% 填满竖的预览区域 → cover 裁左右（21:9 预设左右各裁 336px 实测）；修 = 预览 img 容器 aspect-ratio 跟随画幅（max-w/max-h 100% + auto，区域内最大居中），与缩略图同构；19 预设全测：容器比例=画幅、cover 只裁上下、永不裁左右（坑 256/257）
-- **Blender 面板实时刷新（帧按钮 hover 才刷新事故）**：根因 = 改 DB 的 operator 无 tag_redraw + 面板读缓存（1s TTL）未失效；修 = core/queue.py 新增 redraw_view3d()（失效 panel_db_cache + 遍历 VIEW_3D tag_redraw，缓存对象移 queue.py 跨模块共享）+ 4 个同步 operator（拍帧/删帧/创建/删除镜头）尾部调用 + process_queue 成功路径统一调（覆盖 web 命令）；MCP 验证：拍帧后 cache key/ts 变化（无鼠标环境重绘只能来自 tag_redraw）（坑 258）
-- **cmd_delete_frame 删帧残留 fNNNNN_still.jpg**：删文件还按旧格式 replace _still.png（v0.9.4 JPG 化后永不删）；修 = 三候选全删（thumb.jpg + still.jpg + still.png 兼容）；验证删帧后目录 fNNNNN_* 全空（坑 259）
-- 版本号 0.9.33 → 0.9.34（bl_info + 关于徽章）
-
 **历史轮次**（详情曾在本文件，已压缩；关键决策见「交互/设计约定」与「坑」）：
+- v0.9.34：台词条拖宽手柄视觉系列（SVG 图标/hover 显示/中心锚定）+ 拖拽 scale(0.7) + 预览画幅标准（只能裁上下）+ 面板实时刷新（redraw_view3d+缓存失效）+ 删帧残留清理（坑 249/256-259）
 - v0.9.36：时间线视图首版（顶部预览+横向时间线 100px/s+5s 标尺+台词轨道+字幕浮层；clip 复用 .shot-card 选中/右键/改名/Delete；垃圾桶其它页互斥自动退；修 4 bug：预览不跟随/写死 img/直落滑块未禁用/残留卡片推飞 48000px；验证 25/25+6/6+8/8+8 区域；v0.9.37 已按用户拍板去时间轴改版）
 - v0.9.33：折叠态多图焦点框语义定稿（封面蓝框→只外框→外框盖叠图：`.shot-card:has(> .frame-stack).selected::after` inset:-2px 重画 2px accent 环 z-999）+ 多图层牌右缘伸出修复（水平错位收进 2px=border 厚，垂直露边保留）
 - v0.9.32：缩放滑块三修（marquee 排除列表补 .zoom-bar / keyboard 门控拆 range / Tab 后 blur 修焦点框常驻）+ 单图封面直角伸出卡片圆角修复 + 多图焦点框两 bug（列表折叠态点击无框/折叠回丢框）+ 列表拖动卡顿调查结论（连续像素缩放贴 16.6ms 预算非 bug）
@@ -171,6 +172,13 @@ CREATE INDEX IF NOT EXISTS idx_frames_shot ON frames(shot_id);
 
 ## 坑（已踩过的雷）
 
+- **v0.9.38：flex item 的百分比高度在 main size indefinite 时解析为 auto → 塌 0**（.tl-inner height:100% 实测 computed 0px，lane/clip 全塌在台词轨道底部）：flex-basis auto 的 item 其百分比高度子元素解析为 auto；正解 = absolute inset:0。诊断：computed height 0 + 父是 flex item
+- **v0.9.38：flex-shrink 默认 1 会把内容超高场景的相邻 item 压缩**（stage 383→359 实测被压 24px）：flex column 里「某 item 撑开」必须显式 flex-shrink:0 + min-height，否则溢出量被 shrink 吸收
+- **v0.9.38：ESM import 不存在的导出 = 整链白屏，node --check 测不出**（timeline.js 常量漏 export，zoom.js import 后页面 __sb undefined）：诊断 = 动态 import('/js/main.js').catch(e => e.message) 抓 "does not provide an export named"
+- **v0.9.38：时间线缩放锚定的 scrollLeft clamp 物理限制**——焦点 clip 在视口外时锚定需求为负 scrollLeft（clamp 0），表现为「锚定失效漂移」；测锚定必须选视口内 clip（scrollLeft 先滚到目标附近）
+- **v0.9.38：档位化漂移**——TL_W_MIN 104→52 后 320/200 不再是精确档位（52+24k：316/196），持久化值刷新时被 apply 档位化写回（320→316）；测试还原用档位化后的值，别写回旧值再断言
+- **v0.9.38：grid gap 12（宫格继承）在 timeline 模式同样生效**——stage/divider/timeline 之间各 12px，分割 clamp/高度公式必须计入（gap×2 + divider 开销）
+- **v0.9.38：applyTlSplit 只在 renderTimeline 跑——removeItem 持久化后不重渲染 = DOM 残留旧值**（flex-basis 46% 残留实测）；改持久化后必须重渲染（renderTimeline/reload）再断言
 - **v0.9.37：renderGrid 切回宫格必须摘 timeline-mode class**（v0.9.36 只清了 stage/timeline 元素）：class 残留 → grid 保持 flex column（.timeline-mode { display:flex; height 固定; overflow:hidden }）→ grid-template-columns auto-fill 失效 = 缩放无视觉反应但 CSS 变量/滑块值正常（列数读数 2 假象、卡片 1007px 全宽排开）。凡"模式切换布局 class"必须双向清理（renderTimeline 加 class、renderGrid 摘 class），别只清元素
 - **v0.9.37：range 滑块门控放行 Ctrl/Meta 组合键**（v0.9.32 只放行 Tab 的坑）：拖动滑块后焦点留在 range，Ctrl++/- 等组合键全被 `if (e.key !== 'Tab') return` 拦掉（用户按了没反应）；正解 = `if (e.key !== 'Tab' && !(e.ctrlKey || e.metaKey)) return`；方向键仍门控（原生调值保护，v0.9.32 拍板语义）
 - **v0.9.37：时间线横轴缩放 apply 必须幂等**（刷新直落 timeline 污染持久化档位 200→176 实测）：initZoom 的 apply() 在 timeline 分支读未同步的滑块 value 写 sb-tl-w → 用户档位被覆盖；正解 = 以 localStorage 持久化为唯一事实源（读→档位化→写回→滑块仅显示同步），stepZoom/input 入口先写持久化再 apply
@@ -263,7 +271,7 @@ CREATE INDEX IF NOT EXISTS idx_frames_shot ON frames(shot_id);
 - **热重载僵尸线程**：`del sys.modules` 重载插件后旧 HTTP server 的 `serve_forever` 线程杀不掉，新旧 handler 随机抢请求 → 表现为"代码改了但请求没走新路径"。判断：`threading.enumerate()` 查 serve_forever 数量 >1 就是脏了。解法：重启 Blender。
 - **`bpy.ops.view3d.view_camera()` 在 `temp_override` 循环里只生效一个 area**：多视口场景下每次只会有第一个视口切到相机视角。改用 `area.spaces.active.region_3d.view_perspective = 'CAMERA'` 直接设所有视口（v0.7.0 多图跳帧 + v0.3.0 打开镜头都用过此坑）。
 - **`bpy.ops.render.opengl` 只读真实视口状态**：temp_override 里改 context 对它无效——它读的是你屏幕上实际看到的视口。要切相机视角必须直接改 `space.region_3d.view_perspective`。
-- **Git 推 GitHub：先直连，失败再 SOCKS5 兜底**：2026-08 实测 Clash 未开时直连 push 成功（无需代理）；被墙时 Edge 走系统代理 `127.0.0.1:7897`（SOCKS5）。MSYS2 git 不支持 SOCKS5 认证交互，必须 `git remote set-url "https://TOKEN@github.com/..."` 内嵌 token 跳过 credential helper，失败时 `git config http.proxy socks5://127.0.0.1:7897`。推完记得还原 remote URL（去掉 token）。
+- **Git 推 GitHub：直接走代理，不试直连**（2026-08-09 用户拍板纠正——直连次次被墙次次超时，v0.9.2"Clash 未开时直连成功"旧经验已过时）：`git -c http.proxy=socks5h://127.0.0.1:7897 push origin main`（单次生效不改全局 config；先 `netstat -ano | grep 7897` 确认监听，7898/7899 常无监听）。MSYS2 git 不支持 SOCKS5 认证交互，必须 `git remote set-url "https://TOKEN@github.com/..."` 内嵌 token 跳过 credential helper。推完还原 remote URL（去掉 token）+ 验证本地=远程 HEAD。
 - **MCP 线程无 window context**：`bpy.context.window/screen` 为 None，render/opengl 全挂。需要主线程 timer 队列执行（架构⑥的核心模式）。
 - **BaseHTTPRequestHandler 的 if/elif 链断裂**：独立 `if` 替代 `elif` 会导致 200 + 404 双响应拼包，JSON 解析报 Extra data。
 - **`scene.copy()` 是链接复制**：大纲显示红色，新场景和原场景共享物体数据。用 `bpy.ops.scene.new(type='FULL_COPY')` 才能完全独立。
