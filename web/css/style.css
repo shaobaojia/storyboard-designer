@@ -323,6 +323,11 @@
             aspect-ratio: var(--aspect, 1.778);
             object-fit: cover;
             background: var(--bg-thumb);
+            /* v0.9.32：卡片 overflow:visible（v0.9.30 为角标改）不再裁图——
+               单图封面直角伸出卡片 8px 圆角外（图角距圆角圆心 8.49px > 8px 弧线）；
+               img 自身补 8px 圆角 = 与卡片同心内缩 2px（border 厚度），弧线完全贴合。
+               列表 .thumb-wrap .shot-thumb 有更高特异性 4px 覆盖，不受影响 */
+            border-radius: 8px;
             /* v0.9.5 修复：禁原生图片拖拽（配合 dnd.js 全局 dragstart 拦截）——
                img 默认 draggable=true，pointerdown 在缩略图上移动会启动原生拖拽
                → no-drop 禁止光标 + 可能吞掉 pointerup 导致拖拽不生效 */
@@ -860,6 +865,8 @@
             width: 140px;
             accent-color: var(--accent);
             cursor: pointer;
+            /* v0.9.32：滑块有 accent-color 手柄视觉反馈，聚焦不再画浏览器默认焦点框 */
+            outline: none;
         }
 
         /* 底部居中工具条（v0.9.24）：视图控制组（宫格/列表/预览）+ 功能组（新建/台词/画幅/垃圾桶） */

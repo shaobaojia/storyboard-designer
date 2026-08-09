@@ -1,7 +1,7 @@
 bl_info = {
     "name": "Storyboard Designer",
     "author": "邵保家",
-    "version": (0, 9, 31),
+    "version": (0, 9, 32),
     "blender": (4, 5, 0),
     "location": "View3D > Sidebar > Storyboard",
     "description": "Quick previs/storyboard design system",

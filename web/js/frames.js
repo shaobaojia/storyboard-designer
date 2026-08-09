@@ -226,12 +226,14 @@ export async function jumpToFrame(shotId, frameNo) {
 export function focusFrame(shotId, frameId) {
     // 全局单选：同一时刻只有一个帧格有焦点框
     state.focusedFrameId = frameId;
-    grid.querySelectorAll('.frame-img.frame-focused, .frame-thumb.frame-focused')
+    // v0.9.32：列表折叠态封面缩略图（.shot-thumb）也参与帧焦点，清除/添加选择器同步
+    grid.querySelectorAll('.frame-img.frame-focused, .frame-thumb.frame-focused, .shot-thumb.frame-focused')
         .forEach(el => el.classList.remove('frame-focused'));
     if (frameId) {
         // v0.9.30b：选择器从 .shot-card.frame-cell 放宽到 .shot-card[data-id]——
         // 折叠态多图封面帧（.frame-stack .frame-img.cover）也参与帧焦点（焦点框盖在封面上）
-        grid.querySelectorAll(`.shot-card[data-id="${shotId}"] .frame-img[data-frame-id="${frameId}"], .shot-card.list-item[data-id="${shotId}"] .frame-thumb[data-frame-id="${frameId}"]`)
+        // v0.9.32：列表折叠态封面缩略图（.thumb-wrap .shot-thumb，带 data-frame-id）同语义
+        grid.querySelectorAll(`.shot-card[data-id="${shotId}"] .frame-img[data-frame-id="${frameId}"], .shot-card.list-item[data-id="${shotId}"] .frame-thumb[data-frame-id="${frameId}"], .shot-card.list-item[data-id="${shotId}"] .shot-thumb[data-frame-id="${frameId}"]`)
             .forEach(el => el.classList.add('frame-focused'));
     }
 }

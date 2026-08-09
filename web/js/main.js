@@ -167,7 +167,7 @@ grid.addEventListener('click', (e) => {
             focusFrame(card.dataset.id, _cover.id);
         } else {
             state.focusedFrameId = null;
-            grid.querySelectorAll('.frame-img.frame-focused, .frame-thumb.frame-focused')
+            grid.querySelectorAll('.frame-img.frame-focused, .frame-thumb.frame-focused, .shot-thumb.frame-focused')
                 .forEach(el => el.classList.remove('frame-focused'));
         }
     }

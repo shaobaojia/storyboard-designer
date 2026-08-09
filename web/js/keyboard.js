@@ -110,8 +110,14 @@ export function initKeyboard() {
         if (document.getElementById('createModal').style.display === 'flex') return;
         // v0.9.3：焦点在输入框（搜索栏等）时跳过全部全局快捷键——浏览器默认行为保留
         // （搜索框里按 Delete/空格/方向键/Tab 不该删镜头/展开卡片/跳格/切视图）
+        // v0.9.32：range 滑块不接收文本输入——拖动后焦点留在滑块，Tab 切视图应照常生效；
+        // 其余键维持门控（滑块上 ←/→ 是原生调值行为，方向键快捷键不该抢走）
         const tag = (e.target && e.target.tagName) || '';
-        if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+        if (tag === 'TEXTAREA') return;
+        if (tag === 'INPUT') {
+            if (e.target.type !== 'range') return;
+            if (e.key !== 'Tab') return;
+        }
 
         if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') {
             e.preventDefault();
@@ -154,13 +160,17 @@ export function initKeyboard() {
             // v0.9.3：Tab 切换视图（与 #viewToggle 按钮同效；垃圾桶模式也生效——按钮在垃圾桶页同样可用）
             e.preventDefault();  // 阻止浏览器焦点循环默认行为
             toggleView();
+            // v0.9.32：Tab 是键盘导航会触发 :focus-visible——焦点留在滑块（拖动后聚焦）
+            // 会让滑块常驻浏览器默认焦点框；切完视图把焦点从滑块移走
+            const ae = document.activeElement;
+            if (ae && ae.tagName === 'INPUT' && ae.type === 'range') ae.blur();
         } else if (e.key === 'Delete' && state.selectedIds.size > 0 && !state.otherMode) {
             e.preventDefault();
             // v0.8.2：帧级焦点优先——Delete 删焦点帧而非镜头（蓝框所在的帧）
             // v0.9.22：宫格 .frame-img 与列表 .frame-thumb 双 class 都匹配——原只查
             // .frame-img.frame-focused，列表展开态蓝框（.frame-thumb.frame-focused）
             // 命中不到 → 直接落到 deleteSelection() 误删整个镜头（真 bug，用户实测确认）
-            const focused = document.querySelector('.frame-img.frame-focused, .frame-thumb.frame-focused');
+            const focused = document.querySelector('.frame-img.frame-focused, .frame-thumb.frame-focused, .shot-thumb.frame-focused');
             if (focused && state.focusedFrameId) {
                 // 宫格：frame-img 在 .frame-cell 内（data-id=shotId）；
                 // 列表：frame-thumb 自带 dataset.shotId（无 .frame-cell 结构）

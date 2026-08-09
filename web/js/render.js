@@ -792,8 +792,12 @@ function buildCard(shot, eager) {
         // v0.8.4: 所有镜头折叠态缩略图 = 封面帧图（统一 frames 模型，单图=1 帧镜头；
         // 封面变更立即跟随；thumb.jpg 仅作 legacy 兜底）
         const coverFrame = frames.find(f => f.isCover) || frames[0];
+        // v0.9.32：列表折叠态封面缩略图也参与帧焦点——新建路径带 frame-focused
+        //（焦点属于本镜头任意帧即显示，复用路径在 renderGrid 差分分支同步）
+        const thumbFocusId = state.focusedFrameId;
+        const thumbHasFocus = thumbFocusId && frames.some(fr => fr.id === thumbFocusId);
         const thumbHtml = coverFrame && coverFrame.imageUrl
-            ? `<img class="shot-thumb" draggable="false" src="${coverFrame.imageUrl}" loading="${eager ? 'eager' : 'lazy'}" onerror="this.src='${SVG_NOIMG}'">`
+            ? `<img class="shot-thumb${thumbHasFocus ? ' frame-focused' : ''}" data-frame-id="${coverFrame.id}" data-frame-no="${coverFrame.frame_no}" draggable="false" src="${coverFrame.imageUrl}" loading="${eager ? 'eager' : 'lazy'}" onerror="this.src='${SVG_NOIMG}'">`
             : thumbImgHtml(shot, eager);
         // 展开态：封面图保持行高，帧缩略图浮层叠加
         let framesOverlay = '';
@@ -937,11 +941,16 @@ export function renderGrid() {
                 oldEl.classList.toggle('selected', state.selectedIds.has(shot.id));
                 // v0.9.30b：折叠态封面帧焦点框——差分复用不重建 DOM，须同步 frame-focused
                 //（新建路径由 stackHtml 带 class；复用路径在此补齐；焦点属于本镜头任意帧即显示）
+                // v0.9.32：列表折叠态封面缩略图（.thumb-wrap .shot-thumb）同语义
+                const focusId = state.focusedFrameId;
+                const hasFocus = focusId && (shot.frames || []).some(fr => fr.id === focusId);
                 const coverImg = oldEl.querySelector('.frame-stack .frame-img.cover');
                 if (coverImg) {
-                    const focusId = state.focusedFrameId;
-                    const hasFocus = focusId && (shot.frames || []).some(fr => fr.id === focusId);
                     coverImg.classList.toggle('frame-focused', hasFocus);
+                }
+                const listThumb = oldEl.querySelector('.thumb-wrap .shot-thumb');
+                if (listThumb) {
+                    listThumb.classList.toggle('frame-focused', hasFocus);
                 }
                 // v0.9.4 展开态底衬跟随重排：其它镜头展开/折叠会改变本镜头的
                 // 实际行分段（换行），行首/行尾 class 必须按新分段重算，
@@ -964,6 +973,12 @@ export function renderGrid() {
                 const newImg = el.querySelector('img.shot-thumb, img.frame-img.cover, img.frame-img');
                 if (oldImg && newImg) {
                     if (newImg.src === oldImg.src && oldImg.complete) {
+                        // v0.9.32：img 移植用旧 img 替换新建 img——新 img 上的
+                        // frame-focused 焦点框/帧标记必须同步到旧 img（否则折叠渲染时
+                        // 新建的封面焦点框被旧无框 img 顶掉，列表折叠回焦点框丢失）
+                        oldImg.classList.toggle('frame-focused', newImg.classList.contains('frame-focused'));
+                        if (newImg.dataset.frameId) oldImg.dataset.frameId = newImg.dataset.frameId;
+                        if (newImg.dataset.frameNo) oldImg.dataset.frameNo = newImg.dataset.frameNo;
                         newImg.replaceWith(oldImg);
                     } else if (newImg.src !== oldImg.src) {
                         newImg.style.opacity = '0';

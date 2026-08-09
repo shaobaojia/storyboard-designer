@@ -10,6 +10,9 @@ export function initMarquee() {
         if (e.button !== 0) return;
         if (e.target.closest('.shot-card') || e.target.closest('.context-menu') ||
             e.target.closest('.modal-overlay') || e.target.closest('.size-slider') ||
+            // v0.9.24：缩放滑块挪到独立 .zoom-bar 容器（左下角），排除列表必须同步——
+            // 漏了的话滑块 mousedown 被 preventDefault，原生 range 拖动/点击全部失效
+            e.target.closest('.zoom-bar') ||
             e.target.closest('#statsBadge') || e.target.closest('.confirm-bar') ||
             e.target.closest('.header') ||
             // v0.9.4：预览框/快捷键面板是展示型浮层，内部点击不该触发框选清空选中

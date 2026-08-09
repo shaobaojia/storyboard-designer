@@ -9,7 +9,6 @@
 - **实现**：img 是替换元素 ::after 伪元素同样不渲染（computed 有值但不绘制，实测）→ 最终方案 = **border 方案**（同列表 frame-thumb 焦点框）：全局 box-sizing: border-box 下 `.frame-img.frame-focused` 加 `border: 2px solid var(--accent)`，元素尺寸不变（内容区缩 4px 由 object-fit cover 吸收），角标（z=6）正常盖住重叠区（v0.9.30 语义保持）
 - **联动改动**：①render.js stackHtml 折叠态 cover 按 focusedFrameId（属于本镜头任意帧即显示）带 frame-focused；②render.js 差分复用分支同步 cover 的 frame-focused（复用不重建 DOM——折叠保留焦点缺失的隐藏坑）；③frames.js focusFrame 选择器从 `.frame-cell` 放宽到 `.shot-card[data-id]`（覆盖折叠态 cover）+ 折叠动画不再清 focusedFrameId（下次展开 focusFirstFrame 重置，无残留）；④main.js 点击折叠态多图 → 焦点落封面帧（单图仍清焦点）；⑤keyboard.js 方向键选中折叠态多图 → 同语义
 - 验证：WebBridge DOM 断言 + PIL 像素（折叠封面/展开焦点帧边缘内侧均采到 accent 蓝）+ 折叠保留焦点 + 帧级点击跟手 + 键盘方向键 + 单图清焦点 + 回归（视图切换 77 卡/缩放正常）
-- **缩放条"失灵"诊断结论（未改代码）**：滑块逻辑正常（宫格/列表合成 input 驱动均验证：363→128px / 215→127px）；CDP 真实拖动无效 = 测试通道限制（CDP mouseMoved 对原生 range 只送达第一次 + release 变 pointercancel，重启 daemon 复测仍无效）；elementFromPoint 滑块条全命中无覆盖；**打开页面滑块就在最大值（value=max），放大方向天然拖不动，v0.9.26 去文字后用户看不出已到顶**——体验待用户实测确认，若仍失灵需用户提供具体场景
 - 版本号 0.9.30 → 0.9.31（bl_info + 关于徽章；v0.9.30/v0.9.29 当时未升号，本次推前统一）
 
 ## 刚做完（v0.9.30：角标四条标准，2026-08-08 已部署实测，与 v0.9.29 六项一起推 GitHub）
@@ -34,139 +33,21 @@
 
 
 
-- **Blender 面板改为 5 个原生卷展条（layout.panel 内嵌 → 独立子 Panel 类）**：主面板 STORYBOARD_PT_panel 只留 draw_header（品牌图标）+ 空 draw；5 个子面板（STORYBOARD_PT_status 项目状态 / PT_open 面板开关 / PT_shot_info 镜头信息 / PT_shot_ops 镜头操作 / PT_about 关于）继承公共基类 `_SbSubPanel`（bl_parent_id=VIEW3D_PT_storyboard），全部默认展开，**「关于」DEFAULT_CLOSED 默认收起**（ARP 同款，展开状态 Blender 自动记忆）；正文抽成 `_sb_draw_*_body` 模块级函数
-- **镜头信息拆分**：镜头/相机各占一行（原同排 row 窄面板必截断）；**镜头操作拆子卷展**：创建/删除 + 拍当前帧 + 帧号按钮 + 导航
-- **删「已拍帧 (N/5):」标签行**；帧号行与导航行间距收紧（separator 在面板不生效 → 两行收进同一 `column(align=True)`，用户实测确认）；导航按钮改「◀ 上一个 / 下一个 ▶」（图标恒在文本左，右置只能文本内嵌字符——曾换 icon='BACK'/'FORWARD' 又被用户纠正回来）
-- **面板标题栏品牌剪刀图标（draw_header + custom icons）**：`icons/panel_icon.png`（32px RGBA，scripts/sb_icon.svg → svglib+renderPM 转换）；register() 里 `from bpy.utils import previews` 加载（**不能写 `import bpy.utils.previews`——bpy 变函数级局部变量，register_class 反炸 UnboundLocalError，插件静默加载失败**，已记 skill pitfall 199/206）；unregister 释放；`_get_sb_icon()` 缺图标防御 -1
-- 版本号 0.9.27 → 0.9.28（bl_info + 关于徽章）
-- 推前验证：干净空库（C:/Users/54718/AppData/Local/hermes/tmp/audit_v0928/audit_clean.blend + make_std_shots STD 10 镜头）全量 42/42+12/12+23/23 全 PASS，无残留，切回正式工程（storyboard_test.blend 77 镜头完好）
-
-## 刚做完（v0.9.27：窗口图标真修复 + 其它页提速 + 面板三分区 + 折叠按钮翻倍 + 其它页隐藏创建 + 皮肤系统，2026-08-08 已部署，推前干净空库全量 42/42+12/12+23/23 全 PASS）
-
-- **PyWebView 窗口标题栏图标——真正根因（v0.9.26 的 WM_SETICON 回设被证伪）**：真实根因 = **WS_EX_TOOLWINDOW（工具窗口样式）**，DWM 对 toolwindow 标题栏不绘制窗口图标（深浅色无关，v0.9.26 结论"深色重绘不重读图标"是错的）。用户线索"创建瞬间闪白标题栏有图标"= on_started 里 sleep 1.0 期间还是普通窗口样式，attach_to_blender 加 TOOLWINDOW 后图标消失。修 = attach_to_blender **不再加 WS_EX_TOOLWINDOW**——悬浮化（不进任务栏/Alt+Tab）由 owner 关系（owned 窗口默认不进任务栏）+ 去 WS_EX_APPWINDOW 保证；仅 Blender 窗口找不到（无 owner 保底）才退回落 toolwindow。验证：真实窗口去 tool 后图标区 #cdcdcd 像素 2→13、恢复 tool 又 13→2；裸 Win32 窗口实验证非 tool 浅色/深色都画图标。**诊断坑：PrintWindow(PW_RENDERFULLCONTENT) 拿不到 DWM 标题栏图标层（恒输出白色占位块），必须用 ImageGrab 屏幕真实像素采样**
-- **「其它」页切换提速（1602ms→153ms）**：enterOtherMode 原实现 POST /api/sync（异步入队立即返回）后**硬等 1500ms** 再 fetchShots → 用户感知 3s。改 = 先立即 fetchShots(true) 渲染（秒开）→ sync 改 fire-and-forget（对账完成 bump rev → 1.5s 心跳检测自动刷新，新场景照样自动出现）。回归：MCP 建临时场景 → 其它页自动出现 → API 安全删除 → 自动移除无残留
-- **Blender 面板三分区（方案 A 用户拍板）**：draw 改三个 box——①插件信息（INFO 标题 + 项目/服务并一行 + 未初始化才显示初始化按钮）②面板开关（WINDOW 标题 + 分镜管理器/网页版 scale_y 1.5 大按钮）③镜头操作（TOOL_SETTINGS 标题 + 创建/删除并排 + 镜头/相机一行 + 拍当前帧 scale_y 1.3 全宽 + 帧号组 + ◀▶导航）；标题行作者+邮箱压小两行（USER/URL 图标）；Scene/Camera 信息中文化
-- **多图镜头折叠按钮高度翻倍（17→34px）**：button.collapse-btn height:34px + flex 居中（width 9px 不变不盖图）；点击折叠功能回归 PASS
-- **其它页隐藏创建按钮**：enterOtherMode `#btnCreate` display:none、exitOtherMode 恢复（创建无快捷键路径，隐藏即彻底）；垃圾桶模式不隐藏（维持原样）
-- **皮肤系统（方案 A 用户拍板）**：①254 处硬编码颜色 → **45 个语义 CSS 变量**（:root 定义：bg 24 级/text 7 级/border 7/强调/危险/警告/滚动条/拖图区/叠加；强调色用 RGB 通道变量 `--accent-rgb: 74,158,255` 配合 `rgba(var(--accent-rgb), 0.08)`——换肤一处改色全站跟随；同值不同义按行号拆分，如 #333 → --border/--bg-btn/--bg-hover/--bg-thumb/--bg-toast）；阴影 rgba(0,0,0,*) 保留字面量（浅色下阴影仍黑）；**视觉零变化像素验证**（改前 vs 改后截图 0.1% 差异=字体亚像素噪声）②`[data-theme="light"]` 浅色覆盖块：浅底深字、白卡片、--bg-toast/tooltip/kbd 保持深底白字、原生控件 `color-scheme: var(--scheme)` 跟随 ③主菜单「皮肤」小节（深色/浅色 + 当前项 ✓ 勾选 `.context-menu button.checked::before`）④localStorage('sb-theme') 持久化（Edge/PyWebView 各自记忆）⑤新皮肤 = 复制 data-theme 块改变量值，几分钟一套
-- **版本号 0.9.26 → 0.9.27**（bl_info + 关于徽章）
-- 推前验证：干净空库（C:/Users/54718/AppData/Local/hermes/tmp/audit_v0927/audit_clean.blend）全量 42/42+12/12+23/23 全 PASS（2026-08-08 实测）
-
-## 刚做完（v0.9.26：收起按钮 9px + 滑块去文字 + 标题栏居中 + 图标全 SVG 化 + 窗口图标修复，2026-08-08 已部署，推前干净空库全量 42/42+12/12+23/23 全 PASS）
-
-- **展开态收起按钮收窄到 9px**（= 图右沿↔衬底右沿间隔，FRAME_EDGE=9 实测 9.0px）：button.collapse-btn right:0 + width:9px + padding:4px 0 + ◀ 8px SVG，整个按钮落在间隔内不盖图（btnLeftVsImgRight=0 实测）；CDP 点击收起 PASS
-- **修 v0.9.24 回归**：`[data-tip] { position: relative }`（style.css 801 行，0,1,0）覆盖定义更靠前的 `.collapse-btn`/`.stack-badge`（同为 0,1,0）→ 收起按钮被拉出 absolute 掉到帧格下方流内、折叠角标掉到图下方。修 = 选择器加 button 前缀提特异性（button.collapse-btn / button.stack-badge）
-- **缩放滑块去掉列数/px 文字**：index.html 删 #sizeValue + zoom.js 删 3 处引用 + style.css 清 slider-label 规则（web_audit 只用 sizeSlider 不受影响）
-- **标题栏垂直居中**：.header padding 10px/28px → 15px/15px 对称（总高 61px border-box 不变，sticky 防跳保持）；实测 h1/搜索框/按钮中心 30 vs 标题栏中心 30.5（偏差 0.5px）
-- **图标全 SVG 化（方案 B，用户拍板）**：新建 `web/js/icons.js` 集中管理 17 个图标——11 个原 iconfont path（从用户 `~/Downloads/iconfont_pkg/font_mlk0fu81ebm/iconfont.js` 的 symbol 提取，零转换）+ 主菜单三横线/剪刀收编 + 用户新给「其它」四宫格（替换占位 icon-lujing）+ 自画 ◀▶✕（stroke 128 线条）；index.html 14 处 `<span data-icon="名称">` 占位 + main.js mountIcons 统一注入（data-icon-class 附加特殊尺寸）；render.js 动态图标（collapse/multi-badge）走 ICONS；**删 iconfont.ttf + @font-face + 11 字体类（style.css -15KB）**；`.ic` = 1em 跟随 font-size + fill/stroke currentColor（按钮 color/hover 变色即图标变色，实测 active 蓝底白图标自动跟随）；尺寸实测：工具条 16px/菜单 16px/收起 8px/角标 11px/剪刀 56px
-- **PyWebView 窗口标题栏图标消失修复**（用户实测报告）：DWM 深色标题栏（DWMWA_USE_IMMERSIVE_DARK_MODE）应用后重绘不重读 WM_SETICON 图标 → 打开瞬间浅色带图标、变深色后图标消失只剩文字（图标句柄其实一直在，WM_GETICON 有值，是深色重绘不绘制）。修 = apply_dark_titlebar 深色应用后回设 WM_SETICON（ICON_SMALL/SMALL2/BIG 三尺寸）；验证：重启窗口深色后 t+0/2/5/10s 连续采样图标全程在
-- **版本号 0.9.25 → 0.9.26**（bl_info + 关于徽章）
-- 推前验证：干净空库（C:/Users/54718/AppData/Local/hermes/tmp/audit_v0926/audit_clean.blend + make_std_shots STD 10 镜头）全量 42/42+12/12+23/23 全 PASS，无残留，切回正式工程（storyboard_test.blend 77 镜头完好）
-
-## 刚做完（v0.9.25：其它场景页 + 心跳自动对账，2026-08-08 已部署，推前全量 42/42+12/12+23/23 全 PASS 干净文件）
-
-- **「其它」场景页**（用户拍板 A1/B1/C1/D1）：网页底部工具条新增「其它」按钮（垃圾桶旁，图标 icon-lujing 占位等用户新图标）——Blender 中所有非分镜系统创建的场景（手动创建/幽灵/正名幽灵）自动归入此页，卡片 = 场景名+相机（无帧图），右键「转为镜头」（统一分配 c 编号 + 场景改名 Shot_cXXXX + 相机改名/无相机自动补默认 + 建目录 + 自动拍封面帧；undo 可还原为其它场景）/「删除」（确认条 + 硬删不可恢复 + 最后场景保护）/+ 批量版本
-- **shots.origin 字段**：'storyboard'=插件创建 / 'other'=其它途径；init_db 幂等迁移（历史行默认 storyboard）；主宫格 list_shots 过滤 origin='storyboard'；get_other_scenes 供其它页
-- **心跳自动对账**（取代手动 Sync——Sync 按钮 v0.9.21 已删）：`_auto_sync` 5s timer（persistent + 防重复注册 + unregister 清理）→ `sync_scenes_light()`：DB 孤儿记录直删 + Blender 新场景自动登记 origin='other' + 去重 + orphan frames，**不碰磁盘**（rmtree 目录清理只留启动完整 sync 与 /api/sync）；竞态双保险 = queue 非空跳过本轮（queue_idle）+ 孤儿删除 5s 时间窗（_recently_created）；链路 = 场景变 → 5s 对账 bump rev → 前端 1.5s 心跳自动刷新（其它页实测 12s 内自动出现新场景）
-- **API**：GET /api/other_scenes + POST /api/other_scenes {action: adopt|delete, scene_name}；queue 新命令 adopt_other_scene/delete_other_scene/rename_scene（undo 逆操作）
-- **版本号 0.9.24 → 0.9.25**（bl_info + 关于徽章）
-- 验证：后端全链路（登记/adopt/undo/清孤儿/硬删/最后场景保护）+ WebBridge（进页/右键/转镜头/删除确认/心跳自动刷新/Esc/与垃圾桶互斥）+ 截图 PIL 采样 + 回归 18/18
-
-## 刚做完（v0.9.24：工具条重构+图标化+tooltip+抖动修复，2026-08-08 已部署，推前全量 42/42+12/12+23/23 全 PASS）
-
-- **底部工具条重构**：缩放滑块从中心横条摘出 → 左下角独立容器（高度 35px 与右下角统计块/快捷键一致）；中心横条 = 视图控制组（宫格/列表/预览窗口）+ 功能组（新建/台词/画幅/垃圾桶）两组分隔线；新建按钮从 header 移入横条（文字改「新建」）；视图按钮文字缩短
-- **按钮图标化**（iconfont 字体，用户提供 download.zip 11 图标）：全部 9 个工具条按钮 + 主菜单换图标（宫格/列表/预览/±/新建/台词/画幅/垃圾桶/菜单折叠）；ttf 仅 3.4KB **base64 内联进 style.css @font-face**（静态服务 CONTENT_TYPES 无 .ttf 会 404，零后端改动）；按钮统一 30×30（zoom-bar 24×24）；trash.js 不再重写按钮 innerHTML（会覆盖图标）——进出垃圾桶改 class 高亮 + data-tip 切换
-- **主菜单图标换成用户指定 SVG**（三条横线，内联 + currentColor；坑：svg 作 flex item 被 flex-shrink 收缩到 10px，须 flex:none）
-- **中心横条 + 缩放按钮默认无底衬**（transparent，hover 才 #333），active-view 高亮态保留蓝底
-- **tooltip 替换原生 title**（原生首次 hover 冷启动 ~1s）：全部 16 处静态 + 5 处动态 title → data-tip + CSS ::after 伪元素（hover 立即显示，transition .1s）；底部按钮向上、header 按钮向下右对齐；trash.js 模式切换提示同步
-- **修真 bug：宫格/列表切换工具条上下抖**——FLIP 动画中间态横向溢出（实测 scrollWidth 冲到 1976px）→ 水平滚动条闪现吃视口高 10px → fixed 底部元素上跳。修 = animateFrom（所有 FLIP 统一入口）期间 body.no-hscroll（overflow-x:hidden），0.28s 过渡后自动移除；验证切换全程 sliderTop 恒定
-- **版本号 0.9.21 → 0.9.24**（bl_info + 关于面板徽章，推前升号）
-
-## 刚做完（v0.9.23：五需求，2026-08-08 已部署+实测）
-
-- **画面设置面板预设改下拉列表**（aspect.js）：19 预设 chips → select 下拉（屏幕/电影工业/竖屏 三组 optgroup，选后保持 H 填 W 不自动提交）+ **锁定长宽比 checkbox**（勾选时固定当前比例，改 W/H 另一项自动跟随；坑：比例必须在勾选时记录，用当前值算会自锁恒等）
-- **快捷键面板 Ctrl++/Ctrl+- → Ctrl.+ / Ctrl.-**（仅文案，键盘实现不变）
-- **新快捷键**：v=开关预览窗口、Ctrl+D=创建副本（单选复制/多选批量，拦浏览器收藏）、Ctrl+F=聚焦搜索框（拦浏览器查找）；SHORTCUTS 清单同步
-- **菜单全部中文化**：Open Shot→打开镜头、Rename→重命名、Duplicate→复制、Delete→删除；带快捷键的命令右侧淡色标注（.menu-kbd #777 小字，Enter/Space/Ctrl+D/Delete）
-- **列表视图条目菜单去掉台词项**（添加/编辑台词 v0.9.23，自动台词大小 v0.9.24 补去——列表不渲染台词条）
-
-## 刚做完（v0.9.22：六项前端 + Delete bug 修复，2026-08-08 已部署+实测，全量 42/42+12/12+23/23 全 PASS）
-
-- **主菜单「关于」+ 大厂风面板**（main.js + index.html + style.css）：主菜单只剩「关于」（Refresh 已移除，forceRefresh 函数保留）；面板 = 渐变品牌区 + 剪刀 SVG logo（品牌蓝 #4a9eff）+ 产品名 + 徽章式版本号（**与 bl_info 同步，升版时一起改**）+ 数据版本（fetch /api/version 的 COUNT-rev 动态拉取）+ 作者/邮箱 mailto + 引擎/数据层/前端技术栈 + 页脚 © 2026；关闭 = ✕ / 点遮罩 / Esc；aboutIn 0.22s 淡入
-- **视图按钮拆分**：`#viewToggle` → `#viewGridBtn` + `#viewListBtn` 两个独立按钮（active-view 蓝底高亮当前视图、幂等直切）；render.js 抽 `setView(mode)`（幂等），`toggleView()` 包装保留给 Tab 快捷键 + `window.__sb` 句柄（**web_audit.py 用 `__sb.toggleView()` 驱动，保留则脚本零改动**；新挂编排函数必须同步进 __sb——本次 setView 漏挂探针 FAIL 才抓到）
-- **所有按钮 title hover 文字**：header/工具栏/预览框/主菜单 15 个静态按钮全补 title（Create Shot/Timeline/宫格/列表/垃圾桶等），动态菜单按钮（关于）也带
-- **快捷键清单补 Ctrl++/- 缩放**（v0.9.18 漏收录，SHORTCUTS 10 行）
-- **快捷键/关于面板文本 hover 光标固定 default**（cursor: default 继承，邮箱链接显式覆盖；关闭按钮等真按钮保留 pointer）
-- **画幅预设 19 chips**（aspect.js ASPECT_PRESETS）：电影工业（1.37/1.66/1.85/2.20/2.35/2.38/2.39/2.55/2.76:1）+ 屏幕（1:1/4:3/5:4/3:2/16:10/16:9/21:9）+ 竖屏（4:5/3:4/9:16）；点击 = 保持当前 H 按比例填 W（不自动提交，H 无效兜底 1080）
-- **Delete 帧级删除 bug 修复**（keyboard.js，用户实测确认）：选择器 `.frame-img.frame-focused` → `.frame-img.frame-focused, .frame-thumb.frame-focused`（列表蓝框漏匹配 → 误删整镜头，实测 3 镜头进垃圾桶）；shotId 双来源（宫格 closest('.frame-cell').dataset.id / 列表 frame-thumb.dataset.shotId 兜底）
-
-## 刚做完（v0.9.21：三批十项，2026-08-08 已部署+实测）
-
-- **第一批**：①滑块两侧 +/- 步进按钮（zoom.js stepZoom 复用，与 Ctrl+滚轮/Ctrl++/- 同档位）②预览框时长/内容/台词双击就地编辑（rename.js startFieldEdit 判空适配非卡片元素 + preview.js currentShotId + dblclick 绑定；CDP 无 dblclick 但合成 dblclick dispatch 对 addEventListener 监听器有效——pitfall 21 的"无效"仅限 CDP 通道）③展开态折叠三角右移到「图右沿与底衬右沿 9px 间隔」上（collapse-btn right:9px→0）④Blender 端版本号+作品信息（bl_info author=邵保家、email=shaobaojia_313@163.com、version 0.9.21；面板 draw 顶部 v0.9.21·邵保家 + 邮箱两行）
-- **第二批**：①分镜管理器按钮图标 URL→WINDOW（网页版保持 URL）②**工具栏缩放抖动修复**——根因=缩放列数变多→列宽变小→用户自定义宽台词条超出视口→水平滚动条出现/消失（吃掉视口底 10px）→fixed 工具栏上下跳；修=render.js 台词条宽度右缘钳制 availRight（渲染端+拖宽手柄端同源，v0.9.17 capW 教训同款）③预览框下沿贴底（bottom:100px→0）+ 详情区 padding-bottom 60px 避开按钮 ④快捷键按钮并排统计块（.corner-right flex 容器，统计左快捷键右同底 16、按钮与统计块同高）
-- **第三批**：①N 栏面板标题 → `Blender分镜系统 v{版本号}`（bl_label 动态拼 bl_info.version）②Sync Scenes 按钮双端移除（Blender 面板 draw + 网页端主菜单 Sync DB；operator/自动 sync 保留）③骨架屏镂空漏内容修复（#skelLayer 加不透明底板 #1a1a1a——skel-card 间 12px gap 原为透明漏出下面 grid）④预览详情避让精确对称（pf-foot padding-bottom 77px：详情-工具条间距 16px = 工具条下沿-页面下沿 16px）⑤快捷键面板间距 = 按钮间间距（shortcuts-panel bottom 100→58px，面板底距按钮顶 8px = corner-right gap）
-- **坑（详见 AGENTS.md 坑列表 + skill pitfalls）**：水平滚动条出现/消失 = fixed 元素垂直跳动的根因（找横向溢出源）；Blender shader compiler 子进程（--compilation-subprocess，~134MB ×4）不是孤儿进程别杀；面板标题/版本号升版时 bl_label 自动跟随
-
-## 刚做完（v0.9.20：PyWebView 双端——桌面窗口外壳，2026-08-08 已部署+实测）
-
-- **PyWebView 双端启用**（用户拍板）：Blender 面板两个按钮——左「分镜管理器」（PyWebView 桌面窗口，主）/ 右「网页版」（Edge 浏览器，次），text 覆盖 label，tooltip 区分；**前端 web/ 零改动**——外壳只是 WebView2 加载同一 URL
-- **runtime 容器**：插件目录 `_runtime/` = Python 3.11 embeddable + pywebview 6.2.1（54MB 自包含，免安装零污染，整个插件目录拷到公司 PC 即可）；一键重建 `scripts/make_runtime.py`；launcher 源码 `scripts/pywebview_launcher.py`（git 跟踪）；测试工具 `scripts/cdp_tool.py` + `scripts/pwv_interact.py`
-- **launcher 行为**：单实例关旧开新（PID 锁 %LOCALAPPDATA%/storyboard-designer-webview/ + taskkill 旧进程）；watchdog 盯 Blender PID（Blender 任何方式关闭 → 窗口 1s 内销毁 + 锁清理，log 全轨迹）；localStorage 持久化（storage_path 固定，与 Edge 存储隔离）；pythonw 无黑窗
-- **窗口外观**：DWM 强制深色标题栏+圆角（DWMWA 20/38，不随系统浅色主题）；标题栏图标=用户 SVG 剪刀（scripts/sb_icon.svg → svg2ico.py 转多尺寸透明 ICO → _runtime/app.ico）；标题「分镜管理器 v0.9.20」（bl_info 0.8.1→0.9.20）；页面滚动条暗色（style.css ::-webkit-scrollbar，两端统一）
-- **悬浮化**：不占任务栏/Alt+Tab（exstyle 去 APPWINDOW 加 TOOLWINDOW）+ owner=Blender 主窗口（SetWindowLongPtrW GWLP_HWNDPARENT）——Blender 最小化→窗口隐藏、恢复→显示，实测两轮稳定
-- **测试体系**：WebView2 CDP（launcher --cdp-port + edgechromium.py 环境变量合并补丁 + --remote-allow-origins）；实测全链路：77 卡片/右键菜单/空格展开折叠多图/拖图建镜头（合成 DragEvent+File）/持久化/同进退/单实例/版本号标题
-- **坑**（详见 skill references/pywebview-v0.9.20.md）：pythonnet 属性赋值死锁（见坑列表）；WebView2 CDP 无 dispatchDragEvent → 合成事件；CDP origin 检查 → --remote-allow-origins；cairosvg 破坏 rlPyCairo（SVG 转 ICO 用 svglib+drawToPIL RGBA）
-
-## 刚做完（v0.9.19：台词条/列表多行 + rename 丢图修复 + 审计两修，2026-08-07 空库全量验证 42/42+12/12+23/23）
-
-- **宫格台词条编辑/新建态高度自适应**（render.js + style.css）：input → textarea（autoResize 高随文字量、父条高度同步、Enter=保存/Shift+Enter=换行/Esc=取消/blur=保存）；提交后正常态高度 == 编辑态（122==122 实测）
-- **列表视图内容/台词列多行文本框**（rename.js + style.css）：显示态 nowrap+ellipsis → pre-wrap 多行 + align-self:stretch 撑满条目（上下间隔 6px 与缩略图一致）；编辑态 content/dialogue → textarea（minHeight=条目内容区高）；字号 calc(12px×--list-scale) 随缩放；duration 保持单行
-- **修复真 Bug：多图镜头改名丢图**（core/queue.py cmd_rename_shot + audit.py 补断言）：改名只更新 name/scene/camera/still/thumb，frames.image_path 绝对路径不随目录改名重指 → 前端 imageUrl 全丢红格子。修 = 第 4.5 步遍历 frames 重指新目录（update_frame 顺带 bump 帧 ver）；**坑：检查存在性必须查新路径（目录已改名，查旧路径恒 False）**。audit 补断言"Rename 后 frames.image_path 重指新目录"（AUDIT_BGREN 补拍 f1 成多图再改名）→ 42 项
-- **审计修复一：audit.py undo 排空循环深度门控**（2026-08-07 空库全量实测翻车后修）：R3 段"撤销栈排空"无条件弹到 empty，会回放审计前栈里的非审计逆操作（审计前 API 造数据 → STD_S10 被 purge 误删、台词被清）。修 = main() 审计前 MCP 记 undo depth，排空只弹到该深度（None 时保守跳过）；**真实用户危害：审计前刚拖拽/改台词会被审计撤销**（2026-08-06"顺序变倒序"之谜即此）
-- **审计修复二：web_audit.py 强制宫格初始态**：localStorage 'sb-view' 残留 list（用户切过视图/Tab 持久化）时各段连环假 FAIL（多图折叠态/台词条/--card-min 全查不到，本次 6 FAIL 根因）；修 = reload 后强制 viewMode='grid' + localStorage 同步
-- 空库隔离全量验证（audit_test/audit_clean.blend，10 标准镜头）：audit 42/42 + ctx 12/12 + web 23/23；**旧库 39/44 FAIL 实锤脏数据（幽灵/乱名）导致，非代码 bug**；空库环境遗留：audit_clean 独立库 10 镜头（STD_S01-05 单图 + STD_S6-10 多图 3 帧，S01/S6/用户手加 S02 有台词），旧库 N:/.../storyboard_test.blend 77 镜头完好未动
-
-## 刚做完（v0.9.18：六项前端改动，2026-08-07/08 已部署+实测）
-
-- **台词开关 FLIP 锚定滚动补偿修复**：captureRects 记 scrollY，animateFrom 的 dy 减滚动差（transform 起点=旧视口位置），pendingAnchor 滚动提前到 FLIP 前——页面末尾镜头 c0960 开关台词不再上下抖（实测开：574 恒钉住；关：平滑过渡）
-- **Ctrl++/- 缩放快捷键**：zoom.js 抽 stepZoom(dir)（滚轮与键盘共用 12 级档位/列数逻辑），keyboard.js 加 Ctrl+=/+ 放大、Ctrl+-/_ 缩小（preventDefault 阻浏览器缩放）
-- **拖拽两镜中间指示线消失修复**：elementFromPoint 在 gap 上命中不了卡片 → dnd.js 加 nearestCard 几何兜底（阈值 24px），宫格竖线/列表横线在间隙正常显示，释放也能正确落位
-- **右上角主菜单**：header 三条横线图标（.hamburger CSS 三横线），Sync DB/Refresh 从 header 移入 #mainMenu 弹层（复用 .context-menu 样式），点外关闭+document target 容错
-- **标题栏垂直对齐**：h1 line-height 30px、搜索框 height 30px、.actions 改 flex+按钮 height 30px——四元素中心差 0
-- **搜索下拉键盘预选**：↑↓ 移动 selIdx 高亮（.selected）+scrollIntoView(nearest)，Enter 定位预选项（无预选回退首项）
-- 全量回归 40/42 + 12/12 + 23/23（2 FAIL 为 rename_seq 超时——幽灵场景 Shot_c0060 撞名，已改名 __ghost_c0060 修复，待重验）
-
-## 刚做完（v0.9.16：台词条拖拽移动/互换）
-
-1. **台词条拖拽移动/互换**（render.js `initDialogueDrag` + `moveOrSwapDialogue`，纯前端无需重启 Blender）：拖台词框体（非 resize 手柄）到其他镜头——**目标无台词 = 移动**（源 dialogue 清空、目标获得；源框淡出目标框淡入，updateDialogue 对账自动处理）；**目标有台词 = 互换**（两 dialogue 对调）。落点命中 `.shot-card`（含展开态帧格）**或 `.dialogue-box`**（目标台词条）都算目标镜头；无效区释放 = 无操作。数据 = 两次 `POST /api/shot/{id} {action:'update', fields:{dialogue}}`（各入一条 undo「修改」记录），乐观更新 + 失败反序回滚已成功请求 + 本地 state/宽度 map 一并还原；**sb-dialogue-w-map 宽度自定义值跟台词走**（移动 src→dst、互换对调）。与 initDialogueResize 互斥（pointerdown 排除 `.dialogue-resize`）、marquee 已排除 `.dialogue-strip`（v0.9.8）、trashMode/editingDlg 禁拖；CSS `.dlg-dragging`（半透明跟随 + pointer-events:none + transition:none，同 v0.9.5 卡片拖拽坑）+ `.dlg-drop-target`（蓝光高亮同 .selected 风格）。验证：WebBridge 合成 PointerEvent 驱动，移动/互换/无效落点/手柄互斥四场景 15 断言 + 截图 PIL 采样高亮 + 卡片拖拽 before/after 回归全过
-2. **审计 FAIL 处置：正名幽灵改名**（2026-08-07）：audit rename_seq 超时根因 = 漏网正名幽灵 `Shot_c0060/Shot_c0110`（DB 无记录）撞 rename_seq 编号生成（上午删 c0970-c1000 时没按差集全查）。**Blender 4.5 删场景 API 变化**：batch_remove/scenes.remove 的 use_global_undo 参数已移除（TypeError），无参数 remove 触发撤销快照卡死崩溃（C 档两次）——**最终方案 = 场景改名 `__ghost_` 前缀**（轻量秒完成，含 5 个审计残留场景 AUDIT_TV/CTX_TEST/__ren_/__un_×2）+ 存盘防复活（timer 包装 save_mainfile + 日志验证）。段级 --only=rename 11/11 → 全量 41/41+12/12+web 23/23 全过，78 镜头无残留。坑见坑列表 + skill pitfalls 146
-3. **skill 坑 143-146 固化**（transform 跟随拖拽 .dragging 标配 pointer-events:none+transition:none / 宫格拖拽落点=左右半区 / 台词条拖拽实现验证要点 / Blender 4.5 remove API 变化）
-4. **v0.9.17 台词开关锚定焦点镜头**（main.js initDialogueToggle）：开关台词前 anchorDlg 记录选中镜头中心相对视口中心偏移 + grid 文档 top，renderGrid 后 restoreAnchorDlg 用 **offsetTop（布局值免疫 FLIP transform）** 计算目标 scrollY 恢复——FLIP 起点=旧视口位置、终点=新视口位置（=旧 rel）→ 动画全程焦点镜头钉在原位、周围卡片围绕它 FLIP（同缩放锚定语义，zoom.js v0.9.2）。无选中不锚定（滚动保持，行为同旧版）。实测：关台词焦点偏移 0px + 滚动 -44px 补偿（父条高 32+gap 12）；开台词反向还原；打开台词时缩放锚定不受影响（-5~19px）。验证 7/7 + web_audit 23/23
-5. **v0.9.17 缩放锚定修复 + 拖宽持久化修复**（用户实测反馈）：①**缩放焦点跟不上**——zoom.js apply() 的 restoreAnchor 原在 relocateDialogue 前，列数变 → 台词父条合并/换排（行数变）→ 焦点镜头最终布局大改 → 锚定偏差实测 -206px（长台词父条场景）；修 = restoreAnchor 挪到 applyExpandedLayout + relocateDialogue 之后（最终布局再恢复），验证 0px。②**拖宽"存不上"真相**——map 其实存上了，但拖宽上限（gridW-16）≠ 渲染上限（capW 同排容量钳制）→ 拖宽 692 一重渲染（缩放/开关台词/心跳差分）缩回 542；修 = initDialogueResize onMove 上限对齐 capW（同排 box 数算容量），拖宽所见=渲染所得，验证 542→542 保留。回归 web_audit 23/23 + 拖拽 15/15（probe 断言改动态基准——用户台词数据是活的：14→16 个台词镜头，测试别硬编码）
-6. **v0.9.17 首屏台词条比卡片晚 500ms 入场**（用户拍板）：原问题=台词条 fade-in 在数据到就播、被骨架层盖住（用户看不到），揭幕时无入场动画与卡片波浪不协调（感知"先卡片后台词条"）。修 = fadeIn() 首屏（!state.firstLoadDone）挂起 opacity 0 + gateFirstReveal finish() 统一给父条/box 加 dialogue-in + animationDelay 500ms。**两个坑**：①不能提前设 opacity 1（delay 期间先闪出完整台词条再消失重播）；②动画无 fill-mode 播完会跳回内联 opacity 0（台词条消失）——定格 opacity 1 放 animationend 回调（to 态就是 1 无跳变）。实测时间线：首卡可见 t=324，台词条 t=825（晚 501ms，无闪烁）。验证 web_audit 23/23
-## 刚做完（v0.9.14：审计体系重构——段级筛选 + 前端审计 + 自动触发）
-
-1. **audit.py 拆 12 段**（v0.9.13 的 6 段 → 12 段，每功能域一段）：s1 面板 / s2 create+时长 / s3 open / s4 重拍封面 / s5 duplicate(含多图保帧) / s6 reorder / s7 trash系 / s8 sync / s9 rename域 / s10 undo域(依赖s9) / s11 版本戳 / s12 frames级联。**正向依赖闭包**：--only=trash 自动前置 s5→s2（依赖段插到激活段前面，顺序保证）。拆分坑：拆函数后段内变量作用域（s4/s5 需自取 shot）；SEG_REG 依赖声明漏写 s3/s4 导致段级跑崩。全量 41/41 不受影响
-2. **audit_context_menu.py 拆 4 段**（open/rerender/duplicate/delete），每段自建 CTX_TEST 自清（cleanup_shot），无跨段依赖，断言保持 12 项（duplicate 段的 copy 清理顺带保留 2 项删除断言）
-3. **audit_run.py 透传 --only + 环境预检 + 审计互斥锁**：`audit_run.py --only=trash` 直接可用；**preflight()**（MCP 命令响应/HTTP 在线/单实例 8089+9876 同 PID/无测试残留）不过不跑审计（exit 2）；**sb_audit.lock 互斥锁**（watchdog 与手动审计禁并行，共享 DB 互清）；修了 Traceback 无 FAIL 记录时误报"全部通过"
-4. **web_audit.py 前端交互审计（23 项 9 段 ~38s）**：render/view/expand/menu/search/zoom/preview/dialogue/keyboard。WebBridge 驱动，每段自还原 + 收尾兜底还原。预检（WebBridge 在线 + HTTP + 无残留）+ 强制 reload + **JS 版本探针**（expandedShotIds.constructor==='Set'，防浏览器缓存旧 JS）。合成事件可达主世界（input/click dispatch 有效，CDP 真实输入不需要）；展开态帧格是独立卡片（.shot-card.frame-cell 兄弟节点）；搜索是下拉结果列表不过滤卡片；菜单项文本英文 Open Shot/Rename/Duplicate/Delete 混中文；__zoomApply 无参（滑块 sizeSlider 合成 input 才是驱动入口）；reload 后必须 bringToFront
-5. **watch_audit.py 审计 watchdog（后台常驻）**：监听源码 web//core//__init__.py 变化 → web 改动自动部署+跑 web_audit（38s 不碰 Blender）/ core 改动自动部署+攒批 30s+重启 Blender+全量 41+12（~5min）。日志 ~/AppData/Local/hermes/tmp/audit_watch.log。已实测全链路（web 23/23、back 41/41+12/12）。**2026-08-07 用户拍板：退役常驻**（审计轻量化后全量回归移到交付前必跑 41+12+web_audit 23，开发中改哪测哪；watchdog 保留脚本、按需手动启动，查重/启动流程见 skill）
-6. **全量实测**：41+12 完整 4m47s；段级 trash 13/13(1m05s) / undo 18/18(2m07s) / rerender 6/6；ctx open 1/1；web_audit 23/23(38s)
-7. **audit.py 轮询化（2026-08-07 用户拍板）**：固定 sleep 全改 wait_ok 轮询（[HH:MM:SS] 时间戳 + 0.25s 间隔 + 0.3s 稳定确认 + 超时=FAIL+详情），整跑 6min→3m42s（41 2m07s / ctx 58s / web 37s，76/76 全过）；顺带删正名幽灵场景 c0970-c1000（撞 rename_seq 的 3 轮 FAIL 元凶）、cleanup 补 __ren 前缀；坑见坑列表末尾
-
-### v0.9.13 明细（已推，压入历史前的存档）
-
-1. **添加台词所见即所得**（render.js startDlgEdit，用户拍板）：点击「添加台词」那一刻**立即建正式父条**（插该排最后格位后）+ 下一行 FLIP 让位（复用 captureRects/animateFrom）；提交后 renderGrid 对账直接复用父条+box = **台词固定原地零位移**；Esc 取消父条淡出、布局 FLIP 还原。**顺带修掉 v0.9.12 遗留 bug**：临时 box 无父条分支的 inline top 残留（提交后复用进父条不清 top → 台词条掉到 1545+1545=3090px）
-2. **关预览父条高度残留修复**（preview.js setPreview）：关预览 savedMin 还原 --card-min 路径绕过 zoom apply → updateDialogue 不重算 → 父条残留窄宽高度（158px 残留，下一排被多推 72px）；修 = savedMin 分支补 `relocateDialogue()`
-3. **审计工具链降噪**（用户拍板 A+B+C）：`scripts/audit_run.py` 包装器——输出重定向 %TEMP% 日志 + 只回显 SUMMARY/FAIL（上下文 50~100K → <1K，MCP 端口自动探测，netstat GBK 解码）；`audit.py` 支持 `--only` 段级筛选（main 拆 8 段函数，依赖闭包 s2i→s2h，taken 快照移到审计前防 --only 误删用户 c 镜头，cleanup 永远跑）；子代理代跑模板见 skill
-
-1. **v0.9.9 同排合并父条**（render.js/style.css/main.js）：原"每台词镜头一条独立整行条"（同排 N 个台词镜头 = N 行条、台词被拆多行）→ **每个有台词的排一条父条**（grid-column:1/-1 占一行），父条内每台词镜头一个 box（absolute 定位，left = card.offsetLeft 对齐卡片列，父条 position:relative 作 containing block、高度 JS 显式设 = 最高 box）；无台词排不建父条。动画：新建 fade-in（.dialogue-in 播完摘类）、删除原地淡出（.dialogue-leave absolute 锁位脱离 grid 流，布局释放由 FLIP 吸收，淡完 remove）。**两个关键修复**：①**auto-placement 自锁**——旧父条未归位时干扰卡片排布 → row.last 算错 → 父条插错位置每轮自锁（reload 首帧永远对、一缩放就错）；修法 = updateDialogue 开头先把现有父条全部移到 grid 末尾（布局净化）再分组；②**box 多余判断全局化**（不属于任何排组才是真多余，先归位后删除——per-strip 判断会在 box 移到新父条前先判死 ghost，4 列缩放除首排外全清空）。对齐用 offsetLeft（grid 是 will-change:transform 的 offsetParent，零 reflow、FLIP 免疫）；FLIP 顺序修正：updateDialogue 挪到 animateFrom 之前（父条增删位移被同一轮 FLIP 吸收）
-2. **展开态台词条保留**（v0.9.9 用户要求"展开态台词不该消失"）：双锚点——分组锚 = 最后一个帧格（台词条落在展开区最后一行之后，无空洞）、对齐锚 = 第一个帧格（台词框左缘对齐展开区左缘）；v0.9.8 及以前展开态台词条消失（无主卡片直接跳过）
-3. **v0.9.10 每条独立宽度**（用户要求"每个台词条都有自己的大小可单独调整"）：per-shot 覆盖存 `sb-dialogue-w-map`（{shotId: width}），拖拽只改被拖 box、mouseup 存 map；未调过的条跟随列宽（随卡片缩放同步变化，v0.9.11 删除了全局默认 sb-dialogue-w 的固定语义）
-4. **v0.9.11 台词框右键菜单**（menu.js）：右键台词框 → 编辑台词 + 自动大小（✓ 勾选态）；自动大小 = map 无该镜头（跟随卡片宽），取消勾选 = 固定当前宽度，手动拖动 = 自动解除+存自定义；默认（未调过）= 卡片宽并随缩放
-5. **v0.9.12 卡片右键菜单台词功能**：卡片菜单加"编辑台词/添加台词"（无台词显示"添加"）+ "自动台词大小"勾选；台词框菜单去掉"台词"标题；**添加台词定位语义**：临时建 box（编辑框出现在台词条应在的位置）——该排已有父条 → 进父条与同排台词框并排；无父条 → 显式定位到排尾下方（last.offsetTop+offsetHeight+rowGap），提交后 renderGrid 归位、取消后按多余 box 淡出清理
-
 **历史轮次**（详情曾在本文件，已压缩；关键决策见「交互/设计约定」与「坑」）：
+- v0.9.28：Blender 面板 5 个独立子 Panel 卷展条（ARP 风格：卷展条分区 + 标题栏品牌图标 + 关于默认收起——后续面板 UI 风格沿用）+ 面板标题栏品牌剪刀图标（custom icons）
+- v0.9.27：PyWebView 窗口图标真修复（根因 WS_EX_TOOLWINDOW，去 toolwindow 改 owner 悬浮化）+ 其它页切换提速（1602→153ms，sync fire-and-forget）+ 面板三分区 + 折叠按钮高度翻倍 + 其它页隐藏创建 + 皮肤系统（45 语义 CSS 变量 + 浅色主题 + localStorage 持久化）
+- v0.9.26：收起按钮 9px + 缩放滑块去文字 + 标题栏垂直居中 + 图标全 SVG 化（icons.js 17 图标，删 iconfont -15KB）+ DWM 深色窗口图标修复（v0.9.27 证伪）
+- v0.9.25：其它场景页（shots.origin 字段 + 转镜头/删除）+ 心跳自动对账（_auto_sync 5s timer 取代手动 Sync 按钮）
+- v0.9.24：底部工具条重构（缩放滑块挪左下角独立容器）+ 按钮图标化（iconfont base64 内联）+ tooltip 替换原生 title（data-tip）+ FLIP 横向溢出水平滚动条抖动修复 + 主菜单 SVG 图标
+- v0.9.23：画幅预设下拉 + 锁定长宽比 + 新快捷键（v 预览/Ctrl+D 复制/Ctrl+F 聚焦搜索）+ 菜单全中文化 + 列表菜单去台词项
+- v0.9.22：主菜单关于面板 + 视图按钮拆分（viewGridBtn/viewListBtn）+ 按钮 title 全补 + 快捷键清单补全 + 画幅 19 预设 + Delete 帧级删除 bug 修复（列表蓝框漏匹配误删整镜头）
+- v0.9.21：三批十项（滑块 ± 步进/预览框就地编辑/折叠三角右移 9px/版本署名/缩放抖动修复/预览框贴底/快捷键并排统计块/面板标题带版本号/Sync 双端移除/骨架屏底板/预览详情避让/快捷键面板间距）
+- v0.9.20：PyWebView 双端桌面窗口外壳（_runtime 54MB 自包含/单实例 PID 锁/watchdog 盯 Blender/深色标题栏/悬浮化 owner/WebView2 CDP 测试体系）
+- v0.9.19：台词条编辑/新建态高度自适应 + 列表多行文本框 + rename 丢图真修复（frames.image_path 四层联动补第 4.5 步）+ 审计两修（undo 深度门控/强制宫格初始态）
+- v0.9.18：台词开关 FLIP 锚定滚动补偿 + Ctrl++/- 缩放 + 拖拽指示线消失修复（nearestCard 几何兜底）+ 右上角主菜单 + 标题栏垂直对齐 + 搜索下拉键盘预选
+- v0.9.17：台词开关锚定焦点镜头 + 缩放锚定修复（restoreAnchor 挪到最终布局后）+ 拖宽持久化修复（上限对齐 capW）+ 首屏台词条 500ms 入场
+- v0.9.16：台词条拖拽移动/互换 + 正名幽灵改名处置（__ghost_ 前缀）+ Blender 4.5 删场景 API 变化（batch_remove 签名移除，场景改名替代）
+- v0.9.14：审计体系重构（audit 12 段段级 --only 筛选 + web_audit 前端 23 项 + watch_audit watchdog 已退役）+ 审计轮询化提速（6min→3m42s）
 - v0.9.13：添加台词所见即所得 / 关预览父条高度修复 / 审计 --only 段级筛选 + 降噪包装器（audit_run.py）
 - v0.9.9~0.9.12：宫格台词条系列（同排合并父条/展开态保留/每条独立宽度/右键菜单自动大小/卡片菜单添加台词）——v0.9.8 的台词能力（全局开关、双击就地编辑、隐藏规则、marquee 排除、cardKey 'D'）在重构中全部保留
 - v0.9.7：画幅比/分辨率设置（对话框 + 全 scene 应用 + 新镜头跟随 + 前端动态画幅 + 旧图 cover/letterbox 适配）
@@ -190,13 +71,19 @@
 
 ## 正在做
 
-- 无进行中任务（v0.9.30 已交付，2026-08-08 推 GitHub）
+- **v0.9.32 候选（2026-08-09 已部署待推，共 6 项，均未升号/未推 GitHub）**：
+  1. 缩放滑块"拖不动"修复（marquee.js 排除列表补 .zoom-bar——v0.9.24 重构遗留，详见坑）
+  2. 拖动滑块后 Tab 切视图修复（keyboard.js 门控拆 range）
+  3. Tab 后滑块焦点框常驻修复（keyboard.js blur + style.css outline:none）
+  4. 单图封面直角伸出卡片圆角修复（.shot-thumb border-radius: 8px——v0.9.30 overflow:visible 连锁反应）
+  5. 多图焦点框两 bug 修复（列表折叠态无框 / 列表折叠回丢框——img 移植顶掉新建 class，坑 238/239）
+  6. 列表拖动卡顿调查结论（无代码修复）：连续像素缩放贴 16.6ms 预算，外部波动时偶发超帧，宫格离散跳变免疫——非 bug
+  - 待办：用户实测确认手感 → 推 GitHub 前全量回归 + 版本号统一升 v0.9.32
 
 ## 下一步
 
 - **稳健性待办（v0.6.3 对抗审计产出，用户已阅，优先级低暂缓）**，按性价比排序：
-  1. ~~**拍屏副作用还原**：`render_shot_files` 改完 `scene.render.filepath/file_format/engine` 不还原，污染用户正式渲染设置~~ ✅ v0.9.4 已修（改完全部恢复）
-  2. **主线程预算**：`process_queue` 一次排空全队列，批量重渲染 = UI 冻结整场渲染；改每 tick 1 个重命令
+  1. **主线程预算**：`process_queue` 一次排空全队列，批量重渲染 = UI 冻结整场渲染；改每 tick 1 个重命令
   3. **创建原子化**：makedirs 挪到 DB 写入前（SMB 抖动即孤儿记录，P9 实锤）
   4. **写事务合并**：批量操作共用一条 SQLite 连接+事务，顺手修 seq 分配竞态（P4 实锤 16 并发 12 重复）
   5. **DB 备份**：shots.db 启动时轮备 .bak1/2/3（SMB 单点零备份）
@@ -292,9 +179,14 @@ CREATE INDEX IF NOT EXISTS idx_frames_shot ON frames(shot_id);
 
 ## 坑（已踩过的雷）
 
+- **v0.9.32 候选：多图焦点框两真 bug（用户要求检查"折叠只有外框/展开只有内框"顺带揪出）**（2026-08-09 实测修复）：①**列表折叠态多图点击后焦点框不显示**——focusFrame 加框选择器只覆盖 .frame-img/.frame-thumb，列表折叠态封面是 .shot-thumb（无 data-frame-id）；修 = 缩略图加 data-frame-id/frame-no + 新建路径带 frame-focused + 加框/清框/Delete/复用同步 6 个选择器点全补（坑 239）。②**列表折叠回焦点框丢失**——renderGrid 的 img 移植（src 相同零闪烁 replaceWith）用旧无框 img 顶掉新建带框 img（同一状态复用路径有框/新建路径无框）；修 = 移植前同步 frame-focused + dataset（坑 238）。验证 8/8：宫格折叠=封面框/展开=帧格框/折叠回恢复/列表同矩阵/视图往返差分复用保留/单图点击清焦点。坑 238/239 详见 skill pitfalls-v0.9.30b.md
+- **v0.9.32 候选：单图封面直角伸出卡片圆角 = v0.9.30 overflow:visible 的连锁反应**（2026-08-09 实测修复）：v0.9.30 为救角标把 `.shot-card` overflow 改 visible，但单图 `.shot-thumb` 自身 border-radius 0——原来图片直角靠卡片 overflow hidden 裁进 8px 圆角，改后直角伸出（图角距圆角圆心 8.49px > 8px 弧线；用户报告"图片两个角支出去了"）。修 = `.shot-thumb { border-radius: 8px }`（与卡片同值同心贴合）；多图 frame-stack 6px 因同心数学上不伸出未动；列表 .thumb-wrap .shot-thumb 4px 更高特异性不受影响。坑 237 详见 skill pitfalls-v0.9.30b.md
+- **v0.9.32 候选：Tab 切视图后滑块焦点框常驻 = :focus-visible + 焦点滞留**（2026-08-09 实测修复）：拖动滑块（鼠标路径无框）→ 按 Tab 切视图（preventDefault 阻断焦点循环，焦点留在滑块）→ Tab 是键盘导航触发 `:focus-visible` → 滑块常驻浏览器默认焦点框。修两层：①keyboard.js Tab 分支切完视图后 blur 掉 range 焦点（连续 Tab 不受影响，handler 在 document keydown）；②style.css `.zoom-bar input[type="range"]` 加 `outline: none`（输入框 Tab 循环键盘聚焦到滑块的路径兜底；滑块有 accent-color 手柄反馈不需要 ring）。坑 236 详见 skill pitfalls-v0.9.30b.md
+- **v0.9.32 候选：拖动滑块后 Tab 切不了视图 = keyboard.js 输入框门控没区分 range**（2026-08-09 实测修复）：v0.9.3 门控 `tag === 'INPUT'` 把滑块（`<input type="range">`）也拦了——拖动后焦点留在滑块，按 Tab 被门控 return，视图不切且焦点被浏览器默认 Tab 循环跳走（实测跳 zoomIn）。修 = 门控拆细：TEXTAREA 全拦 / INPUT 非 range 全拦 / **range 只放行 Tab**（←/→ 原生调值行为不能放行方向键快捷键）。坑 235 详见 skill pitfalls-v0.9.30b.md
+- **v0.9.32 候选：缩放滑块"拖不动"真根因 = marquee.js 排除列表过时**（2026-08-09 实测修复）：v0.9.24 重构把滑块从 `.size-slider` 挪到 `.zoom-bar` 容器，marquee.js 的 document mousedown 排除列表没同步 → 滑块 mousedown 被 `e.preventDefault()` 拦截 → 原生 range 拖动/点击 track 全失效（用户怎么拖都没反应）。修 = 排除列表补 `closest('.zoom-bar')`。**v0.9.30b/31 两次"滑块失灵"诊断都归因 CDP 通道限制/边界 clamp，实际主因是这条**（修复后 CDP 真实点击 track 直接跳值 0→4）。验证手法：合成 mousedown 到滑块读 `e.defaultPrevented`。坑 234 详见 skill pitfalls-v0.9.30b.md
 - **v0.9.31：img 是替换元素——inset box-shadow 绘制在替换内容之下不可见、::after/::before 伪元素 computed 有值但不渲染**（实测双击确认）。凡要在 img 上画"盖在图上"的框，唯一边际成本最低的方案 = **border + 全局 box-sizing: border-box**（元素尺寸不变、内容区缩 4px 由 object-fit cover 吸收，同列表 frame-thumb 焦点框语义）；outline 穿透 z-index（v0.9.30 已踩）也不行。替换元素上做视觉层三连坑：outline（E.2 最后绘制）✗ / inset box-shadow（内容之下）✗ / ::after（不渲染）✗ / border（唯一正解）✓
 - **v0.9.31：差分渲染复用分支不重建 DOM——新增 class 语义（如折叠态封面焦点框）必须同步进复用分支**，只改新建路径（stackHtml）会在"初始渲染后状态变化 + renderGrid"场景静默失效（复用旧元素不走新建模板）；判别：手动 toggle + renderGrid 新建路径有效、实际交互路径无效 = 复用分支漏同步
-- **v0.9.31：CDP 无法驱动原生 range 滑块拖动**（mousePressed 不触发跳值、mouseMoved 只送达第一次、release 变 pointercancel——重启 daemon 复测仍无效，非抖动）：滑块类交互自动化验证 = 合成 input 事件（setter + dispatch input 监听器可达主世界）驱动 JS 逻辑 + elementFromPoint 命中检测，真实拖拽路径留用户实测；CDP 拖动滑块失败**不是产品 bug 证据**
+- **v0.9.31：CDP 无法驱动原生 range 滑块拖动**（mousePressed 不触发跳值、mouseMoved 只送达第一次、release 变 pointercancel——重启 daemon 复测仍无效，非抖动）：滑块类交互自动化验证 = 合成 input 事件（setter + dispatch input 监听器可达主世界）驱动 JS 逻辑 + elementFromPoint 命中检测，真实拖拽路径留用户实测；CDP 拖动滑块失败**不是产品 bug 证据**（⚠️ 2026-08-09 修正：该轮"CDP 点击/拖动全无效"实为 marquee 排除列表过时拦截 mousedown 所致，修复后 CDP 真实点击 track 跳值生效——见上方 v0.9.32 候选坑；通道限制只影响拖动流，不影响单点点击 track）
 - **v0.9.31：滑块初始 value = nMax - cols（宫格模式）——打开页面即最大值档**（localStorage sb-cols 持久化），放大方向天然 clamp 无效果，v0.9.26 去滑块文字后用户看不出已到顶，易被报"缩放条失灵"；诊断先读 sizeSlider.value/max/min 三件套，别对着"拖不动"改 JS
 
 - **v0.9.30：CSS 绘制顺序（附录 E.2）——outline 是所有元素最后统一绘制的阶段，穿透一切 z-index（实测 z=9999 压不住）；外扩 box-shadow 同理**。凡"画在元素外边缘"的指示层（焦点框/选中框），要么用 inset（画进元素内，被更高 z 元素正常盖住），要么接受会被盖。宫格 frame-focused 焦点框已改 inset box-shadow（列表 border 焦点框无此问题——border 在元素内）
@@ -444,6 +336,6 @@ CREATE INDEX IF NOT EXISTS idx_frames_shot ON frames(shot_id);
 - 后端模块地图：`core/server.py`（ROUTES 表 + 静态服务）→ `core/actions.py`（每端点一函数）→ `core/queue.py`（COMMANDS 注册表 + 错误回传）/ `core/db.py`（含 next_c_name/next_c_number，软删字段 deleted/content/dialogue）/ `core/undo.py`（撤销栈）/ `core/paths.py`（目录）/ `core/scenes.py`（场景工厂）/ `core/sync.py`（同步唯一实现）/ `core/render.py`（拍屏公共函数）
 - 前端模块地图（19 个 JS）：`web/index.html`（骨架+CSS）+ `web/js/`：state（共享状态）/ ui（toast+确认条）/ render（宫格+列表+FLIP+DOM差分+首屏门控）/ data（拉取+心跳+错误toast+undoLast）/ selection / dnd（卡片拖拽+拖图分区）/ rename（改名+字段就地编辑）/ menu（右键/中键滑动+回弹+菜单）/ create（弹框）/ marquee（框选）/ zoom（滑块+Ctrl滚轮连续缩放）/ keyboard（快捷键+方向键）/ trash（垃圾桶弹窗）/ search（搜索栏定位）/ preview（预览框：开关/贴边/调宽/详情）/ shortcuts（快捷键面板）/ aspect（画幅比：applyAspect 注入 + 对话框）/ main（入口接线）
 - 改名：`cmd_rename_shot`（queue.py）四层联动实现
-- 测试：改完跑 `python3 scripts/audit.py`（41 项，含 v0.2-v0.5 全部端点+垃圾桶/撤销链+多图保帧/rename 四层/时长对齐）+ `python3 scripts/audit_context_menu.py`（12 项：打开/重拍封面/复制/软删+purge）；网页 JS 改动另需 webbridge 全交互回归
+- 测试：改完跑 `python3 scripts/audit.py`（42 项，含 v0.2-v0.5 全部端点+垃圾桶/撤销链+多图保帧/rename 四层/时长对齐）+ `python3 scripts/audit_context_menu.py`（12 项：打开/重拍封面/复制/软删+purge）；网页 JS 改动另需 webbridge 全交互回归
 - 152. **rename_seq 撞 Blender scene 名而非 DB 名**：candidate 生成只查 DB name_exists，scene 层撞名查不到（幽灵场景 DB 无记录）→ `Scene Shot_cXXX0 already exists` → phase 2 卡死镜头停 `__ren_` 临时名 → audit 超时。清理：孤儿场景改名 `__ghost_` 前缀 + 存盘
 - 153. **MCP timer 回调 print 不回传**（只含 REGISTERED）；`print(chr(1).join(...))` 尾随 \n 让 split 最后一项带换行 → 场景名比对误判幽灵——strip 后再比
