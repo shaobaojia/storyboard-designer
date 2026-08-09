@@ -74,6 +74,13 @@ export function applyAspect() {
     background: #111113;
 }
 .preview-body img {
+    max-width: 100%;
+    max-height: 100%;
+    width: auto;
+    height: auto;
+    aspect-ratio: ${a};        /* v0.9.34：预览窗口 img 容器 = 画幅形状（与缩略图一致）——
+                                    原 100%×100% 填满竖的预览区域，cover 时裁左右；
+                                    容器=画幅后 cover 只裁上下，永不裁左右 */
     object-fit: ${wider ? 'cover' : 'contain'};
     background: #111113;
 }`;

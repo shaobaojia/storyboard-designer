@@ -36,6 +36,30 @@ def queue_command(command, params, callback=None):
     print(f"[Storyboard] Queued: {command}")
 
 
+def redraw_view3d():
+    """Refresh all VIEW_3D areas (side panel redraw).
+
+    v0.9.34：改 DB 的命令/operator 执行后必须调用——Blender 面板不会自动重绘，
+    不加则帧按钮等面板内容要鼠标悬停（触发 region 重绘）才刷新。
+    主线程安全（tag_redraw 是线程安全的请求标记）。
+    先失效面板 DB 读缓存（1s TTL），否则重绘读到的还是旧数据。"""
+    try:
+        panel_db_cache["ts"] = 0.0
+    except Exception:
+        pass
+    try:
+        for area in bpy.context.screen.areas:
+            if area.type == 'VIEW_3D':
+                area.tag_redraw()
+    except Exception:
+        pass
+
+
+# 面板 DB 读取缓存（v0.8.0）：draw 频率极高，DB 可能在 SMB 盘上，1s TTL 足够跟手。
+# v0.9.34 移到 queue.py：redraw_view3d 需要先失效它再重绘，跨模块共享（__init__.py import 使用）
+panel_db_cache = {"ts": 0.0, "key": None, "shot": None, "frames": []}
+
+
 def ensure_timer():
     """Ensure the main thread timer is registered. Must be called from main thread!"""
     global _timer_registered
@@ -60,6 +84,8 @@ def process_queue():
             result = execute_command(cmd["command"], cmd["params"])
             cmd["result"] = result
             print(f"[Storyboard] Executed: {cmd['command']}")
+            # v0.9.34：命令改 DB 后刷新面板（否则帧按钮等要鼠标悬停才刷新）
+            redraw_view3d()
         except Exception as e:
             cmd["error"] = str(e)
             print(f"[Storyboard] Command error: {e}")
@@ -874,9 +900,12 @@ def cmd_delete_frame(params):
         raise ValueError("cannot delete the last frame of a shot")
 
     # Remove disk files (still + thumb pair), tolerate missing files
+    # v0.9.34：v0.9.4 起拍屏统一 JPG（fNNNNN_still.jpg），原逻辑只删 _still.png（旧格式）
+    # 残留 still.jpg；三候选全删（兼容新旧格式）
     if target["image_path"]:
         base = target["image_path"]
-        for p in {base, base.replace("_thumb.jpg", "_still.png")}:
+        for p in {base, base.replace("_thumb.jpg", "_still.jpg"),
+                  base.replace("_thumb.jpg", "_still.png")}:
             try:
                 if os.path.exists(p):
                     os.remove(p)

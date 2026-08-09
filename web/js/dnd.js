@@ -139,7 +139,7 @@ export function initCardDnd() {
         }
         e.preventDefault();  // 拖拽中阻止浏览器默认（不会启动原生 DnD）
         lastMove = { x: e.clientX, y: e.clientY };
-        drag.srcEl.style.transform = `translate(${dx}px, ${dy}px)`;  // 源卡跟随（反馈）
+        drag.srcEl.style.transform = `translate(${dx}px, ${dy}px) scale(0.7)`;  // 源卡跟随（反馈）；v0.9.34 用户要求拖拽中缩小到 70%
         // 命中检测：鼠标下的卡片（源卡 transform 移开后原位置露出下层元素）
         const el = document.elementFromPoint(e.clientX, e.clientY);
         let card = el && el.closest ? el.closest('.shot-card') : null;

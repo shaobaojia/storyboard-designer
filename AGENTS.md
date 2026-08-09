@@ -2,6 +2,15 @@
 
 > 给下一个 Agent（或下一个自己）的交接备忘录。**收工推送前必须更新「刚做完 / 正在做 / 下一步 / 坑」四个字段。**
 
+## 刚做完（v0.9.34：台词条手柄图标 + 拖拽缩放 + 预览画幅标准 + 面板实时刷新，2026-08-09 已部署实测，跳过全量回归用户拍板直接推）
+
+- **台词条拖宽手柄视觉系列**（用户连轮指定）：默认 2px 竖线 → 用户 SVG 图标（星形 #707070 → 双右箭头 » #bfbfbf），14px→28px→19.6px（70%）；默认 opacity 0、台词条 hover 显示（opacity 1，0.15s 过渡）；中心锚定公式 `right = containing block 右缘偏移 - N/2`；光标去 col-resize 全程默认（同 v0.9.5 约定）。坑：[data-tip]::after 同特异性合并三坑（left/bottom/padding/border 显式清，坑 249）
+- **拖拽中卡片 scale(0.7)**（dnd.js 一行：transform 加 scale(0.7)，释放自动清）
+- **预览窗口画幅标准（用户拍板：只能裁上下不能裁左右）**：原 .preview-body img 100%×100% 填满竖的预览区域 → cover 裁左右（21:9 预设左右各裁 336px 实测）；修 = 预览 img 容器 aspect-ratio 跟随画幅（max-w/max-h 100% + auto，区域内最大居中），与缩略图同构；19 预设全测：容器比例=画幅、cover 只裁上下、永不裁左右（坑 256/257）
+- **Blender 面板实时刷新（帧按钮 hover 才刷新事故）**：根因 = 改 DB 的 operator 无 tag_redraw + 面板读缓存（1s TTL）未失效；修 = core/queue.py 新增 redraw_view3d()（失效 panel_db_cache + 遍历 VIEW_3D tag_redraw，缓存对象移 queue.py 跨模块共享）+ 4 个同步 operator（拍帧/删帧/创建/删除镜头）尾部调用 + process_queue 成功路径统一调（覆盖 web 命令）；MCP 验证：拍帧后 cache key/ts 变化（无鼠标环境重绘只能来自 tag_redraw）（坑 258）
+- **cmd_delete_frame 删帧残留 fNNNNN_still.jpg**：删文件还按旧格式 replace _still.png（v0.9.4 JPG 化后永不删）；修 = 三候选全删（thumb.jpg + still.jpg + still.png 兼容）；验证删帧后目录 fNNNNN_* 全空（坑 259）
+- 版本号 0.9.33 → 0.9.34（bl_info + 关于徽章）
+
 ## 刚做完（v0.9.33：折叠态多图焦点框语义定稿 + 层牌伸出修复，2026-08-09 已部署实测，与 v0.9.32/v0.9.31 一起推 GitHub）
 
 - **折叠态多图焦点框语义（用户三轮拍板定稿）**：①v0.9.31 封面蓝框（内框）→ ②用户「折叠态只能有焦点外框」去掉封面内框（列表 .shot-thumb 的 data-frame-id/frame-focused 一并移除）→ ③用户「焦点框盖在叠图上面」——selected 卡片外框被层牌（z1-3）盖住左右缘（右缘层牌本体盖、左缘 cover 阴影盖，PIL 实测）；正解 = `.shot-card:has(> .frame-stack).selected::after` 在卡片上重画同位置 2px accent 环（inset:-2px = border box 与卡片 border 完全重合，z-index 999 盖过叠图/角标，border-radius 8px 跟随圆角，pointer-events none）——仅多图折叠态命中，单图/展开帧格/列表不受影响
@@ -17,38 +26,8 @@
 - 列表拖动卡顿调查结论：连续像素缩放贴 16.6ms 预算，外部波动偶发超帧，宫格离散跳变免疫——非 bug
 - 版本号 0.9.31 → 0.9.32（v0.9.31 同推）
 
-## 刚做完（v0.9.31：焦点框修复两连 + 滑块诊断结论，2026-08-08 已部署实测，与 v0.9.30/v0.9.29 一起推 GitHub）
-
-- **展开态焦点框丢失修复**（用户报告）：v0.9.30 把焦点框从 outline 改 inset box-shadow 的动机对（outline 穿透 z-index 在角标上划线），但 **inset box-shadow 绘制在 img 替换内容之下，实测不可见**（PIL 采样帧图边缘内侧无蓝）→ 展开态焦点框完全丢失
-- **折叠态多图焦点框"没盖在镜头上"修复**（用户报告）：折叠态 cover 图从无帧级焦点框（focusFrame 只处理展开态/列表；点击折叠态卡片只给 .selected 边框，边框离封面图 9px padding）→ 新语义（用户拍板）：点击折叠态多图 → 焦点落封面帧，蓝框盖在封面上；键盘方向键同语义
-- **实现**：img 是替换元素 ::after 伪元素同样不渲染（computed 有值但不绘制，实测）→ 最终方案 = **border 方案**（同列表 frame-thumb 焦点框）：全局 box-sizing: border-box 下 `.frame-img.frame-focused` 加 `border: 2px solid var(--accent)`，元素尺寸不变（内容区缩 4px 由 object-fit cover 吸收），角标（z=6）正常盖住重叠区（v0.9.30 语义保持）
-- **联动改动**：①render.js stackHtml 折叠态 cover 按 focusedFrameId（属于本镜头任意帧即显示）带 frame-focused；②render.js 差分复用分支同步 cover 的 frame-focused（复用不重建 DOM——折叠保留焦点缺失的隐藏坑）；③frames.js focusFrame 选择器从 `.frame-cell` 放宽到 `.shot-card[data-id]`（覆盖折叠态 cover）+ 折叠动画不再清 focusedFrameId（下次展开 focusFirstFrame 重置，无残留）；④main.js 点击折叠态多图 → 焦点落封面帧（单图仍清焦点）；⑤keyboard.js 方向键选中折叠态多图 → 同语义
-- 验证：WebBridge DOM 断言 + PIL 像素（折叠封面/展开焦点帧边缘内侧均采到 accent 蓝）+ 折叠保留焦点 + 帧级点击跟手 + 键盘方向键 + 单图清焦点 + 回归（视图切换 77 卡/缩放正常）
-- 版本号 0.9.30 → 0.9.31（bl_info + 关于徽章；v0.9.30/v0.9.29 当时未升号，本次推前统一）
-
-## 刚做完（v0.9.30：角标四条标准，2026-08-08 已部署实测，与 v0.9.29 六项一起推 GitHub）
-
-- **角标规格四条标准（用户拍板）**：①展开/折叠角标大小位置完全一致（严丝合缝一动不动）②镜头数字同样不动 ③角标宽 = 卡片宽 15% ④数字左上角 = 角标/卡片左上圆角轴心重合
-- **实现**：角标宽高 = `calc(var(--card-min) * 0.15)`（天然随缩放，**退役 --badge-scale 锚点机制**，zoom.js 删两处变量设置）；折叠态 -2px（抵消卡片 2px 透明 border）与展开态 0px（帧格 border:none 且第一帧格=原卡片位置）→ 两态原点都 = 卡片 border box 左上角；SVG 改直角三角 + CSS border-radius 8px（= 卡片圆角，轴心同心）；数字 padding 8px 0 0 8px + flex-start 左上对齐（左上角 = 圆角轴心 (8,8)），字号 = 角标宽 35% 随缩放
-- **三个隐藏根因（"角标动了"的真凶，已修）**：
-  ① `.shot-card overflow: hidden` 裁掉 -2px 定位的折叠角标 2px（视觉 38px vs 展开 40px）→ 改 visible（叠牌错位露边由 layer 图 box-shadow 呈现不受影响，frame-cell 早已 visible）
-  ② **焦点框 outline 是 CSS 绘制顺序（附录 E.2）最后阶段，穿透一切 z-index（实测 z=9999 压不住）**——展开态第一帧自动焦点框在角标斜边下缘划 2px 亮蓝线；外扩 box-shadow 同理穿透 → 焦点框改 `inset 0 0 0 2px var(--accent)`（图内蓝框，角标自然盖住，与列表 frame-focused border 同款语义）
-  ③ flex 容器内数字 ink 顶比行框顶高 1px（字体负 half-leading）→ padding-top 9px 补偿，数字左上角精确 (8,8)
-- 验证：4 条标准全列数（3/4/6/8 列）DOM 层 PASS + PIL 像素级（角标/卡片 45° 弧线逐像素一致、展开/折叠蓝色掩码对比、数字重心差 0.0px）；展开/折叠切换角标区域像素一致
-- 版本号 0.9.29 → 0.9.30（bl_info + 关于徽章；v0.9.29 六项当时未升号，本次推前统一）
-
-## 刚做完（v0.9.29 六项：角标圆角三角 + 防文本选中 + 初始化门控 + 删当前帧 + 复制镜头，2026-08-08 已部署实测，随 v0.9.30 一起推）
-
-- **多图镜头角标 → 用户指定「包角」大三角**（button.stack-badge 80×80 贴卡片左上角 top:0 left:0，像角形包一沓纸：直角在右上、斜边直落左下、左上大圆角——用户 SVG path 原样缩放 base64 内联；数字 14px 放三角重心（flex padding-top 24 + text-indent -11）；hover filter brightness(1.08)；展开态 expanded-badge 26px 同形状（padding 4 + text-indent -3）；品牌蓝两皮肤一致硬编码 rgba(74,158,255,0.92)）
-- **全站防文本选中（修"框选蓝块/拖台词条蓝块"）**：根因 = 展示区文本无 user-select 保护 + marquee mousedown / 台词条·卡片拖拽 pointerdown 均无 preventDefault，真实鼠标拖动启动浏览器原生文本选择（蓝底高亮大块）。修 = body 全局 `user-select: none` + `input, textarea { user-select: text }` 恢复编辑控件 + marquee.js mousedown 起点 `e.preventDefault()`。框选/拖拽/其它页（镜头名/相机名）全部不再选中文本
-- **Blender 端初始化不自动（防所有打开过的 blend 文件被建 xxx_storyboard/ 目录）**：原链路 = load_post/save_post/register → `_auto_start_server` → `start_server` → `StoryboardHTTPServer.__init__` 无条件 makedirs shots/+animatic+init_db——打开过 N 个 blend 就建 N 个目录（事故）。修 = 新增 `_project_initialized()`（project_dir 存在且 shots.db 存在）门控 `_auto_start_server` 与 `_auto_sync`（未初始化直接 return）；`init_project` operator 初始化后顺手 start_server+ensure_timer（原来不启服务）；open_manager/open_manager_webview 未初始化时 report 报错"请先在「项目状态」面板点击「初始化」"；面板状态区未初始化文案改"项目未初始化"（原来误显示"请先保存 .blend 文件"）。已验证四场景：未保存不建/已保存未初始化不建/手动初始化建+起服务/已初始化文件自动起服务
-- **面板「删当前帧」**（STORYBOARD_OT_delete_current_frame，拍当前帧旁，icon X）：_resolve 同 snap_frame 模式（当前场景 shot + frame_current），找 frames 里 frame_no==当前帧的行 → cmd_delete_frame(shot_id, frame_id, project_dir)；删封面帧自动晋升最小帧号（cmd_delete_frame 内部）；最后一帧不可删（内部保护）；无对应帧报错提示
-- **面板「复制镜头」**（STORYBOARD_OT_duplicate_shot，创建镜头下一行，icon DUPLICATE）：next_c_name 分配编号 + uuid 预生成 shot_id + queue_command("duplicate_shot", {scene_name, new_name, project_dir, shot_id, after_id}) + undo.push("复制 x", purge 逆操作)——与网页端 _duplicate_one 同链路；落位源镜头后自动拍封面
-- 验证：删帧（c0010 删 F58 封面 → 自动晋升 F0 ✅，已还原现场重拍 F58+恢复封面）；复制（c0970 帧文件存在 + undo_label "复制 c0010" ✅，已清理）；回归 8/8（角标三角/台词条/展开折叠/卡片拖拽/框选无文本/编辑框可输/搜索/列表视图）；正式工程 77 镜头完好
-
-
-
 **历史轮次**（详情曾在本文件，已压缩；关键决策见「交互/设计约定」与「坑」）：
+- v0.9.29~v0.9.31：角标包角大三角（用户 SVG 直角三角+CSS 圆角）+ 全站防文本选中（user-select none + marquee preventDefault 修框选蓝块）+ Blender 初始化门控（未初始化不建目录/DB/服务）+ 面板删当前帧/复制镜头 + 角标四条标准（展开/折叠完全一致、宽=卡宽15%、数字左上角=圆角轴心）+ 焦点框修复两连（inset box-shadow 绘制在 img 替换内容之下不可见 → border 方案；折叠态多图点击焦点落封面帧，选择器放宽 + 折叠保留焦点）
 - v0.9.28：Blender 面板 5 个独立子 Panel 卷展条（ARP 风格：卷展条分区 + 标题栏品牌图标 + 关于默认收起——后续面板 UI 风格沿用）+ 面板标题栏品牌剪刀图标（custom icons）
 - v0.9.27：PyWebView 窗口图标真修复（根因 WS_EX_TOOLWINDOW，去 toolwindow 改 owner 悬浮化）+ 其它页切换提速（1602→153ms，sync fire-and-forget）+ 面板三分区 + 折叠按钮高度翻倍 + 其它页隐藏创建 + 皮肤系统（45 语义 CSS 变量 + 浅色主题 + localStorage 持久化）
 - v0.9.26：收起按钮 9px + 缩放滑块去文字 + 标题栏垂直居中 + 图标全 SVG 化（icons.js 17 图标，删 iconfont -15KB）+ DWM 深色窗口图标修复（v0.9.27 证伪）
@@ -86,7 +65,7 @@
 
 ## 正在做
 
-- 无（v0.9.32 六项已提交 ef33c61，v0.9.33 本轮待提交，均未推 GitHub——待用户指示推或开新需求）
+- 无（v0.9.34 已提交实测，本次推 GitHub——推完待用户指示开新需求）
 
 ## 下一步
 
@@ -340,6 +319,10 @@ CREATE INDEX IF NOT EXISTS idx_frames_shot ON frames(shot_id);
 - **审计轮询化四坑**（v0.9.14 续，2026-08-07 实测）：audit.py 固定 sleep → wait_ok 轮询（完成即继续）后：①queue 命令分步执行（DB 先写场景后动）→ 轮询条件满足瞬间可能命中命令执行中途 → 假 FAIL（Soft delete scene parked=False）——wait_until 条件 True 后必须 0.3s 稳定确认再返回；②轮询间隔 0.25s，别用 50ms——高频 GET /api/shots 与 rename_seq 的 SQLite 连续写抢锁，拖到 60s 超时都不够；③rename_seq 两阶段（先全改 __ren_ 临时名再统一转正式名）超时给 60s（3 镜头×2 阶段×SMB 余量），20s 必炸；④cleanup 清理条件必须含 __ren 前缀（rename_seq 失败残留 __ren_xxx 不含 AUDIT 也不以 c 开头 → 漏网逐轮累积恶性循环）
 - **正名幽灵场景破坏 rename_seq**（v0.9.14 实测 3 轮 FAIL 元凶）：场景里有 Shot_c0970-c1000（DB 无记录，sync 遗留），rename_seq 阶段 2 生成编号 c0970+ 撞场景名冲突 → 改名抛错卡 __ren_ 临时名（部分转正部分卡住，位置随机）。__ghost_ 前缀不干扰改名。处置：MCP batch_remove 删正名幽灵必须 use_global_undo=False（否则 1.2GB 撤销快照卡死假死——进程活着端口监听但 MCP 拒绝/HTTP 空响应，重启才恢复）+ **删完存盘**（purge/删除场景不存盘，重启后场景复活继续撞名）
 - **Blender 4.5 删场景 API 变化（v0.9.16 实测，坑 257 方法已失效）**：`bpy.data.batch_remove(ids=..., use_global_undo=False)` 和 `bpy.data.scenes.remove(sc, use_global_undo=False)` 都报 TypeError（签名 batch_remove(ids) / remove(scene, do_unlink)）；**无参数 remove 触发全局撤销快照（1.2GB 文件卡死数分钟 → 崩溃弹窗 C 档：进程活着+端口监听+MCP/HTTP 全拒）**；`preferences.edit.use_global_undo=False` 临时关撤销后 remove 依然卡死崩溃（实测）。**正确处置 = 场景改名 `__ghost_` 前缀**（`sc.name = new` 轻量秒完成，MCP 线程稳定）：正名幽灵改名后 rename_seq 不再撞名，AUDIT/CTX 残留改名后不干扰 audit 创建（同名场景会 .001）；**改完必须存盘**（timer 包装 save_mainfile + 日志文件验证，防重启复活）。排查链：rename_seq 超时 → MCP 列场景 vs DB scene_name 差集查 orphans → 正名幽灵即元凶（本次 c0060/c0110 漏网教训：删幽灵要按差集全查，别只删已知编号）。另：MCP 传复杂代码用文件方式 `exec(open(path, encoding='utf-8').read())` 避免转义坑
+- **Blender 面板不自动重绘，改 DB 后必须 redraw_view3d + 先失效面板读缓存**（v0.9.34）：面板 draw 现读 DB 但无 tag_redraw 就不重绘（帧按钮 hover 才刷新事故）；修 = core/queue.py redraw_view3d()（panel_db_cache["ts"]=0 + 遍历 VIEW_3D area tag_redraw，缓存对象移 queue.py 跨模块共享）+ 同步 operator 尾部调用 + process_queue 成功路径统一调；验证 = MCP timer 拍帧后 cache key/ts 变化（无鼠标环境重绘只能来自 tag_redraw）（坑 258）
+- **cmd_delete_frame 删帧残留 fNNNNN_still.jpg**（v0.9.34）：删文件还按旧格式 replace _still.png（v0.9.4 JPG 化后永不删）；修 = 三候选全删（thumb.jpg + still.jpg + still.png 兼容）；验证删帧后目录 fNNNNN_* 全空（坑 259）
+- **预览窗口 cover 裁左右**（v0.9.34 用户拍板标准：只能裁上下不能裁左右）：.preview-body img 100%×100% 填满竖的预览区域（0.79）→ 16:9 图 cover 裁左右；修 = 预览 img 容器 aspect-ratio 跟随画幅（max-w/max-h 100% + auto）与缩略图同构；两处显示规则一致必须核对容器形状不能只看 fit 判定（坑 256）
+- **台词条手柄 [data-tip]::after 同特异性合并三坑**（v0.9.34）：left:50% 废 right / bottom:calc(100%+8px) / padding+border 撑大盒子（14→32px）——显式 left/bottom/padding/border 四条全清；伪元素几何验证用 outline 注入法（computed 伪元素值不可信）（坑 249/250）
 
 ## 细节指针
 

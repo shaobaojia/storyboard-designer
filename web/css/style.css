@@ -91,7 +91,6 @@
             --overlay-rgb: 255, 255, 255;
             --bg-body-rgb: 26, 26, 26;   /* 页面底色通道（半透明遮罩用） */
             /* 其它 */
-            --handle: #3a3f4a;           /* 台词条拖宽手柄 */
             --scheme: dark;              /* 原生控件外观（浅色皮肤覆盖为 light） */
         }
         /* v0.9.3：禁用浏览器滚动锚定——差分渲染移除视口内锚点节点（多图展开/折叠）时
@@ -1595,18 +1594,25 @@
             position: absolute;
             top: 0; right: -3px;
             width: 8px; height: 100%;
-            cursor: col-resize;
+            /* v0.9.34：去掉 col-resize 光标——用户要求全程默认光标（同 v0.9.5 拖拽默认光标约定） */
         }
-        .dialogue-resize::after {       /* 右沿视觉手柄（hover 亮起） */
+        .dialogue-resize::after {       /* 右沿视觉手柄 = 双右箭头图标（用户 SVG；默认隐藏，台词条 hover 显示） */
             content: '';
             position: absolute;
-            top: 20%; bottom: 20%;
-            right: 3px;
-            width: 2px;
-            border-radius: 1px;
-            background: var(--handle);
+            top: 50%;
+            left: auto;                 /* 覆盖 [data-tip]::after 的 left:50%（同特异性合并，不显式清除 right 定位被废） */
+            right: -7.8px;              /* 19.6px 图标水平中心锚在台词条右缘（右缘=box右缘+9.8 → 258-265.8=-7.8） */
+            bottom: auto;
+            width: 19.6px; height: 19.6px;  /* 28px 的 70%（v0.9.34 用户要求缩小） */
+            padding: 0;                 /* 覆盖 [data-tip]::after 的 padding: 4px 8px（同特异性合并会把 14px 盒子撑成 32px） */
+            border: none;               /* 覆盖 [data-tip]::after 的 border: 1px（合并加宽盒子） */
+            transform: translateY(-50%);
+            background: url("data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMDI0IDEwMjQiPjxwYXRoIGQ9Ik01ODUuNSA4ODYuNUw5NjAgNTEyIDU4NS41IDEzNy41djc0OXpNNjQgNTEybDM3NC41IDM3NC41di03NDlMNjQgNTEyeiIgZmlsbD0iI2JmYmZiZiIvPjwvc3ZnPg==") no-repeat center / contain;
+            opacity: 0;
+            transition: opacity .15s;
+            pointer-events: none;
         }
-        .dialogue-box:hover .dialogue-resize::after { background: var(--accent); }
+        .dialogue-box:hover .dialogue-resize::after { opacity: 1; }
         /* v0.9.16 台词条拖拽移动/互换：源条半透明跟随 + 目标高亮（风格同 .selected 蓝光）
            pointer-events:none 同 v0.9.5 卡片拖拽坑：transform 跟随让源条盖在鼠标下，
            elementFromPoint 永远命中源条自己 → 目标高亮永不显示 */
@@ -1673,7 +1679,6 @@
             --zone-disabled: rgba(120,120,120,0.06);
             --overlay-rgb: 0, 0, 0;
             --bg-body-rgb: 244, 244, 246;
-            --handle: #b8b8c0;
         }
         /* 主菜单皮肤项勾选（v0.9.27） */
         .context-menu button.checked::before {

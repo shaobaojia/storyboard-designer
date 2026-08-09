@@ -1,7 +1,7 @@
 bl_info = {
     "name": "Storyboard Designer",
     "author": "邵保家",
-    "version": (0, 9, 33),
+    "version": (0, 9, 34),
     "blender": (4, 5, 0),
     "location": "View3D > Sidebar > Storyboard",
     "description": "Quick previs/storyboard design system",
@@ -255,6 +255,8 @@ class STORYBOARD_OT_create_shot(bpy.types.Operator):
             print(f"[Storyboard] Auto-render after panel create failed: {e}")
 
         self.report({'INFO'}, f"Created shot: {self.shot_name} ({shot_id})")
+        from core.queue import redraw_view3d
+        redraw_view3d()  # v0.9.34：创建镜头后立即刷新面板（否则帧按钮要 hover 才刷新）
         return {'FINISHED'}
 
     def invoke(self, context, event):
@@ -373,6 +375,8 @@ class STORYBOARD_OT_snap_frame(bpy.types.Operator):
             return {'CANCELLED'}
         verb = "覆盖重拍" if self.overwrite else "拍屏"
         self.report({'INFO'}, f"F{self.frame_no} {verb}完成")
+        from core.queue import redraw_view3d
+        redraw_view3d()  # v0.9.34：拍帧后立即刷新面板（新帧按钮即时出现）
         return {'FINISHED'}
 
 
@@ -433,6 +437,8 @@ class STORYBOARD_OT_delete_current_frame(bpy.types.Operator):
             self.report({'ERROR'}, f"删帧失败: {e}")
             return {'CANCELLED'}
         self.report({'INFO'}, f"F{self.frame_no} 已删除")
+        from core.queue import redraw_view3d
+        redraw_view3d()  # v0.9.34：删帧后立即刷新面板（帧按钮即时消失）
         return {'FINISHED'}
 
 
@@ -523,13 +529,16 @@ class STORYBOARD_OT_delete_shot(bpy.types.Operator):
         })
 
         self.report({'INFO'}, f"Deleted shot: {shot['name']}")
+        from core.queue import redraw_view3d
+        redraw_view3d()  # v0.9.34：删除镜头后立即刷新面板
         return {'FINISHED'}
 
 
 # --- Panel ---
 
-# 面板 DB 读取缓存（v0.8.0）：draw 频率极高，DB 可能在 SMB 盘上，1s TTL 足够跟手
-_panel_db_cache = {"ts": 0.0, "key": None, "shot": None, "frames": []}
+# 面板 DB 读取缓存（v0.8.0）：draw 频率极高，DB 可能在 SMB 盘上，1s TTL 足够跟手。
+# v0.9.34：对象本体移到 core.queue（redraw_view3d 先失效它再重绘，避免跨模块循环导入），这里 import 使用
+from core.queue import panel_db_cache as _panel_db_cache
 
 
 def _panel_db_read(project_dir, scene_name):
