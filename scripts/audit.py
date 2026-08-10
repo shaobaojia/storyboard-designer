@@ -696,6 +696,78 @@ con.close()
     record("web", "Frames cascade on purge", n_frames == "2" and n_after == "0",
            f"frames {n_frames}->{n_after}")
 
+
+def s2l_body():
+    # ---- 2l. v0.9.68: move_dialogue 原子性（台词拖拽移动/互换 + 一次撤销全恢复）----
+    # 背景：原前端两次独立 update 各 push 一条 undo → 一次撤销只回放一条 =
+    # 移动后撤销台词消失（需求池 474 行 bug 实测复现）。原子 action 单条 undo entry
+    # 含 db 两条记录，undo_action 一次回放全恢复。修复必须固化进回归网防复发。
+    print("\n[2l] move_dialogue 台词移动/互换原子性")
+    api("POST", "/api/shots", {"name": "AUDIT_MD1", "duration": 2.0})
+    api("POST", "/api/shots", {"name": "AUDIT_MD2", "duration": 2.0})
+    wait_ok("创建 AUDIT_MD1", lambda: _shot_by_name("AUDIT_MD1") is not None, timeout=15)
+    wait_ok("创建 AUDIT_MD2", lambda: _shot_by_name("AUDIT_MD2") is not None, timeout=15)
+    md1 = next(s for s in api("GET", "/api/shots")["shots"] if s["name"] == "AUDIT_MD1")
+    md2 = next(s for s in api("GET", "/api/shots")["shots"] if s["name"] == "AUDIT_MD2")
+
+    def dlg(sid):
+        return (_get_shot(sid) or {}).get("dialogue") or ""
+
+    # 移动场景：dst 无台词 = 移动（src 清空、dst 承接）
+    api("POST", f"/api/shot/{md1['id']}", {"action": "update", "fields": {"dialogue": "移动台词A"}})
+    wait_ok("设 md1 台词", lambda: dlg(md1['id']) == "移动台词A", timeout=8)
+    r = api("POST", f"/api/shot/{md1['id']}", {"action": "move_dialogue", "dst_id": md2['id']})
+    wait_ok("move 生效", lambda: dlg(md1['id']) == "" and dlg(md2['id']) == "移动台词A", timeout=8)
+    record("web", "Move dialogue (src→dst 无台词=移动)", r.get("status") == "ok"
+           and dlg(md1['id']) == "" and dlg(md2['id']) == "移动台词A",
+           f"md1='{dlg(md1['id'])}', md2='{dlg(md2['id'])}'")
+    # 一次撤销全恢复（v0.9.68 bug 核心断言）
+    api("POST", "/api/undo", {})
+    wait_ok("undo move 生效", lambda: dlg(md1['id']) == "移动台词A" and dlg(md2['id']) == "", timeout=8)
+    record("web", "Undo move = 一次撤销全恢复 (src/dst)",
+           dlg(md1['id']) == "移动台词A" and dlg(md2['id']) == "",
+           f"md1='{dlg(md1['id'])}', md2='{dlg(md2['id'])}'")
+    api("POST", "/api/undo", {})  # 撤销 update 台词，栈回段前深度
+    wait_ok("undo update 生效", lambda: dlg(md1['id']) == "", timeout=8)
+
+    # 互换场景：dst 有台词 = 互换
+    api("POST", f"/api/shot/{md1['id']}", {"action": "update", "fields": {"dialogue": "台词X"}})
+    api("POST", f"/api/shot/{md2['id']}", {"action": "update", "fields": {"dialogue": "台词Y"}})
+    wait_ok("设两镜头台词", lambda: dlg(md1['id']) == "台词X" and dlg(md2['id']) == "台词Y", timeout=8)
+    api("POST", f"/api/shot/{md1['id']}", {"action": "move_dialogue", "dst_id": md2['id']})
+    wait_ok("swap 生效", lambda: dlg(md1['id']) == "台词Y" and dlg(md2['id']) == "台词X", timeout=8)
+    record("web", "Swap dialogue (dst 有台词=互换)",
+           dlg(md1['id']) == "台词Y" and dlg(md2['id']) == "台词X",
+           f"md1='{dlg(md1['id'])}', md2='{dlg(md2['id'])}'")
+    api("POST", "/api/undo", {})
+    wait_ok("undo swap 生效", lambda: dlg(md1['id']) == "台词X" and dlg(md2['id']) == "台词Y", timeout=8)
+    record("web", "Undo swap = 一次撤销全恢复",
+           dlg(md1['id']) == "台词X" and dlg(md2['id']) == "台词Y",
+           f"md1='{dlg(md1['id'])}', md2='{dlg(md2['id'])}'")
+    api("POST", "/api/undo", {})
+    api("POST", "/api/undo", {})  # 撤销两条 update，栈回段前深度
+    wait_ok("撤销两条 update", lambda: dlg(md1['id']) == "" and dlg(md2['id']) == "", timeout=8)
+
+    # 边界拒绝：空 dst / 自指 / dst 不存在——全部拒绝且数据不动（不 push undo）
+    def api_status(method, path, data=None):
+        """边界拒绝请求走容错调用：预期 HTTP 4xx，返回状态码（api() 不捕获 HTTPError 会崩）"""
+        req = urllib.request.Request(f"{HTTP}{path}", data=json.dumps(data).encode(),
+                                     headers={"Content-Type": "application/json"}, method=method)
+        try:
+            with urllib.request.urlopen(req, timeout=10) as f:
+                return f.status
+        except urllib.error.HTTPError as e:
+            return e.code
+
+    before = (dlg(md1['id']), dlg(md2['id']))
+    s1 = api_status("POST", f"/api/shot/{md1['id']}", {"action": "move_dialogue", "dst_id": ""})
+    s2 = api_status("POST", f"/api/shot/{md1['id']}", {"action": "move_dialogue", "dst_id": md1['id']})
+    s3 = api_status("POST", f"/api/shot/{md1['id']}", {"action": "move_dialogue", "dst_id": "no-such-id"})
+    after = (dlg(md1['id']), dlg(md2['id']))
+    ok = s1 == 400 and s2 == 400 and s3 == 404 and before == after
+    record("web", "move_dialogue 边界拒绝 (空/自指/不存在)", ok,
+           f"codes={s1}/{s2}/{s3} data={before}->{after}")
+
     # ---- 3. cleanup -------------------------------------------------------
 
 
@@ -713,6 +785,13 @@ def s3_body(taken):
         if "AUDIT" in nm or "__ren" in nm or (nm.startswith("c") and nm not in taken):
             api("POST", f"/api/shot/{shot['id']}", {"action": "purge"})
             wait_ok(f"清理 purge {nm}", lambda: not any(s["id"] == shot["id"] for s in api("GET", "/api/trash").get("shots", [])), timeout=10)
+            # ⚠️ purge 的场景删除是 queue 异步——不等场景消失就 sync，_register_other_scenes
+            # 会把残留场景登记成 origin='other'（name=场景名带 Shot_ 前缀）→ leftover 假 FAIL
+            #（2026-08-10 s13 段实测：SMB 慢盘场景删除 9s 未完成，sync 把它注册成 Shot_AUDIT_MD2）
+            def _scene_gone(n=nm):
+                st = state()
+                return not any(n in s for s in st.get("scenes", []))
+            wait_ok(f"场景 {nm} 移除", _scene_gone, timeout=30)
     api("POST", "/api/sync", {})
     time.sleep(2)
     after = state()
@@ -747,6 +826,7 @@ def main():
         's10': (['update fields', 'undo', 'duplicate inserts'], ('s9',)),
         's11': (['thumb_ver', 'reorder bumps', 'batch restore'], ()),
         's12': (['frames cascade'], ()),
+        's13': (['move_dialogue', '台词移动', '互换'], ()),
     }
     def _matches(sid):
         if not only:
@@ -754,7 +834,7 @@ def main():
         names = SEG_REG[sid][0]
         return any(k == sid or any(k in n for n in names) for k in only)
     active = []
-    for sid in ('s1', 's2', 's3', 's4', 's5', 's6', 's7', 's8', 's9', 's10', 's11', 's12'):
+    for sid in ('s1', 's2', 's3', 's4', 's5', 's6', 's7', 's8', 's9', 's10', 's11', 's12', 's13'):
         if _matches(sid):
             active.append(sid)
     # 正向依赖闭包：被激活段的依赖段（数据前置）插到其前面，递归直到稳定
@@ -813,6 +893,7 @@ def main():
         elif _sid == 's10': s2i_body()
         elif _sid == 's11': s2j_body()
         elif _sid == 's12': s2k_body()
+        elif _sid == 's13': s2l_body()
 
     # ---- 3. cleanup（永远跑，保证无残留） ----
     s3_body(taken)

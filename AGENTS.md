@@ -5,6 +5,8 @@
 
 ## 刚做完（v0.9.70 一项 + v0.9.69 一项 + v0.9.68 一项 + v0.9.67 一项 + v0.9.66 一项 + v0.9.65 一项 + v0.9.64 五项，2026-08-10，已推 v0.9.70）
 
+**审计脚本增强（2026-08-10，v0.9.70 后追加，已推）**：①audit.py 新增 s13 段 move_dialogue 原子性固化（v0.9.68 漏网 bug 修复进回归网防复发：移动/互换 + 一次撤销全恢复 + 边界拒绝 400/400/404 数据不动，零残留模式操作 N 次撤销 N 次）②web_audit.py 新增 timeline 段 7 项（覆盖最大盲区——此前 web_audit 9 段全测宫格/列表：进时间线 setView/clip 渲染数=API/台词条数/多图展开折叠 expandedShotIdsTl 分流/滑块缩放 clip 宽/切回宫格）③s3 cleanup 时序修复：purge 场景删除是 queue 异步，不等场景消失就 sync 会被 _register_other_scenes 登记成「其它」镜头（name=Shot_ 前缀）→ leftover 假 FAIL（SMB 慢盘 9s 实测）——purge 后 wait_ok 场景消失再继续④restore_all 的 toggleView → setView('grid')（v0.9.55 起 toggleView 是 MRU 最近两视图切换，prev 非 grid 时切不回宫格）。推前全量干净库 89/89 全 PASS（47+12+30，~3min）
+
 **v0.9.70 列表缩放极值×2 + 镜头名减半（2026-08-10）**：需求池 477 行三件套——①zoom.js 列表分支 `maxW = Math.round(listMaxW() * 2)`（旧 350→700，基于「最大帧数镜头展开浮层顶到右缘」公式 ×2；**注意：多图展开浮层在最大档溢出右缘（4 帧实测右缘 2850 vs 视口 1485，溢出 1365px）——×2 的物理自然结果，折叠态不溢出**）②CSS 镜头名列 150→75px（.list-header 与 .shot-card.list-item 两处 grid-template-columns 同步）③fr 列自动吸收腾出的 75px（内容 +52.5 / 台词 +22.5，7:3 保持）；配套 .shot-name 加 ellipsis（减半后长名防溢出盖内容列）。验证：WebBridge 13/13（滑块 max 700 / 镜头名 75 / 内容 707.6 台词 303.3 比例 7:3 / 时长 60 更新时间 110 不变 / 最大档条目不溢视口 / 开预览 ×0.5 一致 / ellipsis scrollW 312>75 / 现场还原）
 
 **v0.9.69 列表开预览字体固定（2026-08-10）**：列表视图开预览时 --list-scale≈0.5 整表等比缩 → .cell-text/.field-input.multiline 的 `calc(12px*var(--list-scale))` 缩到 6px 不可读（需求池 476 行，实测复现 12px→6.0036px）。**改 CSS 两处 font-size 固定 12px**（只缩列宽不缩字；shot-name 13px/shot-meta 11px/表头 11px 本就不随 scale）。验证：WebBridge 6/6（关/开/调宽 400/还原全 12px + scale<1 列宽照缩 + CSSOM 确认新规则）+ 编辑态 4/4（开预览进 textarea 编辑 12px 与显示态一致）
@@ -92,7 +94,7 @@
 
 ## 正在做
 
-- **v0.9.41 ~ v0.9.70 已推 GitHub**（v0.9.70，2026-08-10：推前干净库 audit_clean.blend 全量 77/77 全 PASS（42+12+23，~3min），版本号 0.9.40→0.9.70（bl_info+index.html 徽章两处））
+- **v0.9.41 ~ v0.9.70 已推 GitHub**（v0.9.70，2026-08-10：推前干净库 audit_clean.blend 全量 77/77 全 PASS（42+12+23，~3min），版本号 0.9.40→0.9.70（bl_info+index.html 徽章两处））；**审计脚本增强已推**（2026-08-10：s13 move_dialogue 段 + timeline 段 + cleanup 时序修复，推前全量 89/89 全 PASS，版本号不升——无产品功能改动）
 - 待办，等用户逐项指派（需求池 [ ] 剩 1 项）：宫格缩略图下缘黑条（观察项，先不动）；「拖拽完台词再撤销台词会消失」已修（v0.9.68）、「列表开预览字体大小一致」已修（v0.9.69）、「列表缩放极值×2+镜头名减半」已修（v0.9.70，2026-08-10，池内未回勾）
 - ⚠ 需求池另 1 项 AGENTS 曾漏记（2026-08-10 开局对照发现）：时间线视图垂直缩放网页窗口时实时匹配（缩略图保持向下对齐，需求池 481 行 [ ] 未勾）——真待办候选，等指派
 - 盘点未补 3 项已全部补齐（v0.9.64）：时间线右键菜单展开/折叠、外部图片拖入、中键/右键滑动翻面横滚时间线
@@ -343,5 +345,5 @@ CREATE INDEX IF NOT EXISTS idx_frames_shot ON frames(shot_id);
 - 后端模块地图：`core/server.py`（ROUTES 表 + 静态服务）→ `core/actions.py`（每端点一函数）→ `core/queue.py`（COMMANDS 注册表 + 错误回传 + redraw_view3d）/ `core/db.py`（含 next_c_name/next_c_number）/ `core/undo.py`（撤销栈）/ `core/paths.py` / `core/scenes.py`（场景工厂）/ `core/sync.py`（同步唯一实现）/ `core/render.py`（拍屏公共函数）
 - 前端模块地图（21 个 JS）：`web/index.html`（骨架+CSS）+ `web/js/`：state（共享状态）/ ui（toast+确认条）/ render（宫格+列表+FLIP+DOM差分+首屏门控）/ data（拉取+心跳+错误toast+undoLast）/ selection / dnd（卡片拖拽+拖图分区）/ frames（帧级操作）/ rename（改名+字段就地编辑）/ menu（右键/中键滑动+回弹+菜单）/ create（弹框）/ marquee（框选）/ zoom（滑块+Ctrl滚轮连续缩放）/ keyboard（快捷键+方向键）/ trash（垃圾桶弹窗）/ search（搜索栏定位）/ preview（预览框）/ shortcuts（快捷键面板）/ aspect（画幅比）/ icons（图标表+注入）/ timeline（时间线视图）/ main（入口接线）
 - 改名：`cmd_rename_shot`（queue.py）四层联动实现
-- 测试：改完跑 `python3 scripts/audit.py`（42 项）+ `python3 scripts/audit_context_menu.py`（12 项）+ 网页 JS 改动 webbridge 全交互回归（web_audit 23 项）
-- 基线（2026-08-09）：audit 42 + ctx 12 + web_audit 23
+- 测试：改完跑 `python3 scripts/audit.py`（47 项）+ `python3 scripts/audit_context_menu.py`（12 项）+ 网页 JS 改动 webbridge 全交互回归（web_audit 30 项）
+- 基线（2026-08-10）：audit 47 + ctx 12 + web_audit 30 = 89 项（v0.9.70 后新增 s13 move_dialogue 段 + timeline 段；旧基线 42+12+23=77）

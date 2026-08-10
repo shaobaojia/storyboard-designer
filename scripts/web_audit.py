@@ -360,6 +360,66 @@ def seg_keyboard():
             record("空格展开选中镜头", False, f"镜头不在视口内 {rect}")
             record("空格折叠还原", False, "前置失败")
 
+def seg_timeline():
+    print("\n[10] Timeline 时间线视图")
+    shots = api_shots()
+    n = len(shots)
+    if n == 0:
+        record("时间线 clip 渲染数", False, "无镜头")
+        return
+    # 进时间线视图（setView 是唯一切换入口，v0.9.55；入场生长动画 ~1s v0.9.54）
+    drive("window.__sb.setView('timeline')")
+    time.sleep(1.5)
+    wait_anim()
+    # 1. clip 渲染数 = API 镜头数（时间线渲染器 renderTimeline，v0.9.36）
+    clips = ev(r"(() => { return document.querySelectorAll('#timeline .timeline-clip').length; })()")
+    record("时间线 clip 渲染数 = API 镜头数", clips == n, f"clips={clips}, api={n}")
+    # 2. 时间线台词条数 = 有台词镜头数（.tl-dlg-clip 是台词轨道独立元素，v0.9.41）
+    with_dlg = sum(1 for s in shots if (s.get('dialogue') or '').strip())
+    dlgs = ev(r"(() => { return document.querySelectorAll('#timeline .tl-dlg-clip').length; })()")
+    record("时间线台词条数 = 有台词镜头数", dlgs == with_dlg, f"dlgs={dlgs}, with_dlg={with_dlg}")
+    # 3. 多图展开/折叠（v0.9.45b：时间线用 expandedShotIdsTl 与宫格分开保存，
+    #    expandAnimated/collapseAnimated 按 viewMode 分流 frames.js）
+    multi = find_multi_shot()
+    if multi:
+        sid = multi['id']
+        drive(f"window.__sb.expandAnimated('{sid}')")
+        time.sleep(1.2)
+        wait_anim()
+        exp = ev(rf"(() => {{ return window.__sb.isExpanded('{sid}'); }})()")
+        cells = ev(rf"(() => {{ const c = document.querySelector('#timeline .timeline-clip[data-id=\"{sid}\"]'); return c ? c.querySelectorAll('.tl-expand-cell').length : -1; }})()")
+        record("时间线展开 -> isExpanded + 帧格数", exp is True and cells == multi['n'],
+               f"expanded={exp}, cells={cells}")
+        drive(f"window.__sb.collapseAnimated('{sid}')")
+        time.sleep(1.2)
+        wait_anim()
+        exp2 = ev(rf"(() => {{ return window.__sb.isExpanded('{sid}'); }})()")
+        record("时间线折叠 -> isExpanded false", exp2 is False, f"expanded={exp2}")
+    else:
+        record("时间线展开折叠", False, "无多图镜头可测")
+    # 4. 时间线缩放：滑块档位 ±1 → clip 宽变化 → 还原（v0.9.38：滑块 value=档位序号，
+    #    写 sb-tl-w 后 renderTimeline；合成 input 可达主世界监听器 pitfall 22）
+    sl = ev(r"(() => { const s = document.getElementById('sizeSlider'); return s ? {min: Number(s.min), max: Number(s.max), val: Number(s.value)} : null; })()")
+    w0 = ev(r"(() => { const c = document.querySelector('#timeline .timeline-clip'); return c ? c.offsetWidth : -1; })()")
+    if sl and w0 > 0:
+        target = min(sl['max'], sl['val'] + 1) if sl['val'] < sl['max'] else max(sl['min'], sl['val'] - 1)
+        ev(rf"(() => {{ const s = document.getElementById('sizeSlider'); const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set; setter.call(s, String({target})); s.dispatchEvent(new Event('input', {{bubbles: true}})); }})()")
+        time.sleep(1.2)
+        wait_anim()
+        w1 = ev(r"(() => { const c = document.querySelector('#timeline .timeline-clip'); return c ? c.offsetWidth : -1; })()")
+        record("时间线滑块缩放 clip 宽变化", w1 != w0, f"{w0} -> {w1}")
+        ev(rf"(() => {{ const s = document.getElementById('sizeSlider'); const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set; setter.call(s, String({sl['val']})); s.dispatchEvent(new Event('input', {{bubbles: true}})); }})()")
+        time.sleep(1.2)
+        wait_anim()
+        w2 = ev(r"(() => { const c = document.querySelector('#timeline .timeline-clip'); return c ? c.offsetWidth : -1; })()")
+        record("时间线滑块缩放还原", w2 == w0, f"{w1} -> {w2}")
+    else:
+        record("时间线滑块缩放", False, f"slider={sl}, clipW={w0}")
+    # 5. 切回宫格（本段收尾自还原，restore_all 兜底）
+    drive("window.__sb.setView('grid')")
+    time.sleep(1.0)
+    record("时间线->宫格还原", 'timeline-mode' not in (grid_class() or ''), grid_class())
+
 SEGS = {
     "render":   (["render", "渲染"], seg_render),
     "view":     (["view", "视图", "列表"], seg_view),
@@ -370,6 +430,7 @@ SEGS = {
     "preview":  (["preview", "预览"], seg_preview),
     "dialogue": (["dialogue", "台词"], seg_dialogue),
     "keyboard": (["keyboard", "键盘", "快捷键"], seg_keyboard),
+    "timeline": (["timeline", "时间线"], seg_timeline),
 }
 
 def preflight():
@@ -412,10 +473,11 @@ def restore_all():
         drive("if (window.__sb) { window.__sb.state.expandedShotIds.clear(); window.__sb.state.selectedIds.clear(); window.__sb.renderGrid(); }")
         drive("if (window.__sb && window.__sb.state.previewOn) window.__sb.setPreview(false)")
         drive("if (window.__zoomApply) window.__zoomApply(1)")
-        # 视图还原到宫格
+        # 视图还原到宫格（含 list/timeline；setView('grid') 显式目标，v0.9.55 起
+        # toggleView 是 MRU 最近两视图切换，prev 非 grid 时切不回宫格）
         cls = grid_class()
-        if 'list-mode' in (cls or ''):
-            drive("window.__sb.toggleView()")
+        if 'list-mode' in (cls or '') or 'timeline-mode' in (cls or ''):
+            drive("window.__sb.setView('grid')")
         time.sleep(1.0)
     except Exception as e:
         print(f'  [restore warn] {e}')
