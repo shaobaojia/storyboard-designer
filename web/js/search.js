@@ -3,6 +3,7 @@
 import { state } from './state.js';
 import { renderGrid } from './render.js';
 import { focusFrame } from './frames.js';
+import { tlReveal } from './timeline.js';  // v0.9.53：时间线定位走舞台 reveal（70% 区内最小滚动）
 
 const input = document.getElementById('searchInput');
 const results = document.getElementById('searchResults');
@@ -81,8 +82,17 @@ function locate(shotId) {
     // 清除帧级焦点：focusFrame(shotId, null) 同时清 state.focusedFrameId 和 DOM 上的
     // .frame-focused 蓝框（差分复用的帧格不会重算这个 class，只清状态会残留蓝框——实测 bug）
     focusFrame(shotId, null);
+    // v0.9.53：时间线定位走舞台 reveal（70% 区内最小滚动）——renderGrid 会重建时间线 DOM，
+    // 必须在渲染前记住目标 id、渲染后重新查询（旧 el 已脱离 DOM，直接 scrollIntoView 无效）
+    const tlTarget = (window.__sb && window.__sb.state.viewMode === 'timeline' && el.closest('#timeline'))
+        ? ((el.closest('.timeline-clip') || el).dataset.id || null) : null;
     renderGrid();
-    el.scrollIntoView({ block: 'center', behavior: 'instant' });
+    if (tlTarget) {
+        const clip = document.querySelector(`.timeline-clip[data-id="${tlTarget}"]`);
+        if (clip) tlReveal(clip);
+    } else {
+        el.scrollIntoView({ block: 'center', behavior: 'instant' });
+    }
 }
 
 export function initSearch() {

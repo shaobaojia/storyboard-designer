@@ -85,7 +85,7 @@ export function showContextMenu(x, y, shotId, frameId = null) {
             .filter(s => s && (s.frames || []).length > 1);
         menu.innerHTML = `
             <div class="menu-title">已选 ${state.selectedIds.size} 个镜头</div>
-            ${state.viewMode !== 'timeline' && multiSel.length > 0 ? `<button data-action="batch-expand">全部展开</button><button data-action="batch-collapse">全部折叠</button>` : ''}
+            ${multiSel.length > 0 ? `<button data-action="batch-expand">全部展开</button><button data-action="batch-collapse">全部折叠</button>` : ''}
             <button data-action="batch-duplicate">批量复制<span class="menu-kbd">Ctrl+D</span></button>
             <button data-action="batch-rerender">批量重渲染</button>
             <button data-action="batch-rename">批量重命名</button>
@@ -98,13 +98,14 @@ export function showContextMenu(x, y, shotId, frameId = null) {
         // v0.9.23/24：列表视图条目菜单去掉全部台词项（台词条只在宫格渲染，列表无台词编辑入口）
         const hasDlg = shot && shot.dialogue && shot.dialogue.trim();
         const isList = state.viewMode === 'list';
-        // v0.9.36：时间线视图菜单——无展开语义（clip 不支持展开/折叠），台词编辑保留（时间线有台词轨道）
-        const isTimeline = state.viewMode === 'timeline';
+        // v0.9.41：时间线卡片菜单补台词三项——时间线有台词轨道（v0.9.40），入口与宫格对等
+        // v0.9.64：时间线卡片菜单补展开/折叠——v0.9.45b 起时间线多图已支持展开（双击/空格/角标），
+        // 菜单缺项是 v0.9.36「clip 不支持展开/折叠」过期注释的遗留；isExpanded/expandAnimated 已按视图分流
         menu.innerHTML = `
-            ${isMulti && !isTimeline ? `<button data-action="toggle-expand">${expandLabel}<span class="menu-kbd">Space</span></button>` : ''}
+            ${isMulti ? `<button data-action="toggle-expand">${expandLabel}<span class="menu-kbd">Space</span></button>` : ''}
             <button data-action="open">打开镜头<span class="menu-kbd">Enter</span></button>
             <button data-action="rerender">重拍封面</button>
-            ${isList || isTimeline ? '' : `
+            ${isList ? '' : `
             <button data-action="dlg-edit">${hasDlg ? '编辑台词' : '添加台词'}</button>
             <button data-action="dlg-auto">${isDialogueAuto(shotId) ? '✓ ' : ''}自动台词大小</button>`}
             <button data-action="rename">重命名</button>
@@ -354,6 +355,8 @@ export function initContextMenu() {
     let springRaf = null;
     let ov = 0;      // 竖向过冲位移 px（>0 内容被拉向下，<0 向上）
     let ovVel = 0;   // 过冲速度 px/帧
+    let tlOv = 0;    // v0.9.64：时间线横向过冲 px（>0 内容被拉向右，<0 向左）——宫格橡皮筋同构
+    let tlOvVel = 0;
     const OV_MAX = 160;
     const RESIST = 0.45;  // 撞墙方向阻力系数
 
@@ -361,36 +364,68 @@ export function initContextMenu() {
         const el = document.getElementById('grid');
         el.style.transform = ov ? `translateY(${ov}px)` : '';
     }
+    // v0.9.64：时间线横向过冲 = 滚动容器 #timeline 自身 translateX（**不能加在内容 .tl-inner 上**——
+    // 内容 transform 会污染 scrollWidth/scrollLeft 边界（实测 -160px 时 maxSl 3713→3553，
+    // Chrome 自动 clamp scrollLeft，回弹后右侧露出内容）；容器 transform 不影响自身滚动区域）
+    function applyTlOv() {
+        const tl = document.getElementById('timeline');
+        if (!tl) { tlOv = 0; tlOvVel = 0; return; }
+        tl.style.transform = tlOv ? `translateX(${tlOv}px)` : '';
+    }
     // 取消滑行/弹簧动画；keepOv=true 时保留当前过冲位置（重新按住 = 从当前位置接手）
     function cancelMotion(keepOv) {
         if (glideRaf) { cancelAnimationFrame(glideRaf); glideRaf = null; }
         if (springRaf) { cancelAnimationFrame(springRaf); springRaf = null; }
-        if (!keepOv) { ov = 0; ovVel = 0; applyOv(); }
+        if (!keepOv) {
+            ov = 0; ovVel = 0; applyOv();
+            tlOv = 0; tlOvVel = 0; applyTlOv();
+        }
     }
     // 欠阻尼弹簧回正：自然缓出，无生硬截断，可被 mousedown 随时打断
-    function startSpring(initVel) {
-        if (typeof initVel === 'number') ovVel = initVel;
+    // v0.9.64：axis 参数——'x' = 时间线横向过冲（tlOv），默认 'y' = 宫格纵向（ov）
+    function startSpring(initVel, axis = 'y') {
+        const isX = axis === 'x';
+        if (typeof initVel === 'number') { if (isX) tlOvVel = initVel; else ovVel = initVel; }
         if (springRaf) cancelAnimationFrame(springRaf);
         let lastT = performance.now();
         const step = (t) => {
             const dt = Math.min((t - lastT) / 16.67, 3);
             lastT = t;
-            ovVel += -ov * 0.14 * dt;      // 弹簧拉力
-            ovVel *= Math.pow(0.70, dt);   // 阻尼（加狠了：只许回弹一下 #R6-4）
-            const prevOv = ov;
-            ov += ovVel * dt;
-            if (prevOv !== 0 && Math.sign(ov) !== Math.sign(prevOv)) {
-                // 第一次过墙即落定——不 oscillate，回弹一下就够 (#R6-4)
-                ov = 0; ovVel = 0; applyOv();
-                springRaf = null;
-                return;
+            if (isX) {
+                tlOvVel += -tlOv * 0.14 * dt;      // 弹簧拉力
+                tlOvVel *= Math.pow(0.70, dt);     // 阻尼（加狠了：只许回弹一下 #R6-4）
+                const prevOv = tlOv;
+                tlOv += tlOvVel * dt;
+                if (prevOv !== 0 && Math.sign(tlOv) !== Math.sign(prevOv)) {
+                    // 第一次过墙即落定——不 oscillate，回弹一下就够 (#R6-4)
+                    tlOv = 0; tlOvVel = 0; applyTlOv();
+                    springRaf = null;
+                    return;
+                }
+                if (Math.abs(tlOv) < 0.4 && Math.abs(tlOvVel) < 0.4) {
+                    tlOv = 0; tlOvVel = 0; applyTlOv();
+                    springRaf = null;
+                    return;
+                }
+                applyTlOv();
+            } else {
+                ovVel += -ov * 0.14 * dt;      // 弹簧拉力
+                ovVel *= Math.pow(0.70, dt);   // 阻尼（加狠了：只许回弹一下 #R6-4）
+                const prevOv = ov;
+                ov += ovVel * dt;
+                if (prevOv !== 0 && Math.sign(ov) !== Math.sign(prevOv)) {
+                    // 第一次过墙即落定——不 oscillate，回弹一下就够 (#R6-4)
+                    ov = 0; ovVel = 0; applyOv();
+                    springRaf = null;
+                    return;
+                }
+                if (Math.abs(ov) < 0.4 && Math.abs(ovVel) < 0.4) {
+                    ov = 0; ovVel = 0; applyOv();
+                    springRaf = null;
+                    return;
+                }
+                applyOv();
             }
-            if (Math.abs(ov) < 0.4 && Math.abs(ovVel) < 0.4) {
-                ov = 0; ovVel = 0; applyOv();
-                springRaf = null;
-                return;
-            }
-            applyOv();
             springRaf = requestAnimationFrame(step);
         };
         springRaf = requestAnimationFrame(step);
@@ -425,6 +460,9 @@ export function initContextMenu() {
         if (rDown.panning) {
             const dx = rDown.lastX - e.clientX;
             let dy = rDown.lastY - e.clientY;
+            // v0.9.64：时间线视图滑动翻面 = 只横向（驱动 #timeline.scrollLeft），纵向不滚页面
+            const tlPan = state.viewMode === 'timeline';
+            if (tlPan) dy = 0;
             if (ov !== 0) {
                 // 过冲态：回拉方向 1:1 先消过冲，同向继续推墙才吃阻力
                 const delta = -dy;  // 手指方向 → 内容位移方向
@@ -445,13 +483,58 @@ export function initContextMenu() {
                 applyOv();
             }
             if (dx || dy) {
-                const sy = window.scrollY;
-                window.scrollBy(dx, dy);
-                if (window.scrollY === sy && dy) {
-                    // 撞墙：滚动量按阻力转成过冲，内容跟手冲出去
-                    ov = Math.max(-OV_MAX, Math.min(OV_MAX, ov - dy * RESIST));
-                    ovVel = 0;
-                    applyOv();
+                if (tlPan) {
+                    // v0.9.64：时间线横向橡皮筋——dx 驱动 scrollLeft，撞边界转 tlOv 过冲（0.45 阻力），
+                    // 回拉 1:1 先消过冲再滚动；松手/惯性撞墙交棒 startSpring('x')（宫格同款手感）
+                    const tl = document.getElementById('timeline');
+                    if (tl) {
+                        let delta = -dx;  // 内容位移方向（dx>0 鼠标左移 → 内容左移 → delta 负）
+                        if (tlOv !== 0) {
+                            if (Math.sign(delta) === Math.sign(tlOv)) {
+                                tlOv = Math.max(-OV_MAX, Math.min(OV_MAX, tlOv + delta * RESIST));
+                                delta = 0;  // 同向推墙吃阻力，本次位移全部转成过冲（宫格 dy=0 同款）
+                            } else {
+                                const newOv = tlOv + delta;
+                                if (newOv === 0 || Math.sign(newOv) !== Math.sign(tlOv)) {
+                                    tlOv = 0;
+                                    delta = newOv;  // 消完过冲的剩余内容位移继续滚动
+                                } else {
+                                    tlOv = newOv;
+                                    delta = 0;
+                                }
+                            }
+                            tlOvVel = 0;
+                            applyTlOv();
+                        }
+                        if (delta !== 0) {
+                            const maxSl = tl.scrollWidth - tl.clientWidth;
+                            const next = tl.scrollLeft - delta;  // 内容位移 delta → scrollLeft 反向
+                            if (next < 0) {
+                                // 撞左墙：内容右移过冲（正）
+                                tl.scrollLeft = 0;
+                                tlOv = Math.max(-OV_MAX, Math.min(OV_MAX, tlOv - next * RESIST));
+                                tlOvVel = 0;
+                                applyTlOv();
+                            } else if (next > maxSl) {
+                                // 撞右墙：内容左移过冲（负）
+                                tl.scrollLeft = maxSl;
+                                tlOv = Math.max(-OV_MAX, Math.min(OV_MAX, tlOv - (next - maxSl) * RESIST));
+                                tlOvVel = 0;
+                                applyTlOv();
+                            } else {
+                                tl.scrollLeft = next;
+                            }
+                        }
+                    }
+                } else {
+                    const sy = window.scrollY;
+                    window.scrollBy(dx, dy);
+                    if (window.scrollY === sy && dy) {
+                        // 撞墙：滚动量按阻力转成过冲，内容跟手冲出去
+                        ov = Math.max(-OV_MAX, Math.min(OV_MAX, ov - dy * RESIST));
+                        ovVel = 0;
+                        applyOv();
+                    }
                 }
             }
             rDown.samples.push({t: performance.now(), x: e.clientX, y: e.clientY});
@@ -468,6 +551,11 @@ export function initContextMenu() {
         state.panning = false;
 
         if (st.panning) {
+            if (state.viewMode === 'timeline' && tlOv !== 0) {
+                // v0.9.64：时间线横向过冲——弹簧从当前位置拉回，随时可被打断接手（宫格同款）
+                startSpring(0, 'x');
+                return;
+            }
             if (ov !== 0) {
                 // 松手时还在过冲态：弹簧从当前位置拉回，随时可被打断接手
                 startSpring(0);
@@ -480,8 +568,28 @@ export function initContextMenu() {
             if (dt > 0 && st.samples.length > 1) {
                 let vx = -(last.x - first.x) / dt * 16;
                 let vy = -(last.y - first.y) / dt * 16;
+                // v0.9.64：时间线惯性同滑动方向——只横向（#timeline.scrollLeft），纵向速度归零
+                const tlPan = state.viewMode === 'timeline';
+                if (tlPan) vy = 0;
                 const glide = () => {
                     if (Math.abs(vy) < 0.5 && Math.abs(vx) < 0.5) { glideRaf = null; return; }
+                    if (tlPan) {
+                        // v0.9.64：时间线惯性撞墙——剩余速度转横向过冲初速，交棒弹簧（宫格同款）
+                        const tl = document.getElementById('timeline');
+                        if (tl) {
+                            const maxSl = tl.scrollWidth - tl.clientWidth;
+                            const next = tl.scrollLeft + vx;
+                            if (next < 0 || next > maxSl) {
+                                startSpring(-vx * 0.55, 'x');
+                                glideRaf = null;
+                                return;
+                            }
+                            tl.scrollLeft = next;
+                        }
+                        vx *= 0.94;
+                        glideRaf = requestAnimationFrame(glide);
+                        return;
+                    }
                     const sx = window.scrollX, sy = window.scrollY;
                     window.scrollBy(vx, vy);
                     if (window.scrollY === sy && Math.abs(vy) > 2) {

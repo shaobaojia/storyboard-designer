@@ -1,42 +1,62 @@
 # AGENTS.md
 
 > 给下一个 Agent（或下一个自己）的交接备忘录。**收工推送前必须更新「刚做完 / 正在做 / 下一步 / 坑」四个字段。**
-> 2026-08-09 压缩维护：v0.9.40/39/38 详细保留，更早版本压成一行进历史轮次；坑区保留近三版详细 + 操作型坑，历史方法论坑合并。
+> 2026-08-10 八次压缩维护：v0.9.64 五项（时间线拖图/菜单展开折叠/其它视图切换修复/中键右键横滑/横滑弹簧）并入刚做完；v0.9.61-63 压行合并；盘点未补 3 项全清；坑区追加 64 轮坑（transform 污染滚动边界等）。
 
-## 刚做完（v0.9.40：时间线台词操作 + 分割自适应 + 图标，2026-08-09 已推，干净文件全量 77/77 全 PASS）
+## 刚做完（v0.9.70 一项 + v0.9.69 一项 + v0.9.68 一项 + v0.9.67 一项 + v0.9.66 一项 + v0.9.65 一项 + v0.9.64 五项，2026-08-10，已推 v0.9.70）
 
-- **时间线切换按钮图标更换**（库任务清单项）：shijianxian 图标 path 换用户指定 SVG（双画面块 + 向右大箭头），按 .ic 规范 fill=currentColor；验证 = 注入 path 断言 + PIL 三按钮笔画占比同量级 + ASCII 形状确认
-- **时间线预览/缩略图区比例按缩略图大小完全自适应**（用户拍板方案 A）：缩略图区高度恒 = 内容需要（38+clipH+12），预览区吃剩余；分隔条拖动机制整体移除（splitMinMax/currentSplitPct/setSplitPct/initTlDivider/TL_SPLIT_KEY 全删，sb-tl-split 作废）；stageHeightFor = max(总高-padding12-gap-needH, 180)，overhead 从 gap×2+10 减为单 gap
-- **时间线台词双击就地编辑**（单行 input，用户拍板无换行功能）：Enter 保存/Esc 取消/blur 保存，提交复用 render.js commitDialogue（已导出）；与宫格 textarea 多行版区分
-- **时间线台词框右键菜单：编辑台词 / 自动大小**（✓ 勾选态）：menu.js 右键检测扩展到 .tl-dlg-clip；宽度复用 sb-dialogue-w-map（自动=跟随 clipW 缩放 / 取消勾选=固定当前宽入 map，applyTlDlgWidths 就地更新）；**修复真 bug**：菜单「编辑台词」原调宫格版 startDlgEdit 会把宫格父条插进时间线 lane——按 viewMode 分流到 startTlDlgEdit
-- 验证：WebBridge 21/21（编辑/取消/菜单/自动大小双向/缩放联动/无父条注入）+ 推前全量干净文件 audit_clean.blend 42+12+23 = 77/77
-- 版本号 0.9.39 → 0.9.40（bl_info + index.html 关于徽章两处）
+**v0.9.70 列表缩放极值×2 + 镜头名减半（2026-08-10）**：需求池 477 行三件套——①zoom.js 列表分支 `maxW = Math.round(listMaxW() * 2)`（旧 350→700，基于「最大帧数镜头展开浮层顶到右缘」公式 ×2；**注意：多图展开浮层在最大档溢出右缘（4 帧实测右缘 2850 vs 视口 1485，溢出 1365px）——×2 的物理自然结果，折叠态不溢出**）②CSS 镜头名列 150→75px（.list-header 与 .shot-card.list-item 两处 grid-template-columns 同步）③fr 列自动吸收腾出的 75px（内容 +52.5 / 台词 +22.5，7:3 保持）；配套 .shot-name 加 ellipsis（减半后长名防溢出盖内容列）。验证：WebBridge 13/13（滑块 max 700 / 镜头名 75 / 内容 707.6 台词 303.3 比例 7:3 / 时长 60 更新时间 110 不变 / 最大档条目不溢视口 / 开预览 ×0.5 一致 / ellipsis scrollW 312>75 / 现场还原）
 
-## 刚做完（v0.9.39：时间线三连 + 宫格排不满，2026-08-09 已推，跳过全量回归用户拍板）
+**v0.9.69 列表开预览字体固定（2026-08-10）**：列表视图开预览时 --list-scale≈0.5 整表等比缩 → .cell-text/.field-input.multiline 的 `calc(12px*var(--list-scale))` 缩到 6px 不可读（需求池 476 行，实测复现 12px→6.0036px）。**改 CSS 两处 font-size 固定 12px**（只缩列宽不缩字；shot-name 13px/shot-meta 11px/表头 11px 本就不随 scale）。验证：WebBridge 6/6（关/开/调宽 400/还原全 12px + scale<1 列宽照缩 + CSSOM 确认新规则）+ 编辑态 4/4（开预览进 textarea 编辑 12px 与显示态一致）
 
-- **v0.9.38f clip 超高借 stage 空间**（用户需求"撑开上沿不是下沿"）：clip 超高时 timeline 上沿向上撑（分隔条上移）、预览区收缩让空间、页面不滚动；常规 = 分割比例（默认 7:3）不变，clip 缩回自动恢复比例；stage 保底 180px（用户拍板 A 方案），借到保底仍超高才页面滚动兜底。核心 = `stageHeightFor(pct)`（clamp 比例 → 借空间 needH=38+clipH+12 → 保底 180）+ `tlNeedHeight()` 同源；applyTlSplit/setSplitPct/renderTimeline minHeight 统一走它。验证 14/14（高视口/真实视口/矮视口边界/拖动被 needH 钉住/缩回跳回比例）+ PIL divider 像素吻合
-- **v0.9.38g 时间线按钮进工具条**（库任务清单项）：header 临时文字按钮 btnTimeline 删除 → 工具条图标按钮 viewTimelineBtn（位置 = 宫格|列表|**时间线**|预览）；时间线视图下预览按钮**锁定高亮不可关闭**（点击/V 键均门控，侧边面板 CSS 隐藏，切回按 previewOn 恢复）；syncViewToggleButton 加 timeline 高亮 + previewBtn 锁定；icons.js 新增 shijianxian 图标（双轨道+三镜头块，线宽 2px——首版 1.3px 太细 PIL 抓出加粗）。验证 23/23 + PIL 三按钮笔画占比
-- **v0.9.38h 宫格排不满修复**（用户报告）：sb-cols=3 实际只渲染 2 列 + 右侧 318px 空白。根因两层：①availWidth() 用 clientWidth（整数 941）而 auto-fill 用真实小数宽 940.739（滚动条 10.27px）→ 列宽偏大 0.26px；②--card-min toFixed(2) 四舍五入再超界（305.667→305.67，×3+24=941.01>940.739 差 0.01px 放不下）。修 = availWidth 改 getBoundingClientRect().width + --card-min 减 0.05px 余量（安全区间 (avail+gap)/n(n+1) ≥6px 恒有效）。验证 16/16（983 用户视口 gap 318→0、1280 3/4 列、600 clamp、开预览）+ PIL 右缘 <1px。排查手法：独立复制容器对照 + 列宽二分定位（实验2：305.5 三列 305.6 两列）
-- 版本号 0.9.38 → 0.9.39（bl_info + index.html 关于徽章硬编码两处，跳过全量回归用户拍板直接推）
+**v0.9.68 台词拖拽撤销消失修复（2026-08-10）**：moveOrSwapDialogue 原两次独立 update 各 push 一条 undo，一次撤销只回放一条（移动场景 dst 恢复空 + src 也空 = 台词凭空消失，需求池 474 行 bug 实测复现；互换场景两边错乱）。**新增原子 action `move_dialogue`**（POST /api/shot/{src} body dst_id：一次写两镜头 + 单条 undo entry 含 db 两条记录，undo_action 的 db 循环一次回放全恢复；写失败回滚第一个写；dst_id 空/等于 src/不存在均拒绝）；前端单请求 + 失败回滚简化（原 done 数组补偿逻辑删除）。验证：API 20/20（移动/互换「操作→一次撤销→全恢复」+ 4 边界拒绝不污染）+ WebBridge 14/14（时间线合成拖拽台词条 → CDP Ctrl+Z（modifiers:2）→ DB/DOM/state 三层全恢复）
 
-## 刚做完（v0.9.38：时间线五项 + 缩放锚定，2026-08-09 已推，跳过全量回归用户拍板）
+**① 标题栏搜索框页面居中（2026-08-10）**：.header flex space-between 改 grid 三列 `minmax(0,1fr) minmax(160px,300px) minmax(0,1fr)`——搜索框严格页面居中（原位置偏右 100px 实测）。**三个方案坑**：①flex auto margin（0 auto）只平分「标题右缘↔按钮左缘」空隙不居中（左右 item 宽不等时中心偏 100px，实测 margin 424.6/424.6）②absolute left:50% 居中正确但窄窗固定 300px 与标题重叠（818px 窗口重叠 14px）③grid minmax 中间列是 non-flex 轨道优先最大化到 300 不收缩 + justify-self:start 阻止 stretch（h1 宽=内容宽溢出列）——最终 = minmax(0,1fr) 允许收缩 + h1 默认 stretch + min-width:0/overflow/ellipsis 窄窗省略。验证 4/4：offset ±0.2px / 搜索下拉对齐 / resize 保持 / 窄窗精确相接。另：patch 大段 old_string 曾误删 .search-wrap input/.search-results/.search-item 系列 10 条规则，grep 计数核对后恢复（patch 后必须核对规则数）。
 
-- **时间线台词块移到镜头块上方**（库任务清单项）：台词轨道 top 0（高 34），镜头轨道下移 38px；CSS 两行位置对调，JS 零改动
-- **时间线缩略图三连**：①显示全（contain + object-position left）②左对齐（宽 100% 跟随 clip）③最小极值缩小 2 倍（clip 宽下限 104→52，档位 52~316 步进 24 共 12 档）；档位常量 export 供 zoom.js 同源
-- **时间线缩略图等比缩放**（推翻 v0.9.37"只缩放横轴"）：clip 高动态 = (clipW-2)×0.75+22；坑 292 几何约束结论作废
-- **预览区/缩略图区可拖动分割**：#tlDivider 默认 7:3 + localStorage 持久化（sb-tl-split），clamp（stage≥180、timeline≥150，计入 grid gap 12×2 + divider 开销）
-- **缩略图下沿对齐 + 区域自适应 + 缩放中心=焦点下沿**：clip bottom:0 贴底放大向上长；timeline min-height = 38+clipH+12；缩放锚定焦点 clip 水平位置；stage 高度改 JS 像素（基准读 computed min-height）
-- 版本号 0.9.37 → 0.9.38
+**v0.9.66（压行，未推，详情曾在本文件）**：时间线垂直 resize 实时匹配（tlResizeLayout 布局重算——先 applyTlSplit 定稿 stage 再读 inner 设 lane，flex 先重排拿中间态坑；resize 监听 timeline 分支改调它绕过 w!==w0 门控）
 
-## 刚做完（v0.9.37：时间线去时间轴改版 + 快捷键全盘落地 + 宫格缩放两修复，已推）
+**v0.9.65（压行，未推，详情曾在本文件）**：时间线缩放中心改画面中心（tlAnchor 返回视口中心所在 clip+frac，finalScroll = 新布局同比例位置 - clientWidth/2；无选中也可锚定；判画面中心移动看 frac 差不是 clip id）
 
-- **时间线去时间轴改版**（用户三轮拍板）：时间标尺删除；clip 等宽不再∝时长（初始 200px 顺序均布 gap 12）；缩略图统一 4:3（104×78 居中 cover）；缩放只缩放横轴（档位 104~320 步进 24 共 10 档全入口生效）——v0.9.38 已推翻改等比；台词块同宽同位对齐；顶部预览"第 N 镜"
-- **时间线快捷键全盘落地**：方向键线性序列（←→ 移动/Shift 扩展/↑↓ 无操作）、空格保持禁用（防 expandedShotIds 污染）、Tab 两态/V 内部 return/Ctrl++- 分流/Esc 维持；SHORTCUTS 同步
-- **宫格缩放两修复**：①v0.9.32 range 滑块门控过宽——放行 Ctrl/Meta 组合键（方向键仍门控）②renderGrid 切回宫格摘 timeline-mode class（坑 183）
-- **时间线横轴缩放 apply 幂等修复**：以 sb-tl-w 持久化为唯一事实源（档位化写回），滑块仅显示同步（防刷新直落 200→176 污染）
-- 验证 19/19 + 12/12 + 22/22；版本号 0.9.36 → 0.9.37
+**v0.9.64 五项（压行，未推，详情曾在本文件）**：时间线外部拖图（分区按预览/缩略图实时比例 + 合成 File 真实副作用必还原）/ 时间线右键菜单展开折叠（执行零改动，菜单点完即关）/ 其它视图宫格列表切换修复（renderOtherGrid 管 list-mode + 空态清残留）/ 时间线中键右键横滑（dy 归零 dx 驱动 scrollLeft + 惯性）/ 横滑弹簧（过冲 transform 加滚动容器自身防污染 scrollWidth；同向推墙 delta=0）
+
+**坑（v0.9.64 新增）**：
+- **transform 污染滚动边界**（⑤，重点）：滚动容器内容的 transform 让 scrollWidth 减小（实测 -160px → maxSl 3713→3553），Chrome 在滚动区尺寸变化时自动 clamp scrollLeft → 位移类 transform 回弹后内容露出。**过冲/位移 transform 加在滚动容器自身**（容器 transform 不影响自身 scrollWidth，探针验证），别加内容元素
+- **同向推墙必须 delta=0**（⑤）：撞墙分支吃阻力后本次位移全转成过冲（宫格 dy=0 同款），漏置 0 会每步重复滚动+过冲叠加（scrollLeft 漂移 40px 实测）
+- **合成 File 真实可读**（①，推翻 pitfall 294「FileReader 永不回调」）：WebBridge evaluate 构造 File + FileReader 回调成功 → drop 测试真实执行后端请求（set_background/创建镜头）——拖图类测试必须记录测试前状态并还原副作用
+- **菜单点完即关**（②）：menuAction 先 hideContextMenu 清 contextShotId——连续菜单操作（全部展开后再全部折叠）必须重新右键弹菜单；展开后 .multi class 被摘除，定位用 data-id
+- **测试拖动方向易反**（④⑤）：合成 mousedown/mousemove 的 dx_step 符号 = 鼠标移动方向；滚动方向与内容位移方向相反（delta=-dx）；撞顶墙 = 鼠标下移（scrollBy 负向）；scrollLeft 断言带 ±2 容差（subpixel 吸附，pitfall 41）
+
+**v0.9.61-63（压行，未推，详情曾在本文件）**：其它/垃圾桶四按钮（时间线/预览/创建/台词）统一灰掉+去蓝底（syncViewToggleButton 收编必经入口）/ 时间线框选批量选中+悬停扫视（clip 补 multi/expanded class + 扫视三形态查找链）/ 时间线双击镜头号改名+时长编辑（.tl-clip-name/.tl-clip-meta cell-edit）/ 宫格卡片事件全集盘点（缺 5 已补 2 剩 3 → v0.9.64 全清）
 
 **历史轮次**（详情曾在本文件，已压缩；关键决策见「交互/设计约定」与「坑」）：
+
+- v0.9.58~60（压行）：台词条只有选中才高亮（v0.9.57 回勾）/ 卡片时长+镜头号字号对齐宫格 / 关台词动画（含 v0.9.53 wrap 重建回归修复）/ 列表+垃圾桶其它创建按钮灰掉（.bar-btn.disabled 体系起始）/ 字幕浮层以画幅定位 / 镜头号上下间隔对称 / 列表台词按钮去蓝底+垃圾桶其它时间线按钮灰掉（61 收编统一）
+
+- v0.9.56：工具条图标归一化（SVG 内容 bbox 统一 800 单位，getCTM 验证）+ 时间线缩放滑块 apply 去重吞交互回归修复 + 中间工具条 1.5 倍放大 + 预览区下缘跳帧工具条（moveTlFocus ±1/±5）+ 工具条按钮组居中 + 快捷键面板 Tab 标签页（scope 全局/时间线）
+- v0.9.55：TAB 切最近两视图（prevViewMode MRU，兜底 grid↔list）+ 时间线预览区淡入上升 500ms（50ms 肉眼不可感知拍板）+ 切时间线自动关侧边预览（preview-on 残留挤扁时间线，setPreview 只拦开不拦关）+ 预览区画幅比对齐（同款 cover/contain + aspect.js 选择器合并）+ 预览区间距 16px（按缩放滑条基准两轮拍板）；坑：部署后用户 Edge 跑旧 CSS 先 Ctrl+F5、Element 无 .bottom 属性（getBoundingClientRect）、__aspectApply 是调试句柄
+- v0.9.53 需求池 1-2/12：时间线 ↑↓/滚轮横向滚动（一次 3 镜）+ 舞台语义（无边框/两侧 15% 淡出遮罩/滚动极限 15%/85%/内容不足 70% 居中/←→与搜索 tlReveal/台词条拖宽钳 85%）
+- v0.9.52：时间线台词条「镜头位」语义 {m,p}（盖 N 镜 + 第 N+1 镜 p%，任何档位比例恒定；旧 {w,base} 渲染换算兜底）
+- v0.9.51：时间线帧图区域 16:9（文字条贴画面零露边，非 16:9 图仍 contain 露边拍板保留）
+- v0.9.50：时间线展开态文本条透底衬修复（同特异性覆盖插序坑：改本规则别加覆盖）
+- v0.9.49：时间线展开态消除两层底（frame-img 露边背景改 --bg-frame-cell 融入总底/选中 --bg-frame-selected，纯 CSS，修复前后同区域对比验证）
+- v0.9.48：时间线展开态焦点对齐宫格（:has(.tl-expand-row).selected 隐藏 clip 外框、row 底衬 --bg-frame-cell、选中变色、名字条透底）
+- v0.9.47：时间线展开态键盘帧级焦点（宫格同款格子序列 + focusedFrameId 蓝框 + stage 跟随 + Shift 掩码 modifiers:8）
+- v0.9.46e：时间线折叠闪大图修复（浮层 cell 挂 body 组合选择器失效 → 关键元素 inline 样式 width/aspect-ratio/object-fit）
+- v0.9.46d：时间线折叠 FLIP 时序改宫格同款（帧格 fixed 脱离文档流 → 立即 toggle+renderGrid → 浮层飞回+淡出，其它 clip FLIP 随子帧图同时收回，不等 380ms；target 用 rects[0]）
+- v0.9.46c：滑动缩放滑条后 T 键无反应修复（range 滑块门控白名单误伤无修饰键快捷键，改黑名单只拦原生调值键；注释与代码脱节核对）
+- v0.9.46b：台词条与镜头块绑定（用户拍板 A+B）——台词条水平 FLIP（重排跟 clip 一起滑，含缩放滚动补偿，跳过 leave/in 块）+ 时间线 clip 拖拽启用（v0.9.36 遗留转正：竖线指示线+半区判定天然适配）+ 拖拽中台词条水平跟手（y 不跟）；DOM 父子化评估否决（破坏 z 层级/轨道语义拍板）
+- v0.9.46：时间线缩放 FLIP 以焦点镜头为中心向两侧扩散——锚定并入 renderTimeline(anchor)（finalScroll = 新布局焦点中心 - 锚定 rel，clamp [0,maxScroll]），FLIP 起点 dx = old-new+(finalScroll-prevScroll)；tlAnchor 改布局坐标（offsetLeft+offsetWidth/2-scrollLeft 防 transform 污染）；tlRestoreAnchor 删除
+- v0.9.45b：时间线多图展开/折叠（宫格同款交互：双击/空格/右键/折叠按钮/角标；展开=帧格连片 n×(clipW+9)+2，xPos 累计）+ 状态分开保存（expandedShotIdsTl，互不同步）+ 弹簧动画（展开 0.5s SPRING 错峰 40ms / 收起 0.35s ease-in 错峰 30ms）+ 宫格语义对齐 7/7（焦点跟手/stage 跟随焦点帧/Ctrl 多选/FLIP 避让）
+- v0.9.45：时间线台词条「前面盖后面」（DOM append 反转，z-index 不动）+ 字幕浮层多行（盖住判定=台词条右缘>后 clip 左缘，多盖住者按序全显，跟随 T 开关）
+- v0.9.44b：拖放目标焦点框 :hover 特异性修复（选择器加 .shot-card 提 (0,3,0)）+ ESC 取消卡片/台词拖拽（drag 置 null + 源复位四步）+ 台词条层级下沉（z 1 < clip 2，拖拽态 60 保持）
+- v0.9.44：拖拽目标高焦点框（实色 2px accent 环 + 18px 光晕）+ 坑 346 修正（截图垂直偏移随窗口漂移，PIL 必须锚点自校准）
+- v0.9.43：时间线台词拖拽移动/互换（宽度 map 跟随）+ 台词开关 FLIP 动画（长出来/收回去，leaving 保护防翻倍）+ 修 moveOrSwap 成功路径不落盘宽度 map 遗留 bug
+- v0.9.42：时间线台词自动大小比例跟随（map 值升级 {w, base} 比例语义，旧数字兼容固定像素）
+- v0.9.41：时间线卡片菜单补台词三项（添加/编辑/自动大小）+ 台词块拖宽手柄（钳制 #timeline 可视右缘）+ startTlDlgEdit 添加模式（临时块 lastOrder 定位）+ setDialogueAuto 修跳变（固定当前显示宽）——WebBridge T1-T11 全 PASS
+- v0.9.40：时间线切换按钮图标更换（用户指定 SVG）+ 预览/缩略图区比例完全自适应（分隔条移除）+ 台词双击就地编辑（单行 input）+ 台词框右键菜单（编辑/自动大小，viewMode 分流修 startDlgEdit 插父条 bug）——推前全量 77/77，版本 0.9.39→0.9.40
+- v0.9.39：时间线借空间（clip 超高撑上沿不滚页、stage 保底 180，推翻"撑开=页面滚动"）/ 时间线按钮进工具条（预览锁定高亮不可关）/ 宫格排不满修复（clientWidth 整数舍入 + toFixed 四舍五入差 0.01px 掉一列，改 rect 小数宽 + 0.05px 余量）——用户拍板跳过全量回归直接推
+- v0.9.38：时间线五项（台词块上移/缩略图 contain 左对齐+最小极值×2/等比缩放推翻 292/分割条 7:3 可拖/下沿对齐+缩放锚定）+ 档位化/借空间机制雏形（后两版推翻分割条）
+- v0.9.37：时间线去时间轴改版（标尺删、clip 等宽不∝时长、4:3 缩略图）+ 快捷键全盘落地（方向键线性/空格禁/门控盘点）+ 宫格缩放两修复（Ctrl/Meta 放行/切回宫格摘 timeline-mode class）
 - v0.9.35：Blender 面板 UX 四连（帧按钮当前帧高亮/按钮布局/复制后自动切场景/关于文案升级）+ web 八项（垃圾桶其它页互斥竞态【exitOtherMode 未 await 双 fetch 并发会 purge 正常镜头】/其它页 Delete 快捷键/垃圾桶红点角标浮层化/主菜单重构【皮肤二级菜单】/T 快捷键开关台词/空态整页居中/按钮点击焦点残留 blur）/ 版本 0.9.34→0.9.35
 - v0.9.34：台词条拖宽手柄视觉系列（SVG 图标/hover 显示/中心锚定）+ 拖拽 scale(0.7) + 预览画幅标准（只能裁上下）+ 面板实时刷新（redraw_view3d+缓存失效）+ 删帧残留清理（坑 249/256-259）
 - v0.9.36：时间线视图首版（顶部预览+横向时间线 100px/s+5s 标尺+台词轨道+字幕浮层；clip 复用 .shot-card；垃圾桶其它页互斥自动退；修 4 bug：预览不跟随/写死 img/直落滑块未禁用/残留卡片推飞 48000px；v0.9.37 已按用户拍板去时间轴改版）
@@ -72,8 +92,10 @@
 
 ## 正在做
 
-- **v0.9.40 已推**（时间线台词编辑+右键菜单、分割自适应、图标更换，2026-08-09，干净文件全量 77/77）；等用户指示开新需求（需求池待办见下）
-- 需求池（Obsidian Mark/2026_07_31 分镜设计系统-开发任务说明.md）待办，等用户逐项指派：时间线台词可拖拽调宽+字幕浮层（被盖镜头选中显示两层字幕）、时间线多图镜头展开/折叠（状态与宫格分开保存）、时间线 ↑↓/滚轮=横向滚动、缩略图无边框+两侧透视淡出、列表开预览字体大小一致、列表缩放最大极值×2+镜头名行宽减半
+- **v0.9.41 ~ v0.9.70 已推 GitHub**（v0.9.70，2026-08-10：推前干净库 audit_clean.blend 全量 77/77 全 PASS（42+12+23，~3min），版本号 0.9.40→0.9.70（bl_info+index.html 徽章两处））
+- 待办，等用户逐项指派（需求池 [ ] 剩 1 项）：宫格缩略图下缘黑条（观察项，先不动）；「拖拽完台词再撤销台词会消失」已修（v0.9.68）、「列表开预览字体大小一致」已修（v0.9.69）、「列表缩放极值×2+镜头名减半」已修（v0.9.70，2026-08-10，池内未回勾）
+- ⚠ 需求池另 1 项 AGENTS 曾漏记（2026-08-10 开局对照发现）：时间线视图垂直缩放网页窗口时实时匹配（缩略图保持向下对齐，需求池 481 行 [ ] 未勾）——真待办候选，等指派
+- 盘点未补 3 项已全部补齐（v0.9.64）：时间线右键菜单展开/折叠、外部图片拖入、中键/右键滑动翻面横滚时间线
 
 ## 下一步
 
@@ -133,6 +155,8 @@ Blender 4.5 分镜设计插件——面板操作 + 内嵌 HTTP 服务 + SQLite �
 - clip 等比缩放（宽 52~316 档位，高 = (clipW-2)×0.75+22），下沿对齐（clip bottom:0 放大向上长）
 - **clip 超高时借 stage 空间**（v0.9.38f）：stage 收缩、分隔条上移、页面不滚动；stage 保底 180px，借到保底仍超高才页面滚动
 - 时间线视图下侧边预览框不参与（决策 3A，CSS 隐藏 + 预览按钮锁定高亮）
+- **字幕浮层以画幅为基础定位（v0.9.58）**：.tl-stage-frame 画面容器（画幅形状 + position:relative），字幕 absolute 相对 frame 底 14px（电影字幕位）——画面矮于容器时浮层仍在画面上，不落留边区
+- **多图展开/折叠（v0.9.45b）**：双击 / 空格（多选批量）/ 右键菜单 / 折叠按钮 / 帧数角标；展开 = 帧格横排连片（每格 clipW、间距 9px、右缘折叠按钮位，clip 宽 = n×(clipW+9)+2），后续镜头顺移（xPos 累计）；弹簧动画宫格同款；**展开状态与宫格/列表分开保存**（expandedShotIdsTl，刷新全折叠）；帧格点击焦点蓝框跟手 + stage 大图跟随焦点帧 + 帧级右键菜单/双击跳帧
 
 ### 数据层（frames 表，就放 shots.db）
 ```sql
@@ -176,37 +200,81 @@ CREATE INDEX IF NOT EXISTS idx_frames_shot ON frames(shot_id);
 | Edge | 不杀！开着一直复用 |
 | 滑块驱动 | 合成 input 事件（range setter + dispatch input，监听器可达主世界）；CDP 拖不动是通道限制非 bug |
 | 视图切换 | `__sb.setView('grid'/'list'/'timeline')` 或 localStorage 直写 + reload（刷新直落路径）；切完 wait 渲染 |
+| 拖拽驱动 | CDP 真实鼠标 `mousePressed` + `mouseMoved` **带 `buttons:1`**（多次送达，不带 buttons 只送第一次）；ESC 取消验证 = `Input.dispatchKeyEvent` Escape；**合成事件不驱动 CSS :hover**——验证受 :hover 影响的样式必须真实鼠标 + computed |
 
 ## 坑（已踩过的雷）
 
-### 近期（v0.9.40，详细）
-- **菜单「编辑台词」必须按 viewMode 分流**：宫格版 startDlgEdit 查 grid 的 .dialogue-box，时间线模式下会走"新建父条"分支把 .dialogue-strip 插进时间线 lane（错乱）；时间线走 startTlDlgEdit。凡复用"宫格台词交互"的函数，先查它内部是否 querySelector grid 元素
-- **时间线台词编辑 = 单行 input**（用户拍板无换行功能），与宫格 textarea 多行/autoResize 区分；提交共用 commitDialogue（render.js 导出）
-- **时间线台词宽度 = sb-dialogue-w-map per-shot**：自动（map 无值）= 跟随 clipW 缩放；取消勾选/拖宽 = 固定值入 map。setDialogueAuto 时间线分支回退宽用 tlClipW() 不是 --card-min；应用走 applyTlDlgWidths 就地更新（updateDialogue 是宫格专用）
-- **menu.js 注释与代码会脱节**（v0.9.36 注释写"时间线台词编辑保留"实际 isTimeline 排除台词项）：改菜单行为以代码为准，注释随手核对
+### 近期（v0.9.54，未推，详细）
+- **zoomApply 的 timeline 分支无条件重渲染 renderTimeline**（v0.9.54 实测两处踩）：setView 末尾/fetchShots 后（data.js 17 行）都会调 __zoomApply——timeline 分支里值没变也照渲（lane.innerHTML 重建）→ 刚播的入场动画/刚设置的内联样式全被清掉（切视图/首屏直落动画假死，探针全 N 排查 4 轮）。**修复 = 分支里算出的档位 w 与持久化 w0 相同（纯同步调用）时跳过 renderTimeline**；滑块/±/Ctrl 滚轮路径都先写 sb-tl-w 再 apply，值必变不受影响。判别：动画起点已提交（computed 有 matrix）但下一帧消失 = 被后续重渲染重建清掉，查调用链里 renderGrid 之后还有没有 zoomApply/renderTimeline
+- **一次性标志不能在 renderTimeline 开头清空**：initZoom 初始化在 shots 到达前会先空渲染一次（shots 空分支 return）——开头清标志 = 首屏直落标志被空渲染提前吃掉（首屏动画永远不播）。消费点唯一 = 真正执行动画的入场段内部
+- **入场动画内联样式必须 1.1s 后摘除**（transform/opacity/transition/delay 全清）：残留 transform 会污染后续拖拽坐标与 FLIP 测量（坑 346 同源）；动画播完 computed 必须回 none/1
+
+### 近期（v0.9.53，未推，详细）
+- **舞台滚动极限必须物理可达——inner 宽 = 内容占位 + 15% 尾部空间**（滚到底 7727 vs 期望 7863 实测）：舞台 max = 末 clip 右缘 - 0.85W，浏览器物理 max = scrollWidth - clientWidth；inner 宽度只算到内容右缘时物理极限不足（差 136 = 15% 视口），setTlScroll 的 max 被浏览器吃掉。**正确公式 `inner = round((base + totalW - 32) + 0.15×clientWidth)`**（totalW 含左右 padding 32；base 替代原 16 起点）
+- **tlReveal 方向符号**（reveal 后目标反超 85% 实测）：左缘进带 → `x += L - 0.15W`（向左滚=内容右移）；右缘超界 → `x += R - 0.85W`（向右滚=内容左移）。写反 = 把目标越推越远。scrollLeft 增大 = clip 视口位置减小
+- **CSS 变量名写错是静默的**（遮罩渐变 computed backgroundImage=none，z-index/宽高都正常只有渐变消失）：皮肤变量没有 `--bg`——页面背景 = `--bg-body`（#1a1a1a）、卡片 = `--bg-card`（#252525）；`linear-gradient(var(--bg), ...)` 整条声明静默失效。**渐变/背景类视觉改完必须读 computed backgroundImage 验证**
+- **舞台滚动的视口坐标判据**：clip 视口位置 = offsetLeft - scrollLeft（offsetLeft 是布局坐标不随滚动）；台词条拖宽钳制同坐标系（scrollLeft + round(0.85×clientWidth) - 16 - box.offsetLeft）
+- **搜索定位时间线分支**：locate 调 renderGrid() 会重建时间线 DOM——旧 el 脱离 DOM 直接 scrollIntoView 无效；渲染前记 clip id、渲染后重新 querySelector 再 tlReveal
+- **居中场景（内容不足 70% 视口）**：两遍法——先算 totalW（净内容宽），totalW < 0.7×clientWidth 时 base = (W-totalW)/2 居中、否则 base = 0.15W 左贴；tlScrollMinMax 里 totalW < 0.7W 直接 min=max=0（不滚动）
+- **CDP 测滚轮位移**：mouseWheel deltaY 通道 ×10/11 换算（120→109.09）——断言用页面探针实际 dy（kimi-webbridge 坑 40）
+
+### 近期（v0.9.52，未推，详细）
+- **间隔固定 12px 下「像素比例」≠「镜头位」**（台词条缩放漂移实测）：v0.9.42 {w,base} 像素比例语义，gap 占位随档位变（52 档 18.8%、316 档 3.7%）→ 折算成"盖住几个镜头"漂移（c0030 最小档盖 2.66 位、最大档 3.14 位）。**视觉锚定（盖到第 N 个镜头 p%）必须用镜头位语义**：渲染 w = (m+1)×(clipW+GAP) + p×clipW（m=完整盖住的后面镜头数、p=再下一个百分比）；换算旧 {w,base} 时 ext = w-base、m = floor(ext/(base+GAP))、**p = (ext - m×unit - GAP)/base——剩余要减最后一个 gap**（漏减 = 百分比虚高，实测 0.187 vs 正确 0.149）
+- **dlgEntry 只认 w 字段 → 新格式 {m,p} 被判 null = 自动大小回退**（拖宽落盘后 reload 变回 clipW 宽，假象"没存上"）：归一化读取必须显式兼容新格式（`typeof v.m === 'number' && typeof v.p === 'number'`）
+- **getDialogueWidth 的 `if (!e.base) return e.w` 误伤无 base 的新格式**：{m,p} 提前 return undefined → 宽变内容撑开（109px 假象）。判断顺序 = 新格式优先 → 宫格固定像素（有 w 无 base）→ 旧 {w,base} 换算
+- **scrollIntoView block:center 只居中 box 不保证手柄可见**：台词条手柄在 box 右缘，长条时手柄仍超视口右缘 → CDP 点击静默无效（拖宽假 FAIL）。拖宽前手动 `tl.scrollLeft = box.offsetLeft + box.offsetWidth - tl.clientWidth + 60` 再取坐标
+
+### 近期（v0.9.50，未推，详细）
+- **同特异性 CSS 覆盖规则必须插在目标规则之后，或直接改目标规则**（文本条大灰条实测，pitfall 350 同源）：v0.9.48 把 `.timeline-clip .tl-expand-cell .tl-expand-name { background: transparent }` 插在原规则（2036 行）之前——同特异性 (0,3,0) 后定义赢，--bg-card 覆盖 transparent，规则静默无效（用户实测抓包"底衬上有个大灰条"）。**教训：加"覆盖"规则前先查目标规则的 CSS 行号与特异性；验证 CSS 覆盖必须 computed 读目标属性（v0.9.48 只验了 rowBg/imgBg 漏了 nameBg——交付验证清单 = 本轮改动的每个 CSS 属性都要读一遍 computed）**
+
+### 近期（v0.9.47~49，压缩）
+- v0.9.49：视觉修复验证用「修复前后同区域截图对比」比绝对色值断言稳（相邻同色背景污染绝对阈值）；帧格间距竖条是纯底衬色干净采样点
+- v0.9.48：展开/折叠后再截图必须先重新 scrollIntoView（展开改变元素宽，旧几何滚动失效 → PIL 全背景色假 FAIL）
+- v0.9.47：CDP 不维护修饰键按下状态——组合键测试必须目标键事件直接带 modifiers 掩码（Shift=8），先发修饰键 keyDown 无效
+
+### 近期（v0.9.46d~46e，压缩）
+- v0.9.46e：DOM 脱离流（fixed 挂 body）后组合选择器全失效 → 临时移动 DOM 必须给关键元素设 inline 样式（width/aspect-ratio/object-fit）
+- v0.9.46d：折叠动画必须「先脱离流再重建」（帧格 fixed 脱离文档流 → 立即 toggle+renderGrid → 浮层飞回+淡出），FLIP 随子帧图同时开始；target 用 rects[0]
+
+### 近期（v0.9.46c，未推，详细）
+- **range 滑块门控 = 只拦原生调值键，别用白名单**（T 键 bug 实测）：拖动滑块后焦点留在 range，白名单（Tab+Ctrl/Meta）会把所有无修饰键快捷键（T/Enter/Delete/空格/V）误伤；range 的原生行为只有方向键/Home/End/PageUp/PageDown，黑名单拦截即可。另：注释声称"Delete 已放行"但代码没实现——改快捷键门控时核对注释与代码一致
+
+### 近期（v0.9.46/46b，压缩）
+- **FLIP 起点必须含滚动补偿 + 锚定测量禁用 getBoundingClientRect**（缩放锚定）：缩放重排+滚动补偿组合中 FLIP 起点 = 纯布局差会让焦点镜头动画滑 i×(w1-w0)；tlRestoreAnchor 用 rect 算补偿被 FLIP 起点 transform 吃掉（924→11.8px）。正解 = 锚定并入渲染 + FLIP dx 含 (finalScroll-prevScroll)；测量用 offsetLeft（不受 transform 影响）。验证判据：焦点中心抖动 = 半宽差
+- **台词条 FLIP 门控**：.tl-dlg-in/.tl-dlg-leave 的 animation 覆盖 inline transform——FLIP 循环跳过这两类块（in 块旧 DOM 无记录天然跳过）
+- **拖拽中台词条跟手只跟 dx**（台词条属台词轨道，垂直跟飘出）；finishDrag 先清 transform 再 reorder（FLIP 起点 = 布局旧位置不跳）
+- **时间线 clip 拖拽适配点**（v0.9.36 遗留转正）：竖线指示线+半区判定天然适配；nearestCard GAP_HIT_MAX=24 对 gap 12 成立；.shot-card.dragging CSS 通用；台词条（.tl-dlg-clip）不是 .shot-card 与 clip 拖拽天然互斥
+
+### 近期（v0.9.44b~45b，压缩）
+- **cell 双层嵌套**（对齐测试抓出）：工厂函数返回纯内容（img+name），容器由调用处创建并挂 data-* 属性
+- **FLIP 必须 reflow 提交起点**：设起点后 `void c.offsetWidth` 强制 reflow 再恢复 transition + 清 transform（仅 rAF 清在时间线起点从未上屏）
+- **xPos 累计排位**：展开镜头占多列宽 → left 公式失效，模块级 xPos Map（renderTimeline 每轮重建，台词条/startTlDlgEdit 复用）
+- **focusFrame 选择器补时间线分支**：`.timeline-clip[data-id] .frame-img[data-frame-id]`；清框全局选择器天然覆盖；stage 大图跟随焦点帧（focusedFrameId 优先，无则封面）
+- **台词条「前面盖后面」= DOM 反转**（z-index 不动）；⚠️ patch 模糊匹配曾把 reverse 误还原（old_string 带全上下文）
+- **字幕浮层多行判定**：盖住 = 台词条 offsetLeft+offsetWidth > 后面 clip offsetLeft（严格大于防紧贴）；多盖住者按镜头顺序全显 + 自己台词最下；跟随 T 开关
+- **__sb 无 toggleDialogue**：测试驱动用 CDP 真实按键（KeyT），`__sb.toggleDialogue && ...` 静默无效
+- **同特异性后定义 :hover 覆盖吃焦点环**（坑 350）：修复 = 选择器提特异性；凡视觉受 :hover/:active/.selected 影响必须 CDP 真实鼠标 + computed 读最终值（合成事件 PASS 是假象）
+- **ESC 取消拖拽模式**（卡片/台词两处同款）：keydown capture drag 置 null + 源复位四步（transition none→清→reflow→恢复）+ 清 dragging/dlg-dragging class + hideDropIndicator()/clearTarget() + userSelect 恢复
+- **截图 SY 可 0 可 60-68 漂移**（坑 346/348）：PIL 像素验证必须截图内锚点自校准（扫描 accent 边框行定位），禁止写死偏移；x 不加偏移；诊断「边缘/边框采样不到」先逐行色带扫描定位元素真实边界
+
+### 近期（v0.9.42~44，压缩）
+- v0.9.44：拖拽目标高焦点框（实色 2px accent 环+18px 光晕）——同特异性靠后定义覆盖，验证用 computed + PIL
+- v0.9.43：台词开关动画 leaving 保护（leave 块在播时跳过 innerHTML 清空、只删非 leave 旧块防翻倍）；moveOrSwapDialogue 成功路径补宽度 map 落盘（原宫格遗留：只改内存不写 localStorage）
+- v0.9.42：时间线自定义宽 = `{w, base}` 比例语义（宫格 base=null 固定像素、旧纯数字兼容）；**测试坑：localStorage 直写与模块闭包不同步**（setItem 后闭包旧值覆盖写回，还原/清理必须 reload 重建闭包或走真实路径——坑 288/33 镜像）
+- v0.9.41 样式两坑：台词块 overflow:hidden 裁右缘外拖宽手柄图标（overflow 移到 .tl-dlg-text）；拖宽钳制可视右缘用 `#timeline.scrollLeft + clientWidth`（lane.clientWidth 是内容宽，76 clip ≈14000px 假上限）
+- 测试坑：宫格卡片右键落在缩略图区 = frameId 命中 → menuAction 帧 switch 吞掉卡片 action；菜单按钮点击用 CDP 真实点击比合成 click 稳
+
+### 近期（v0.9.40，精简）
+- **菜单「编辑台词」必须按 viewMode 分流**：宫格版 startDlgEdit 查 grid 的 .dialogue-box，时间线模式下会把 .dialogue-strip 插进时间线 lane（错乱）；时间线走 startTlDlgEdit。凡复用"宫格台词交互"的函数，先查它内部是否 querySelector grid 元素
+- **时间线台词编辑 = 单行 input**（用户拍板无换行功能），与宫格 textarea 多行区分；提交共用 commitDialogue（render.js 导出）
+- **menu.js 注释与代码会脱节**（注释写"时间线台词编辑保留"实际 isTimeline 排除台词项）：改菜单行为以代码为准，注释随手核对
 - **测试脚本状态污染**：诊断脚本点过 dlg-auto 后不还原 = localStorage map 丢条目（用户自定义宽度被删）；测试/诊断脚本对持久化状态的写操作必须收尾还原（含被误删的条目值）
 
-### 近期（v0.9.35~v0.9.38，详细）
-- **v0.9.38：flex item 的百分比高度在 main size indefinite 时解析为 auto → 塌 0**（.tl-inner height:100% 实测 computed 0px）：正解 = absolute inset:0。诊断：computed height 0 + 父是 flex item
-- **v0.9.38：flex-shrink 默认 1 会把内容超高场景的相邻 item 压缩**：flex column 里「某 item 撑开」必须显式 flex-shrink:0 + min-height
-- **v0.9.38：ESM import 不存在的导出 = 整链白屏，node --check 测不出**：诊断 = 动态 import('/js/main.js').catch(e => e.message) 抓 "does not provide an export named"；**改 JS 后必须 `node --input-type=module --check`**（CommonJS 模式测不出 ESM 错误，v0.9.9 白屏事故同源）
-- **v0.9.38：时间线缩放锚定 scrollLeft clamp 物理限制**——焦点 clip 在视口外时锚定需求为负 scrollLeft（clamp 0）；测锚定必须选视口内 clip
-- **v0.9.38：档位化漂移**——TL_W_MIN 104→52 后 320/200 不再是精确档位（52+24k：316/196），持久化值刷新时被 apply 档位化写回；测试还原用档位化后的值
-- **v0.9.38：grid gap 12（宫格继承）在 timeline 模式同样生效**——stage/divider/timeline 之间各 12px，分割 clamp/高度公式必须计入（gap×2 + divider 开销）
-- **v0.9.38：applyTlSplit 只在 renderTimeline 跑**——改持久化后必须重渲染（renderTimeline/reload）再断言，否则 DOM 残留旧值
-- **v0.9.38h：clientWidth 返回整数而 auto-fill 用真实小数宽算列数**（940.739→941 误差 0.26px 临界掉一列 + 右侧大空白）：列宽计算必须用 getBoundingClientRect().width + 减 0.05px 余量；排查 = 独立复制容器对照 + 列宽二分
-- **v0.9.37：renderGrid 切回宫格必须摘 timeline-mode class**（v0.9.36 只清了元素）：class 残留 → grid 保持 flex column → auto-fill 列网格失效 = 缩放无视觉反应但变量正常（列数读数 2 假象）。凡"模式切换布局 class"必须双向清理
-- **v0.9.37：range 滑块门控放行 Ctrl/Meta 组合键**（拖动滑块后焦点留在 range，Ctrl++/- 全被拦）：`if (e.key !== 'Tab' && !(e.ctrlKey || e.metaKey)) return`；方向键仍门控
-- **v0.9.37：时间线横轴缩放 apply 必须幂等**（刷新直落污染持久化档位 200→176）：以 localStorage 为唯一事实源（读→档位化→写回→滑块仅显示同步）
-- **v0.9.37：缩放测试断言防 clamp 边界**：滑块点击 track 右端直接跳 max 档，后续"放大"断言恒 FAIL 但功能正常；先腾空间或断言前查 slVal==slMax
-- **v0.9.36：独立布局视图（flex 覆盖 grid）必须清残留卡片**——timeline 是 flex column，残留 .shot-card 全宽排开（76 张 ≈48000px）把内容推到页面深处。**DOM 断言全过但视觉全毁**（截图才暴露）。切视图双向清理
-- **v0.9.36：惰性容器"已建"标志位会被外部清除 DOM 后失真**（stageBuilt/tlBuilt 在 renderGrid remove 后仍 true → 重建被跳过）：正解 = 纯 DOM 存在性判断
-- **v0.9.36：复用模块内函数注意其内部绑定的 DOM 引用**（showPreviewImage 写死模块级 img，timeline 复用后大图永不显示——display 状态能过断言，src 才是判据）：加 target 参数
-- **v0.9.36：刷新直落持久化视图时 setView 不执行**——依赖视图状态的一次性副作用放 renderXxx 函数内（每次渲染强制），别只放 setView
-- **v0.9.35：async 互斥切换未 await = 双 fetchShots 并发竞态**（垃圾桶/其它页：垃圾桶壳+正常镜头内容，此时点彻底删除会 purge 正常镜头，危险）：互斥切换必须串行——退出方加 silent 参数静默退，只让目标视图发一个请求
-- **v0.9.35：mousedown 里 blur 按钮焦点会被浏览器默认聚焦抢回**：须在 click 后 blur，且用 e.detail 区分输入来源（鼠标 detail≥1 / 键盘 detail=0 保留焦点）
-- **v0.9.35：合成 KeyboardEvent 不触发 :focus-visible 启发式**——验证焦点框必须 CDP Input.dispatchKeyEvent（真实输入管线）
-- **v0.9.35：空态提示 absolute 定位随容器高度塌缩消失**：正解 = 容器转 flex（#grid.grid-empty display:flex + min-height）
+### 近期（v0.9.35~v0.9.38，压缩）
+- v0.9.38：flex item 百分比高度在 main size indefinite 塌 0（正解 absolute inset:0）；flex-shrink 默认 1 压缩相邻 item（显式 flex-shrink:0 + min-height）；ESM import 不存在的导出 = 整链白屏（node --check 测不出，动态 import catch 诊断）；时间线缩放锚定 scrollLeft clamp 物理限制（测锚定选视口内 clip）；档位化漂移（持久化为唯一事实源，apply 幂等）；grid gap 12 时间线同样生效；applyTlSplit 只在 renderTimeline 跑；clientWidth 整数 vs 真实小数宽 0.26px 临界掉一列（用 rect 小数宽 - 0.05px 余量）
+- v0.9.37：renderGrid 切回宫格必须摘 timeline-mode class（残留 flex column 缩放失效）；range 滑块门控放行 Ctrl/Meta 组合键（方向键仍门控）；横轴缩放 apply 幂等防刷新直落污染档位；缩放断言防 clamp 边界（先查 slVal==slMax）
+- v0.9.36：独立布局视图必须清残留卡片（76 张≈48000px 推飞页面）；惰性容器"已建"标志位被外部清 DOM 失真（纯 DOM 存在性判断）；复用模块函数注意内部绑定的 DOM 引用（showPreviewImage 写死模块级 img，加 target 参数）；刷新直落持久化视图时 setView 不执行（副作用放 renderXxx 内）
+- v0.9.35：async 互斥切换未 await = 双 fetch 并发竞态（垃圾桶其它页可能 purge 正常镜头，必须串行）；mousedown 里 blur 被浏览器默认聚焦抢回（click 后 blur + e.detail 区分输入来源）；合成 KeyboardEvent 不触发 :focus-visible（CDP 真实输入）；空态提示 absolute 随容器高度塌缩（容器转 flex + min-height）
 
 ### 操作型（仍然适用，精简）
 - **Git 推 GitHub：直接走代理不试直连**（2026-08-09 用户拍板）：`git -c http.proxy=socks5h://127.0.0.1:7897 push origin main`；MSYS git 不支持 SOCKS5 认证交互，必须 `git remote set-url "https://TOKEN@github.com/..."` 内嵌 token，推完还原 + 验证本地=远程 HEAD
@@ -273,7 +341,7 @@ CREATE INDEX IF NOT EXISTS idx_frames_shot ON frames(shot_id);
 
 - 架构：Blender 插件 + 内嵌 HTTP（0.0.0.0:8089）+ `bpy.app.timers` 主线程队列
 - 后端模块地图：`core/server.py`（ROUTES 表 + 静态服务）→ `core/actions.py`（每端点一函数）→ `core/queue.py`（COMMANDS 注册表 + 错误回传 + redraw_view3d）/ `core/db.py`（含 next_c_name/next_c_number）/ `core/undo.py`（撤销栈）/ `core/paths.py` / `core/scenes.py`（场景工厂）/ `core/sync.py`（同步唯一实现）/ `core/render.py`（拍屏公共函数）
-- 前端模块地图（20 个 JS）：`web/index.html`（骨架+CSS）+ `web/js/`：state（共享状态）/ ui（toast+确认条）/ render（宫格+列表+FLIP+DOM差分+首屏门控）/ data（拉取+心跳+错误toast+undoLast）/ selection / dnd（卡片拖拽+拖图分区）/ rename（改名+字段就地编辑）/ menu（右键/中键滑动+回弹+菜单）/ create（弹框）/ marquee（框选）/ zoom（滑块+Ctrl滚轮连续缩放）/ keyboard（快捷键+方向键）/ trash（垃圾桶弹窗）/ search（搜索栏定位）/ preview（预览框）/ shortcuts（快捷键面板）/ aspect（画幅比）/ icons（图标表+注入）/ timeline（时间线视图）/ main（入口接线）
+- 前端模块地图（21 个 JS）：`web/index.html`（骨架+CSS）+ `web/js/`：state（共享状态）/ ui（toast+确认条）/ render（宫格+列表+FLIP+DOM差分+首屏门控）/ data（拉取+心跳+错误toast+undoLast）/ selection / dnd（卡片拖拽+拖图分区）/ frames（帧级操作）/ rename（改名+字段就地编辑）/ menu（右键/中键滑动+回弹+菜单）/ create（弹框）/ marquee（框选）/ zoom（滑块+Ctrl滚轮连续缩放）/ keyboard（快捷键+方向键）/ trash（垃圾桶弹窗）/ search（搜索栏定位）/ preview（预览框）/ shortcuts（快捷键面板）/ aspect（画幅比）/ icons（图标表+注入）/ timeline（时间线视图）/ main（入口接线）
 - 改名：`cmd_rename_shot`（queue.py）四层联动实现
 - 测试：改完跑 `python3 scripts/audit.py`（42 项）+ `python3 scripts/audit_context_menu.py`（12 项）+ 网页 JS 改动 webbridge 全交互回归（web_audit 23 项）
 - 基线（2026-08-09）：audit 42 + ctx 12 + web_audit 23

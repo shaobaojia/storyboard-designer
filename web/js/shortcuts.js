@@ -1,15 +1,39 @@
 // 右下角「快捷键」面板（v0.9.4）：渲染 SHORTCUTS 清单 + 开关交互
 // 清单唯一事实源在 keyboard.js（与快捷键实现同文件），改快捷键必须同步那边
+// v0.9.56e：Tab 标签页（全局/时间线）——SHORTCUTS 每项带 scope 字段，按 Tab 过滤；
+// 打开面板时按当前 viewMode 自动选中对应 Tab（时间线视图打开默认时间线 Tab）
 import { SHORTCUTS } from './keyboard.js';
+import { state } from './state.js';
 
 const btn = document.getElementById('shortcutsBtn');
 const panel = document.getElementById('shortcutsPanel');
 let closeTimer = null;  // 关闭动画计时器（v0.9.5 弹簧动画）
 
+function rows(scope) {
+    return SHORTCUTS.filter(s => s.scope === scope || s.scope === 'both')
+        .map(s => `<div class="sc-row"><kbd>${s.keys}</kbd><span>${s.desc}</span></div>`)
+        .join('');
+}
+
+function selectTab(scope) {
+    panel.querySelectorAll('.sc-tab').forEach(t => t.classList.toggle('active', t.dataset.scope === scope));
+    panel.querySelectorAll('.sc-list').forEach(l => { l.style.display = l.dataset.list === scope ? 'block' : 'none'; });
+}
+
 function render() {
-    panel.innerHTML = '<div class="sc-title">快捷键</div>' + SHORTCUTS.map(s =>
-        `<div class="sc-row"><kbd>${s.keys}</kbd><span>${s.desc}</span></div>`
-    ).join('');
+    panel.innerHTML = `
+        <div class="sc-title">快捷键</div>
+        <div class="sc-tabs">
+            <button type="button" class="sc-tab" data-scope="global">全局</button>
+            <button type="button" class="sc-tab" data-scope="tl">时间线</button>
+        </div>
+        <div class="sc-list" data-list="global">${rows('global')}</div>
+        <div class="sc-list" data-list="tl" style="display:none">${rows('tl')}</div>`;
+    panel.querySelectorAll('.sc-tab').forEach(t => {
+        t.addEventListener('click', () => selectTab(t.dataset.scope));
+    });
+    // 打开时按当前视图选 Tab（时间线视图 → 时间线 Tab）
+    selectTab(state.viewMode === 'timeline' ? 'tl' : 'global');
 }
 
 // 弹簧动画（v0.9.5）：打开 = 弹入（translateY+scale overshoot）；关闭 = 先弹走再隐藏
@@ -21,6 +45,8 @@ function open() {
     void panel.offsetWidth;  // 强制 reflow，重启动画
     panel.classList.add('panel-in');
     btn.classList.add('active');
+    // v0.9.56e：每次打开按当前视图自动选 Tab（render 只跑一次，这里保持跟随）
+    selectTab(state.viewMode === 'timeline' ? 'tl' : 'global');
 }
 
 function close() {

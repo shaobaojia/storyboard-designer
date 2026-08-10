@@ -83,6 +83,16 @@ export function applyAspect() {
                                     容器=画幅后 cover 只裁上下，永不裁左右 */
     object-fit: ${wider ? 'cover' : 'contain'};
     background: #111113;
+}
+/* v0.9.58：时间线舞台画面容器 = 画幅形状（原 .tl-stage-body img 直接承担，
+   现改由 frame 承担——字幕浮层相对 frame 定位，以画幅为基础） */
+.tl-stage-body .tl-stage-frame {
+    width: 100%;
+    max-height: 100%;
+    aspect-ratio: ${a};
+}
+.tl-stage-body .tl-stage-frame img {
+    object-fit: ${wider ? 'cover' : 'contain'};
 }`;
 }
 

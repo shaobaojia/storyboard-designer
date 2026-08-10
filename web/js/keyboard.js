@@ -8,23 +8,30 @@ import { toast, askConfirm } from './ui.js';
 import { isExpanded, expandAnimated, collapseAnimated, focusFrame } from './frames.js';
 import { renderGrid, toggleView, toggleDialogue } from './render.js';
 import { updatePreview, setPreview } from './preview.js';
+import { tlClipW, CLIP_GAP, setTlScroll, tlReveal } from './timeline.js';  // v0.9.53：↑↓ 横向滚动步长（一次 3 镜）+ 舞台 clamp/定位
 
 // 快捷键清单（唯一事实源：改快捷键必须同步这里——右下角「快捷键」面板用它渲染）
+// v0.9.56e：scope 字段拆分视图——'global'=宫格/列表视图（或时间线下无效）、'tl'=时间线视图特有、
+// 'both'=两视图通用（时间线 Tab 与全局 Tab 都显示）；shortcuts.js 按 Tab 过滤渲染
 export const SHORTCUTS = [
-    { keys: 'Ctrl+A', desc: '全选镜头' },
-    { keys: 'Ctrl+Z', desc: '撤销上一步' },
-    { keys: 'Ctrl+D', desc: '创建副本（多选时批量复制）' },
-    { keys: 'Ctrl+F', desc: '聚焦搜索镜头' },
-    { keys: 'Delete', desc: '删除选中镜头（帧蓝框聚焦时删除该帧）' },
-    { keys: 'Enter', desc: '打开镜头（选中单个时）' },
-    { keys: 'Space', desc: '展开/折叠多图镜头（多选时批量）' },
-    { keys: 'Tab', desc: '切换宫格/列表视图' },
-    { keys: 'V', desc: '开关预览窗口' },
-    { keys: 'T', desc: '开关台词显示' },
-    { keys: 'Ctrl.+ / Ctrl.-', desc: '放大/缩小（与滚轮/滑块同效）' },
-    { keys: '↑↓←→', desc: '移动选择（展开态逐帧格移动；时间线视图：←→ 线性移动）' },
-    { keys: 'Shift+方向键', desc: '扩展多选范围' },
-    { keys: 'Esc', desc: '退出垃圾桶/其它模式' },
+    { keys: 'Ctrl+A', desc: '全选镜头', scope: 'both' },
+    { keys: 'Ctrl+Z', desc: '撤销上一步', scope: 'both' },
+    { keys: 'Ctrl+D', desc: '创建副本（多选时批量复制）', scope: 'both' },
+    { keys: 'Ctrl+F', desc: '聚焦搜索镜头', scope: 'both' },
+    { keys: 'Delete', desc: '删除选中镜头（帧蓝框聚焦时删除该帧）', scope: 'both' },
+    { keys: 'Enter', desc: '打开镜头（选中单个时）', scope: 'both' },
+    { keys: 'Space', desc: '展开/折叠多图镜头（多选时批量）', scope: 'both' },
+    { keys: 'Tab', desc: '切换最近两个视图', scope: 'both' },   // v0.9.55：Tab 改 MRU 语义
+    { keys: 'V', desc: '开关预览窗口', scope: 'global' },       // 时间线视图预览按钮锁定，V 被门控
+    { keys: 'T', desc: '开关台词显示', scope: 'both' },
+    { keys: 'Ctrl.+ / Ctrl.-', desc: '放大/缩小（与滚轮/滑块同效）', scope: 'both' },
+    { keys: '↑↓←→', desc: '移动选择（展开态逐帧格移动）', scope: 'global' },
+    { keys: 'Shift+方向键', desc: '扩展多选范围', scope: 'both' },
+    { keys: 'Esc', desc: '退出垃圾桶/其它模式', scope: 'both' },
+    // 时间线视图特有（v0.9.56e 拆分）：
+    { keys: '← →', desc: '移动选中镜头（展开态逐帧格）', scope: 'tl' },
+    { keys: '↑ ↓', desc: '横向滚动缩略图区（一次跳 3 镜）', scope: 'tl' },
+    { keys: 'Ctrl+滚轮', desc: '时间线横轴档位缩放（52~316）', scope: 'tl' },
 ];
 
 function gridColumns() {
@@ -39,35 +46,81 @@ function gridColumns() {
 function arrowMove(e) {
     const shots = state.shots;
     if (!shots.length) return;
-    // v0.9.37：时间线视图 = 线性序列——每镜头 1 格（无展开帧格）、只响应横向 ←/→
-    // （时间线横向布局，↑↓ 无格子语义）、不设帧焦点（timeline clip 无帧格 DOM，
+    // v0.9.37：时间线视图 = 线性序列——每镜头 1 格（无展开帧格）、响应横向 ←/→
+    // （时间线横向布局，↑↓ 无格子语义 = v0.9.53 起改为横向滚动缩略图）、不设帧焦点（timeline clip 无帧格 DOM，
     // 残留 focusedFrameId 会在切回宫格时带出蓝框状态）
     if (state.viewMode === 'timeline') {
+        // v0.9.53：时间线横向布局——↑↓ = 横向滚动缩略图区域（需求池：上下键横滚；一次跳 3 镜，用户拍板）
+        if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+            e.preventDefault();
+            const tl = document.getElementById('timeline');
+            if (tl) setTlScroll(tl.scrollLeft + (e.key === 'ArrowUp' ? -1 : 1) * (tlClipW() + CLIP_GAP) * 3);
+            return;
+        }
+        // v0.9.47：时间线展开态帧格级移动（宫格同款格子序列）——多图展开镜头每帧格占 1 格，
+        // 落在帧格上设 focusedFrameId（蓝框 + stage 大图跟随）；折叠/单图镜头 1 格，
+        // 折叠态多图焦点落封面帧（宫格 v0.9.30b 同款语义，蓝框在展开后由渲染补上）
         const step = {ArrowLeft: -1, ArrowRight: 1}[e.key];
         if (step === undefined) return;
-        const ids = shots.map(s => s.id);
+        const cells = [];
+        shots.forEach(s => {
+            const frames = (s.frames || []);
+            if (frames.length > 1 && isExpanded(s.id)) {
+                frames.forEach(f => cells.push({shotId: s.id, frameId: f.id}));
+            } else {
+                cells.push({shotId: s.id, frameId: null});
+            }
+        });
+        let cur = -1;
         const curShotId = [...state.selectedIds][0] ?? state.anchorId;
-        let cur = ids.indexOf(curShotId);
-        if (cur === -1) cur = step > 0 ? -1 : ids.length;
-        const next = Math.min(ids.length - 1, Math.max(0, cur + step));
+        const startIdx = cells.findIndex(c => c.shotId === curShotId);
+        if (startIdx !== -1) {
+            cur = startIdx;
+            if (state.focusedFrameId) {
+                for (let i = startIdx; i < cells.length && cells[i].shotId === curShotId; i++) {
+                    if (cells[i].frameId === state.focusedFrameId) { cur = i; break; }
+                }
+            }
+        }
+        if (cur === -1) cur = step > 0 ? -1 : cells.length;
+        const next = Math.min(cells.length - 1, Math.max(0, cur + step));
         if (next === cur && cur !== -1) return;
-        const targetId = ids[next];
+        const target = cells[next];
         if (e.shiftKey) {
             // Shift+方向键：从锚点扩到新区间端点（镜头级，与宫格/列表一致）
-            const a = ids.indexOf(state.anchorId ?? targetId);
-            const b = ids.indexOf(targetId);
+            const ids = shots.map(s => s.id);
+            const a = ids.indexOf(state.anchorId ?? target.shotId);
+            const b = ids.indexOf(target.shotId);
             const [lo, hi] = a < b ? [a, b] : [b, a];
             state.selectedIds = new Set(ids.slice(lo, hi + 1));
-            state.lastClickId = targetId;
+            state.focusedFrameId = null;
+            focusFrame(null, null);  // 清除蓝框
+            state.lastClickId = target.shotId;
         } else {
-            state.selectedIds = new Set([targetId]);
-            state.anchorId = targetId;
-            state.lastClickId = targetId;
+            state.selectedIds = new Set([target.shotId]);
+            state.anchorId = target.shotId;
+            // 帧格级焦点（同宫格）：帧格 → 该帧；折叠/单图 → 落镜头（折叠态多图焦点落封面帧）
+            let fid = target.frameId;
+            if (!fid) {
+                const _shot = shots.find(s => s.id === target.shotId);
+                const _frames = (_shot && _shot.frames) || [];
+                if (_frames.length > 1) {
+                    const _cover = _frames.find(f => f.isCover) || _frames[0];
+                    fid = _cover ? _cover.id : null;
+                }
+            }
+            state.focusedFrameId = fid;
+            focusFrame(target.shotId, fid);  // 同步蓝框（展开态帧格级/折叠态封面级）
+            state.lastClickId = target.shotId;
         }
         updateSelectionUI();
-        updatePreview();  // timeline 下转发 updateTimelineStage（顶部预览区跟随）
-        const card = document.querySelector(`.timeline-clip[data-id="${targetId}"]`);
-        if (card) card.scrollIntoView({block: 'nearest', inline: 'nearest'});
+        updatePreview();  // timeline 下转发 updateTimelineStage（顶部预览区跟随焦点帧）
+        const card = target.frameId
+            ? document.querySelector(`.timeline-clip[data-id="${target.shotId}"] .tl-expand-cell[data-frame-id="${target.frameId}"]`)
+            : document.querySelector(`.timeline-clip[data-id="${target.shotId}"]`);
+        // v0.9.53：时间线定位走舞台 reveal（目标完整落在 70% 区内、滚动量最小）——原生 scrollIntoView
+        // 会滚到视口边缘（目标进入 15% 淡出带，焦点框进淡出区 = 违反舞台语义）
+        if (card) tlReveal(card.closest('.timeline-clip') || card);
         e.preventDefault();
         return;
     }
@@ -149,10 +202,12 @@ export function initKeyboard() {
         if (tag === 'TEXTAREA') return;
         if (tag === 'INPUT') {
             if (e.target.type !== 'range') return;
-            // v0.9.37：range 滑块上放行 Tab（切视图）与 Ctrl/Meta 组合键（Ctrl++/- 缩放、
-            // Ctrl+A 全选等快捷键——拖动滑块后焦点留在滑块，不放行会导致按 Ctrl++ 无反应，
-            // 2026-08-09 实测）；其余键（含 ←/→）维持门控——方向键是滑块原生调值行为，快捷键不该抢
-            if (e.key !== 'Tab' && !(e.ctrlKey || e.metaKey)) return;
+            // v0.9.46b：门控改为只拦 range 原生行为键（方向键/Home/End/PageUp/PageDown 是滑块调值键，
+            // 快捷键不该抢），其余快捷键放行——v0.9.37 白名单（仅 Tab+Ctrl/Meta）导致拖动滑块后
+            // 按 T 开关台词/Enter 打开/Delete 删除/空格展开/V 预览全无反应（2026-08-09 用户实测：
+            // 滑动缩放滑条后按 T 没反应；v0.9.37 注释声称 Delete 已放行但代码未实现，注释与代码脱节）
+            const RANGE_NATIVE_KEYS = ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End', 'PageUp', 'PageDown'];
+            if (RANGE_NATIVE_KEYS.includes(e.key)) return;
         }
 
         if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') {
@@ -242,10 +297,10 @@ export function initKeyboard() {
             e.preventDefault();
             const id = [...state.selectedIds][0];
             openShot(id);
-        } else if (e.key === ' ' && state.selectedIds.size >= 1 && !state.trashMode && !state.otherMode && state.viewMode !== 'timeline') {
+        } else if (e.key === ' ' && state.selectedIds.size >= 1 && !state.trashMode && !state.otherMode) {
             // 空格 = 展开/折叠多图镜头（单选 v0.7.0，与双击同效；v0.8.0 弹簧动效；
             // v0.9.0 多选批量：全部已展开→全部折叠，否则→全部展开；单图镜头跳过）
-            // v0.9.36：时间线视图无展开语义，禁用
+            // v0.9.45：时间线同款展开/折叠（状态与宫格/列表分开保存）
             e.preventDefault();  // 阻止页面滚动
             const ids = [...state.selectedIds];
             const multiShots = ids.map(id => state.shots.find(s => s.id === id))
@@ -260,8 +315,9 @@ export function initKeyboard() {
             // v0.9.23：v 开关预览窗口（垃圾桶/其它模式禁用——预览框只服务镜头页）
             e.preventDefault();
             setPreview(!state.previewOn);
-        } else if (e.key.toLowerCase() === 't' && !e.ctrlKey && !e.metaKey && !e.altKey && !state.trashMode && !state.otherMode) {
+        } else if (e.key.toLowerCase() === 't' && !e.ctrlKey && !e.metaKey && !e.altKey && !state.trashMode && !state.otherMode && state.viewMode !== 'list') {
             // v0.9.35：T 开关台词显示（与 dialogueBtn 同效；垃圾桶/其它模式无台词语义，禁用）
+            // v0.9.58：列表视图同样禁用（台词在列表列内显示，无台词条开关语义；按钮已灰掉）
             e.preventDefault();
             toggleDialogue();
         } else if (e.key.startsWith('Arrow') && !state.otherMode) {

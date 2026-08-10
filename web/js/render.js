@@ -2,7 +2,8 @@
 import { state, grid } from './state.js';
 import { toast } from './ui.js';  // v0.9.8：台词就地编辑的保存反馈
 import { ICONS } from './icons.js';  // v0.9.26：动态图标（收起箭头/列表角标）
-import { renderTimeline, tlClipW, applyTlDlgWidths } from './timeline.js';  // v0.9.36：时间线视图（renderGrid 分支转发）；v0.9.40：时间线台词自适应宽度
+import { renderTimeline, tlClipW, applyTlDlgWidths, CLIP_GAP } from './timeline.js';  // v0.9.36：时间线视图（renderGrid 分支转发）；v0.9.40：时间线台词自适应宽度；v0.9.52：CLIP_GAP 台词条镜头位换算
+import { setPreview } from './preview.js';  // v0.9.55c：切时间线自动关侧边预览（循环引用同 timeline.js，函数体引用安全）
 
 // v0.9.6：XSS 防护——所有用户数据插 innerHTML 前统一过 esc（search.js 已有同款，此处补主渲染路径）
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
@@ -46,8 +47,37 @@ export function toggleDialogue() {
     state.dialogueOn = !state.dialogueOn;
     localStorage.setItem('sb-dialogue-on', state.dialogueOn ? '1' : '0');
     btn.classList.toggle('active-view', state.dialogueOn);
+    if (state.viewMode === 'timeline') {
+        // v0.9.43：时间线台词开关动画——关 = 现有块「收回去」（向下缩进镜头块 + 淡出），
+        // 开 = 渲染时给新块加「长出来」动画（renderTimeline 消费 state.dlgAnim）。
+        // 时间线布局不因台词开关变化（台词轨道 38px 恒在），无布局 FLIP，只有块自身的位移+透明度。
+        if (!state.dialogueOn) {
+            tlDlgLeaveBoxes();
+        } else {
+            state.dlgAnim = { all: true };
+        }
+        state.pendingAnchor = null;  // renderTimeline 不消费锚定（宫格模式才用），清掉防下次宫格渲染误消费
+        renderGrid();
+        return;
+    }
     state.pendingAnchor = a;
     renderGrid();
+}
+
+// v0.9.43：时间线台词块「收回去」动画——加 leave class（CSS 动画向下缩进 + 淡出），
+// 定时清理 leave 块（renderTimeline 的 innerHTML 清空被 leaving 保护跳过，见 renderTimeline）
+function tlDlgLeaveBoxes() {
+    const lane = document.getElementById('tlDlgLane');
+    if (!lane) return;
+    lane.querySelectorAll('.tl-dlg-clip').forEach(b => b.classList.add('tl-dlg-leave'));
+    scheduleDlgLeaveCleanup();
+}
+
+function scheduleDlgLeaveCleanup() {
+    setTimeout(() => {
+        const lane = document.getElementById('tlDlgLane');
+        if (lane) lane.querySelectorAll('.tl-dlg-leave').forEach(b => b.remove());
+    }, 450);  // 动画 350ms + 余量
 }
 
 // ---- 宫格台词条（v0.9.8 / v0.9.9 重构：同排合并为一条父条）----
@@ -62,24 +92,65 @@ export function toggleDialogue() {
 // 自定义（拖动手柄或取消勾选后固定宽度）。状态 = map 里有没有该镜头：
 // 无 = 自动（跟随列宽），有 = 自定义（固定值）。手动拖动自动写入 map（解除同步）。
 // v0.9.10 的全局默认 sb-dialogue-w 已废弃（需求：默认必须跟卡片同步，不保留固定默认值）。
-const DLG_MAP_KEY = 'sb-dialogue-w-map';  // per-shot 自定义宽度：{shotId: width}
+// v0.9.42：map 值格式升级 {w, base}——w=像素宽，base=时间线拖宽/取消勾选时的 clipW。
+// 时间线渲染 = round(w × clipW / base)（固定比例跟随缩放，比例 = w/base 恒定）；
+// 宫格 = w 固定像素（base 不参与）；旧纯数字格式（无 base）= 固定像素（不跳变）。
+const DLG_MAP_KEY = 'sb-dialogue-w-map';  // per-shot 自定义宽度：{shotId: {w, base}}
 let dlgWidthMap = (() => {
     try { return JSON.parse(localStorage.getItem(DLG_MAP_KEY) || '{}') || {}; }
     catch { return {}; }
 })();
 
+// 归一化读取：旧格式数字 → {w, base:null}；新格式对象原样；无值 → null
+function dlgEntry(shotId) {
+    const v = dlgWidthMap[shotId];
+    if (!v) return null;
+    if (typeof v === 'number') return { w: v, base: null };
+    if (typeof v.w === 'number' && v.w > 0) return v;
+    if (typeof v.m === 'number' && typeof v.p === 'number') return v;  // v0.9.52 时间线镜头位格式 {m, p}
+    return null;
+}
+
 // 每条宽度：map 有值 = 自定义；无 = 自动跟随卡片宽（列宽），缩放同步变化
 function dialogueWidthOf(shotId) {
-    const w = dlgWidthMap[shotId];
-    if (w > 0) return w;
+    const e = dlgEntry(shotId);
+    if (e) return e.w;
     const colW = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--card-min')) || 200;
     return colW;
 }
 
 // v0.9.40：跨模块读自定义宽度（时间线台词块用）——map 有值 = 自定义；无 = fallback（时间线 = clipW）
+// v0.9.42：时间线自定义宽 = 固定比例跟随——base 存在时 w × fallback/base（fallback = 当前 clipW），
+// 缩放后比例恒 = w/base；base 缺省（旧数据/宫格写入）= 固定像素
+// v0.9.52：时间线改「镜头位」语义——间隔固定 12px 下，像素比例折算成镜头位会随档位漂移
+// （52 档 gap 占 18.8%、316 档 3.7%），改为记录「完整盖住的后面镜头数 m + 再下一个镜头的百分比 p」，
+// 渲染 w = (m+1)×(clipW+CLIP_GAP) + p×clipW → 任何档位下盖住的镜头位置（百分比）恒定。
+// 新格式 {m, p}；旧格式 {w, base} 渲染时换算兜底（不迁移存储）。
 export function getDialogueWidth(shotId, fallback) {
-    const w = dlgWidthMap[shotId];
-    return w > 0 ? w : fallback;
+    const e = dlgEntry(shotId);
+    if (!e) return fallback;
+    if (typeof e.m === 'number' && typeof e.p === 'number') {
+        // v0.9.52 镜头位格式 {m, p}：w = (m+1)×(clipW+CLIP_GAP) + p×clipW
+        return Math.max(52, Math.round((e.m + 1) * (fallback + CLIP_GAP) + e.p * fallback));
+    }
+    // 宫格固定像素（{w, base:null} / 旧数字）
+    if (!e.base) return e.w;
+    // 旧时间线数据 {w, base}：延伸量 = w - base（自己之后的 gap+完整镜头+部分镜头）
+    const ext = Math.max(0, e.w - e.base);
+    const unit = e.base + CLIP_GAP;
+    const m = Math.floor(ext / unit);
+    // 剩余要减掉最后一个 gap（ext = m×unit + GAP + p×base）
+    const p = Math.min(1, Math.max(0, (ext - m * unit - CLIP_GAP) / e.base));
+    return Math.max(52, Math.round((m + 1) * (fallback + CLIP_GAP) + p * fallback));
+}
+
+// v0.9.52：像素宽 → {m: 完整盖住的后面镜头数, p: 再下一个镜头被盖百分比}（时间线落盘用）
+function tlWidthToMP(w, clipW) {
+    const ext = Math.max(0, w - clipW);
+    const unit = clipW + CLIP_GAP;
+    const m = Math.floor(ext / unit);
+    const p = Math.min(1, Math.max(0, (ext - m * unit - CLIP_GAP) / clipW));
+    return { m, p };
 }
 
 // 自动大小开关（右键菜单调用）：auto=true 恢复跟随卡片（删覆盖值）；
@@ -88,10 +159,15 @@ export function setDialogueAuto(shotId, auto) {
     if (auto) {
         delete dlgWidthMap[shotId];
     } else {
-        const box = grid.querySelector(`.dialogue-box[data-dlg-id="${shotId}"]`);
-        // v0.9.40：时间线模式无宫格 box——固定当前显示宽（时间线 = clip 宽）
+        // v0.9.41：时间线模式查 .tl-dlg-clip（无宫格 box）——固定"当前显示宽"而非 clipW（自定义宽时取消勾选不得跳变）
+        const box = grid.querySelector(`.dialogue-box[data-dlg-id="${shotId}"]`)
+            || document.querySelector(`.tl-dlg-clip[data-dlg-id="${shotId}"]`);
         const w = Math.round(box ? box.getBoundingClientRect().width : (state.viewMode === 'timeline' ? tlClipW() : dialogueWidthOf(shotId)));
-        if (w > 0) dlgWidthMap[shotId] = w;
+        if (w > 0) {
+            // v0.9.42：时间线 = 固定比例跟随（base = 当前 clipW，比例 = w/base 恒定）；宫格 = 固定像素
+            // v0.9.52：时间线改存 {m, p}（镜头位语义）——w 按当前 clipW 换算成「完整盖住 m 个镜头 + 第 m+1 个 p%」
+            dlgWidthMap[shotId] = state.viewMode === 'timeline' ? tlWidthToMP(w, tlClipW()) : { w, base: null };
+        }
     }
     localStorage.setItem(DLG_MAP_KEY, JSON.stringify(dlgWidthMap));
     if (state.viewMode === 'timeline') {
@@ -281,14 +357,17 @@ export function initDialogueResize() {
         if (!handle) return;
         e.preventDefault();
         e.stopPropagation();
-        const box = handle.closest('.dialogue-box');
+        // v0.9.41：时间线台词块（.tl-dlg-clip）同款右沿拖宽——块结构与宫格 .dialogue-box 并存
+        const box = handle.closest('.dialogue-box, .tl-dlg-clip');
         const startX = e.clientX, startW = box.offsetWidth;
         const gridW = grid.clientWidth;
         // v0.9.17 修复：上限用同排容量 capW 而非 gridW-16——updateDialogue 渲染按 capW
         // 钳制（同排 N 条并排容量），拖宽上限不齐 = "拖完看是宽的，一重渲染（缩放/开关台词/
         // 心跳差分）缩回窄的"（用户实测拖宽 692 缩放后 542，map 值其实存上了）
+        // v0.9.41：时间线无同排容量概念（台词可盖到后面镜头）——capW 走可视右缘钳制（见 onMove）
+        const isTl = box.classList.contains('tl-dlg-clip');
         const n = box.parentElement ? box.parentElement.querySelectorAll('.dialogue-box:not(.dialogue-leave)').length : 1;
-        const capW = Math.max(120, Math.floor((gridW - 16 - (n - 1) * 9) / n));
+        const capW = isTl ? 4096 : Math.max(120, Math.floor((gridW - 16 - (n - 1) * 9) / n));
         document.body.style.userSelect = 'none';
         let raf = 0;
         const onMove = (ev) => {
@@ -297,7 +376,14 @@ export function initDialogueResize() {
                 raf = 0;
                 // v0.9.21：上限同步渲染端右缘钳制（box 左偏移 + 宽 ≤ grid 右缘-16，
                 // 与 relocateDialogue 的 availRight 同源，防拖宽超过剩余空间）
-                const availRight = Math.max(120, gridW - 16 - box.offsetLeft);
+                // v0.9.41：时间线 = 台词轨道可视右缘（#timeline 滚动容器 scrollLeft + clientWidth；
+                // 注意不能用 lane.clientWidth——.tl-lane absolute 拉伸到 tlInner 内容宽（76 clip ≈ 14000px）
+                // - 块左偏移 - 16 边距；台词盖到后面镜头是设计语义，上限只挡"拖出可视区域"
+                // v0.9.53：舞台语义——可视右缘改为 85%（15% 淡出带不进，与镜头块滚动极限一致，决策 3-A）
+                const tlEl = document.getElementById('timeline');
+                const availRight = isTl
+                    ? Math.max(120, ((tlEl ? tlEl.scrollLeft : 0) + Math.round((tlEl ? tlEl.clientWidth : 0) * 0.85)) - 16 - box.offsetLeft)
+                    : Math.max(120, gridW - 16 - box.offsetLeft);
                 const w = Math.round(Math.min(Math.max(startW + ev.clientX - startX, 120), capW, availRight));
                 // v0.9.10：只改被拖的这条（每条独立宽度）——v0.9.9 曾同步应用全部 box
                 // 是全局共享宽度语义，现已废弃
@@ -311,9 +397,11 @@ export function initDialogueResize() {
             // v0.9.10：per-shot 持久化——以被拖 box 的实际宽度为准存 map
             // （别 querySelector 第一条——那是别的镜头没拖的条，会覆盖掉拖出来的宽度）
             const shotId = box.dataset.dlgId;
-            const w = Math.round(box.isConnected ? box.getBoundingClientRect().width : (dlgWidthMap[shotId] || 0));
+            const w = Math.round(box.isConnected ? box.getBoundingClientRect().width : (dlgWidthMap[shotId] ? dlgEntry(shotId).w : 0));
             if (w > 0 && shotId) {
-                dlgWidthMap[shotId] = w;
+                // v0.9.42：时间线存 {w, base: clipW}（固定比例跟随缩放）；宫格固定像素
+                // v0.9.52：时间线改存 {m, p}（镜头位语义，见 getDialogueWidth 注释）——像素宽按当前 clipW 换算
+                dlgWidthMap[shotId] = isTl ? tlWidthToMP(w, tlClipW()) : { w, base: null };
                 localStorage.setItem(DLG_MAP_KEY, JSON.stringify(dlgWidthMap));
             }
         };
@@ -322,10 +410,11 @@ export function initDialogueResize() {
     }, true);
 }
 
-// 台词条拖拽移动/互换（v0.9.16）：拖台词框体（非 resize 手柄）到其他镜头——
+// 台词条拖拽移动/互换（v0.9.16；v0.9.43 扩展时间线台词块 .tl-dlg-clip）：拖台词框体（非 resize 手柄）到其他镜头——
 // 目标无台词 = 移动（台词+宽度自定义值跟走，源清空）；目标有台词 = 互换（台词与宽度对调）。
-// 与 initDialogueResize 互斥（手柄不启动拖拽）；与卡片拖拽互斥（台词条不是 .shot-card）；
-// marquee 已排除 .dialogue-strip（v0.9.8）。落点命中卡片（含展开态帧格）或台词条都算目标镜头。
+// 与 initDialogueResize 互斥（手柄不启动拖拽）；与卡片拖拽互斥（台词条不是 .shot-card；
+// v0.9.46b 起时间线 clip 拖拽已启用，但 clip 拖拽只在 .shot-card 上触发，台词条拖拽不受影响）；marquee 已排除 .dialogue-strip（v0.9.8）。
+// 落点命中卡片（含展开态帧格/时间线 clip）或台词条都算目标镜头。
 export function initDialogueDrag() {
     let drag = null;          // {srcBox, srcId, startX, startY, active}
     let lastMove = null;      // pointercancel 无坐标时用最后 move 位置
@@ -338,7 +427,7 @@ export function initDialogueDrag() {
 
     document.addEventListener('pointerdown', (e) => {
         if (e.button !== 0) return;
-        const box = e.target.closest('.dialogue-box');
+        const box = e.target.closest('.dialogue-box, .tl-dlg-clip');
         if (!box || e.target.closest('.dialogue-resize')) return;  // 手柄 = 调宽，不启动
         if (state.trashMode || state.editingDlg) return;
         drag = { srcBox: box, srcId: box.dataset.dlgId, startX: e.clientX, startY: e.clientY, active: false };
@@ -358,9 +447,9 @@ export function initDialogueDrag() {
         e.preventDefault();
         lastMove = { x: e.clientX, y: e.clientY };
         drag.srcBox.style.transform = `translate(${dx}px, ${dy}px)`;  // 源条跟随（反馈）
-        // 命中检测：目标卡片（含展开态帧格）或目标台词条 → 高亮
+        // 命中检测：目标卡片（含展开态帧格/时间线 clip）或目标台词条 → 高亮
         const el = document.elementFromPoint(e.clientX, e.clientY);
-        const hit = el && el.closest ? (el.closest('.shot-card') || el.closest('.dialogue-box')) : null;
+        const hit = el && el.closest ? (el.closest('.shot-card') || el.closest('.dialogue-box, .tl-dlg-clip')) : null;
         if (hit && hit !== drag.srcBox && (hit.dataset.id || hit.dataset.dlgId) !== drag.srcId) {
             if (targetEl !== hit) { clearTarget(); targetEl = hit; hit.classList.add('dlg-drop-target'); }
         } else {
@@ -387,13 +476,30 @@ export function initDialogueDrag() {
         const fx = (e.type === 'pointercancel' && lastMove) ? lastMove.x : e.clientX;
         const fy = (e.type === 'pointercancel' && lastMove) ? lastMove.y : e.clientY;
         const el = document.elementFromPoint(fx, fy);
-        const hit = el && el.closest ? (el.closest('.shot-card') || el.closest('.dialogue-box')) : null;
+        const hit = el && el.closest ? (el.closest('.shot-card') || el.closest('.dialogue-box, .tl-dlg-clip')) : null;
         const dstId = hit ? (hit.dataset.id || hit.dataset.dlgId) : null;
         if (dstId && dstId !== st.srcId) moveOrSwapDialogue(st.srcId, dstId);
     };
 
     document.addEventListener('pointerup', finishDrag, true);
     document.addEventListener('pointercancel', finishDrag, true);
+
+    // v0.9.44b：ESC 取消拖拽——源条复位、目标高亮清除、不落盘（等同"拖到一半反悔"）；
+    // 与 finishDrag 同款"先禁过渡把 transform 落定再恢复"（否则清 transform 被当过渡）；
+    // drag 置 null 后 pointerup 的 finishDrag 直接 return，不会触发 moveOrSwapDialogue
+    document.addEventListener('keydown', (e) => {
+        if (e.key !== 'Escape' || !drag) return;
+        const st = drag;
+        drag = null;
+        state.dragSrcEl = null;
+        document.body.style.userSelect = '';
+        st.srcBox.style.transition = 'none';
+        st.srcBox.style.transform = '';
+        void st.srcBox.offsetWidth;   // 强制 reflow：transition none 下 transform 立即生效
+        st.srcBox.style.transition = '';
+        st.srcBox.classList.remove('dlg-dragging');
+        clearTarget();
+    }, true);
 
     // 拖拽后抑制浏览器补派的 click（双击编辑等点击逻辑不被拖拽误触发）
     document.addEventListener('click', (e) => {
@@ -405,7 +511,8 @@ export function initDialogueDrag() {
     }, true);
 }
 
-// 台词移动/互换的数据操作：两次 update（乐观更新；失败回滚已成功的请求 + 本地 state/宽度 map）
+// 台词移动/互换的数据操作（v0.9.68：单请求原子 move_dialogue——原两次 update 各 push 一条
+// undo，一次撤销只回放一条 = 移动后撤销台词消失；现在一次落盘 + 单条 undo，一次撤销全恢复）
 async function moveOrSwapDialogue(srcId, dstId) {
     const src = state.shots.find(s => s.id === srcId);
     const dst = state.shots.find(s => s.id === dstId);
@@ -414,9 +521,6 @@ async function moveOrSwapDialogue(srcId, dstId) {
     const dstText = dst.dialogue || '';
     const swap = !!(dstText && dstText.trim());
     // 目标无台词 = 移动（源清空）；有台词 = 互换
-    const updates = swap
-        ? [{ id: srcId, dialogue: dstText }, { id: dstId, dialogue: srcText }]
-        : [{ id: srcId, dialogue: '' }, { id: dstId, dialogue: srcText }];
     // 宽度自定义值跟台词走（移动：src→dst；互换：对调），先备份旧 map 供失败回滚
     const oldMap = { ...dlgWidthMap };
     const srcW = dlgWidthMap[srcId], dstW = dlgWidthMap[dstId];
@@ -428,37 +532,35 @@ async function moveOrSwapDialogue(srcId, dstId) {
         delete dlgWidthMap[srcId];
     }
     const oldSrc = src.dialogue, oldDst = dst.dialogue;
-    src.dialogue = updates[0].dialogue;
-    dst.dialogue = updates[1].dialogue;
-    const done = [];
+    src.dialogue = swap ? dstText : '';
+    dst.dialogue = srcText;
     try {
-        for (const u of updates) {
-            const res = await fetch(`/api/shot/${u.id}`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ action: 'update', fields: { dialogue: u.dialogue } })
-            });
-            if (!res.ok) throw new Error(`HTTP ${res.status}`);
-            done.push(u);
-        }
+        const res = await fetch(`/api/shot/${srcId}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'move_dialogue', dst_id: dstId })
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        // v0.9.43：成功后持久化宽度 map（原缺失——只改内存不落盘，reload 后宽度对调丢失）
+        localStorage.setItem(DLG_MAP_KEY, JSON.stringify(dlgWidthMap));
     } catch (err) {
         console.error('Dialogue move/swap failed:', err);
-        // 回滚已成功的请求（反序恢复旧值），本地 state 与宽度 map 一并还原
-        for (const u of done.reverse()) {
-            try {
-                await fetch(`/api/shot/${u.id}`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ action: 'update', fields: { dialogue: u.id === srcId ? oldSrc : oldDst } })
-                });
-            } catch { /* 尽力而为 */ }
-        }
+        // 本地 state 与宽度 map 还原（后端 move_dialogue 写失败时自身已回滚，无半成功请求需补偿）
         src.dialogue = oldSrc;
         dst.dialogue = oldDst;
         Object.keys(dlgWidthMap).forEach(k => delete dlgWidthMap[k]);
         Object.assign(dlgWidthMap, oldMap);
         localStorage.setItem(DLG_MAP_KEY, JSON.stringify(dlgWidthMap));
         toast('台词移动失败，已还原');
+    }
+    if (state.viewMode === 'timeline') {
+        // v0.9.43：时间线动画——源块「收回去」，目标位新块「长出来」（renderTimeline 消费）
+        const lane = document.getElementById('tlDlgLane');
+        if (lane) {
+            const srcBox = lane.querySelector(`.tl-dlg-clip[data-dlg-id="${srcId}"]`);
+            if (srcBox) { srcBox.classList.add('tl-dlg-leave'); scheduleDlgLeaveCleanup(); }
+        }
+        state.dlgAnim = { ids: swap ? [srcId, dstId] : [dstId] };
     }
     renderGrid();  // 差分渲染 + updateDialogue 对账（源淡出/目标淡入自动）
 }
@@ -616,7 +718,7 @@ function thumbImgHtml(shot, eager) {
 }
 
 // ---- 多图镜头（v0.7.0）----
-const SVG_NOIMG = `data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%22320%22 height=%22180%22><rect fill=%22%23333%22 width=%22320%22 height=%22180%22/><text fill=%22%23666%22 x=%2250%25%22 y=%2250%25%22 text-anchor=%22middle%22>No image</text></svg>`;
+export const SVG_NOIMG = `data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%22320%22 height=%22180%22><rect fill=%22%23333%22 width=%22320%22 height=%22180%22/><text fill=%22%23666%22 x=%2250%25%22 y=%2250%25%22 text-anchor=%22middle%22>No image</text></svg>`;
 
 function frameImgHtml(frame, shot, eager, extraClass = '') {
     const load = eager ? 'eager' : 'lazy';
@@ -933,8 +1035,8 @@ export function renderGrid() {
     // v0.9.36：清时间线视图残留——stage/timeline 是 grid 的直接子元素，grid 布局下会占格子
     const _tlStage = document.getElementById('timelineStage');
     if (_tlStage) _tlStage.remove();
-    const _tlEl = document.getElementById('timeline');
-    if (_tlEl) _tlEl.remove();
+    const _tlWrap = document.querySelector('.tl-wrap');
+    if (_tlWrap) _tlWrap.remove();   // v0.9.53：舞台容器（含 #timeline + 淡出遮罩）一起清
     // v0.9.3：差分重建会经过"grid 短暂变空"的中间态（复用节点移入 fragment 再挂回），
     // 浏览器在渲染帧把 scrollY clamp 掉 = 页面跳顶。任务内保存并在末尾恢复滚动位置，
     // 恢复后渲染帧时内容已完整、scrollY 有效，浏览器不再调整。
@@ -1251,16 +1353,24 @@ export function renderOtherGrid() {
     removeSkeleton();
     if (state.shots.length === 0) {
         grid.classList.add('grid-empty');  // v0.9.35：其它页空态同样整页居中
+        grid.classList.remove('list-mode');  // v0.9.64：空态清列表布局残留
+        document.getElementById('listHeader').classList.toggle('on', false);
         grid.innerHTML = '<div class="empty-state"><p>没有其它场景——手动在 Blender 创建的场景会出现在这里</p></div>';
         updateStats();
         return;
     }
     grid.classList.remove('grid-empty');
+    // v0.9.64：其它视图支持宫格/列表切换（与垃圾桶对等，垃圾桶走 renderGrid 正常流程天然支持）。
+    // 此前 renderOtherGrid 只渲染宫格卡片且不管 list-mode class——切列表 viewMode/按钮高亮变了
+    // 但 grid 布局残留，视觉 = 「切换不灵」。列表条目无帧图/时长/内容列，列模板见 CSS .other-card.list-item
+    const isList = state.viewMode === 'list';
+    grid.classList.toggle('list-mode', isList);
+    document.getElementById('listHeader').classList.toggle('on', false);  // 其它页无镜头表头语义（退出后 renderGrid 恢复）
     const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
     const frag = document.createDocumentFragment();
     for (const s of state.shots) {
         const card = document.createElement('div');
-        card.className = 'shot-card other-card';
+        card.className = 'shot-card other-card' + (isList ? ' list-item' : '');
         card.dataset.id = s.id;
         card.dataset.scene = s.scene_name || '';
         card.innerHTML = `
@@ -1279,16 +1389,25 @@ export function renderOtherGrid() {
 // toggleView 保留给 Tab 快捷键（keyboard.js）与 __sb 调试句柄
 export function setView(mode) {
     if (state.viewMode === mode) return;
+    state.prevViewMode = state.viewMode;  // 2026-08-10：Tab 最近视图来回切——切换前视图记入 prev
     state.viewMode = mode;
+    // v0.9.55c：宫格/列表开着预览窗口切到时间线会残留 preview-on margin（441px）把时间线
+    // 布局挤扁——切到时间线前自动关预览（须在 syncViewToggleButton 之前：applyLayout 会关
+    // 预览按钮高亮，之后 syncViewToggleButton 按 timeline 锁定高亮恢复；此时 viewMode 已 =
+    // timeline，setPreview 的 timeline 门控只拦开不拦关，false 放行）
+    if (mode === 'timeline' && state.previewOn) setPreview(false);
     localStorage.setItem('sb-view', state.viewMode);
     syncViewToggleButton();
     // v0.9.37：时间线横轴缩放启用——缩放控件不再按视图禁用（renderTimeline 内 syncTlSlider 同步档位）
     grid.querySelectorAll('.shot-card').forEach(el => { el.dataset.key = ''; });
     const selId = [...state.selectedIds][0] || null;
     state.viewSpreadId = selId;  // 扩散 FLIP 中心（renderGrid 内部消费后清空）
+    // v0.9.54：切到时间线视图 → 入场生长动画标志（renderTimeline 消费后清空；首屏直落由 main.js 设置）
+    if (mode === 'timeline') state.tlEnterAnim = true;
     renderGrid();
-    // 刷新缩放滑块（列表/宫格各自的范围不同）
-    if (window.__zoomApply) window.__zoomApply();
+    // 刷新缩放滑块（列表/宫格各自的范围不同；时间线由 renderTimeline 内 syncTlSlider 负责——
+    // zoomApply 的 timeline 分支会无条件重渲染 renderTimeline，切视图入场动画会被重建清掉，v0.9.54）
+    if (window.__zoomApply && mode !== 'timeline') window.__zoomApply();
     // 先定位：立即滚到选中镜头（scrollIntoView 按布局位置，不受 FLIP transform 影响；
     // FLIP 用 offset* 计算同样不受滚动影响，定位与扩散互不干扰）
     if (selId) {
@@ -1298,7 +1417,13 @@ export function setView(mode) {
 }
 
 export function toggleView() {
-    setView(state.viewMode === 'grid' ? 'list' : 'grid');
+    // 2026-08-10：Tab = 当前视图 ↔ 上一个视图来回切（用户拍板，替代固定 grid↔list）
+    // prev 为空（首屏直落/刷新后）或等于当前（trash/other 模式强制改 viewMode 造成）
+    // 时回退旧语义 grid↔list，保证垃圾桶/其它页内 Tab 不失效
+    const prev = state.prevViewMode;
+    const target = (prev && prev !== state.viewMode) ? prev
+                                                      : (state.viewMode === 'grid' ? 'list' : 'grid');
+    setView(target);
 }
 
 export function syncViewToggleButton() {
@@ -1310,6 +1435,27 @@ export function syncViewToggleButton() {
     if (t) t.classList.toggle('active-view', state.viewMode === 'timeline');
     // v0.9.38g：时间线自带顶部预览区（决策 3A）——预览按钮锁定高亮不可关闭；
     // 非时间线模式按 state.previewOn 恢复（preview.js setPreview 也管这里，二者互补）
+    // v0.9.61：垃圾桶/其它视图四功能按钮（时间线/预览/创建/台词）统一灰掉+去蓝底——
+    // disabled 与 active-view 全部由本函数管理，进出模式处（trash.js/other.js）必调
+    const inSpecial = state.trashMode || state.otherMode;
     const p = document.getElementById('previewBtn');
-    if (p) p.classList.toggle('active-view', state.viewMode === 'timeline' || state.previewOn);
+    if (p) {
+        p.classList.toggle('active-view', !inSpecial && (state.viewMode === 'timeline' || state.previewOn));
+        p.classList.toggle('disabled', inSpecial);
+    }
+    // v0.9.58：列表视图无台词条语义——台词按钮灰掉不可点（回宫格/时间线恢复）
+    // v0.9.60：列表视图同时去掉蓝底（active-view 中状态）
+    // v0.9.61：垃圾桶/其它视图台词按钮同款灰掉+去蓝底
+    const dlg = document.getElementById('dialogueBtn');
+    if (dlg) {
+        const inList = state.viewMode === 'list';
+        dlg.classList.toggle('disabled', inList || inSpecial);
+        dlg.classList.toggle('active-view', state.dialogueOn && !inList && !inSpecial);
+    }
+    // v0.9.60：垃圾桶/其它视图时间线图标灰掉（时间线入口在垃圾桶/其它页无语义——互斥设计 v0.9.36）
+    const tlBtn = document.getElementById('viewTimelineBtn');
+    if (tlBtn) tlBtn.classList.toggle('disabled', inSpecial);
+    // v0.9.61：创建按钮同款灰掉（垃圾桶/其它页无创建语义）
+    const createBtn = document.getElementById('btnCreate');
+    if (createBtn) createBtn.classList.toggle('disabled', inSpecial);
 }

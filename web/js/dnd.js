@@ -119,8 +119,9 @@ export function initCardDnd() {
 
     document.addEventListener('pointerdown', (e) => {
         if (e.button !== 0) return;
-        // v0.9.36：时间线视图 clip 不支持拖拽排序（横向滚动区，拖拽语义后续再做）
-        if (state.viewMode === 'timeline') return;
+        // v0.9.46b：时间线视图 clip 拖拽排序已启用（横向滚动区，竖线指示线 + 半区判定天然适配；
+        // 拖拽中同镜头台词条水平跟手，见 pointermove）。台词条（.tl-dlg-clip）不是 .shot-card，
+        // 自身拖拽（initDialogueDrag）与这里互斥不受影响。
         const card = e.target.closest('.shot-card');
         if (!card || state.editingId || state.trashMode) return;
         // 交互控件按下不启动拖拽，保留原交互（按钮/角标/折叠钮/输入框/缺帧占位）
@@ -142,6 +143,12 @@ export function initCardDnd() {
         e.preventDefault();  // 拖拽中阻止浏览器默认（不会启动原生 DnD）
         lastMove = { x: e.clientX, y: e.clientY };
         drag.srcEl.style.transform = `translate(${dx}px, ${dy}px) scale(0.7)`;  // 源卡跟随（反馈）；v0.9.34 用户要求拖拽中缩小到 70%
+        // v0.9.46b：时间线拖拽中同镜头台词条水平跟手（台词与 clip 同镜头绑定；y 不跟——台词条属于台词轨道，
+        // 垂直跟会飘出轨道；松手后 reorder → renderTimeline 重建，FLIP 从布局位置滑到新位置）
+        if (state.viewMode === 'timeline' && drag.srcEl.dataset.id) {
+            const db = document.querySelector(`.tl-dlg-clip[data-dlg-id="${drag.srcEl.dataset.id}"]`);
+            if (db) db.style.transform = `translate(${dx}px, 0)`;
+        }
         // 命中检测：鼠标下的卡片（源卡 transform 移开后原位置露出下层元素）
         const el = document.elementFromPoint(e.clientX, e.clientY);
         let card = el && el.closest ? el.closest('.shot-card') : null;
@@ -166,6 +173,11 @@ export function initCardDnd() {
         void st.srcEl.offsetWidth;   // 强制 reflow：transition none 下 transform 立即生效
         st.srcEl.style.transition = '';
         st.srcEl.classList.remove('dragging');
+        // v0.9.46b：台词条跟手同步复位（台词条无 transition 属性，直接清即落定）
+        if (state.viewMode === 'timeline' && st.srcEl.dataset.id) {
+            const db = document.querySelector(`.tl-dlg-clip[data-dlg-id="${st.srcEl.dataset.id}"]`);
+            if (db) db.style.transform = '';
+        }
         if (!st.active) return;  // 未超阈值 = 点击，原生 click 照常（选择/展开/聚焦）
         suppressClickUntil = Date.now() + 600;  // 拦截拖拽后浏览器补派的 click
         // 释放位置重新命中 + 刷新 dropPos（快速移动时可能过期）；
@@ -189,6 +201,27 @@ export function initCardDnd() {
 
     document.addEventListener('pointerup', finishDrag, true);
     document.addEventListener('pointercancel', finishDrag, true);
+
+    // v0.9.44b：ESC 取消卡片拖拽——源卡复位、指示线清除、不落盘（同台词条拖拽模式）；
+    // drag 置 null 后 pointerup 的 finishDrag 直接 return，不会触发 reorderShots
+    document.addEventListener('keydown', (e) => {
+        if (e.key !== 'Escape' || !drag) return;
+        const st = drag;
+        drag = null;
+        state.dragSrcEl = null;
+        document.body.style.userSelect = '';
+        st.srcEl.style.transition = 'none';
+        st.srcEl.style.transform = '';
+        void st.srcEl.offsetWidth;   // 强制 reflow：transition none 下 transform 立即生效
+        st.srcEl.style.transition = '';
+        st.srcEl.classList.remove('dragging');
+        hideDropIndicator();
+        // v0.9.46b：ESC 取消时间线拖拽——台词条跟手同步复位
+        if (state.viewMode === 'timeline' && st.srcEl.dataset.id) {
+            const db = document.querySelector(`.tl-dlg-clip[data-dlg-id="${st.srcEl.dataset.id}"]`);
+            if (db) db.style.transform = '';
+        }
+    }, true);
 
     // 拖拽后抑制浏览器补派的 click（选择/展开等点击逻辑不被拖拽误触发）
     document.addEventListener('click', (e) => {
@@ -227,6 +260,13 @@ export function initFileDrop() {
 
     const hideOverlay = () => {
         overlay.style.display = 'none';
+        // v0.9.64：时间线拖图分区清理——摘 tl-drop class + 清 inline 位置（防切回宫格后 absolute 残留污染 flex 80/20）
+        overlay.classList.remove('tl-drop');
+        zoneNew.style.top = '';
+        zoneNew.style.height = '';
+        zoneCard.style.top = '';
+        zoneCard.style.height = '';
+        zoneNew.querySelector('.zone-text').textContent = '拖到这里 = 新建图片镜头';
         setFileHover(null);
         zoneNew.classList.remove('active');
     };
@@ -282,9 +322,27 @@ export function initFileDrop() {
 
     document.addEventListener('dragenter', (e) => {
         if (!isFileDrag(e)) return;
-        if (state.viewMode === 'timeline') return;  // v0.9.36：时间线视图禁文件拖入（v1 保守）
         dragCounter++;
         overlay.style.display = 'flex';
+        // v0.9.64：时间线视图拖图分区按预览区/缩略图区当前比例——上方预览区 = 新建区，
+        // 下方缩略图区 = 卡片区（替代宫格固定 80/20，边界随 applyTlSplit 实时布局；stage/wrap 缺失时
+        // 保持默认 flex 兜底，如空库 grid-empty 未建 stage）
+        if (state.viewMode === 'timeline') {
+            const st = document.getElementById('timelineStage');
+            const wr = document.querySelector('.tl-wrap');
+            if (st && wr) {
+                overlay.classList.add('tl-drop');
+                const sr = st.getBoundingClientRect();
+                const rr = wr.getBoundingClientRect();
+                zoneNew.style.top = (sr.top + 8) + 'px';
+                zoneNew.style.height = (sr.height - 16) + 'px';
+                zoneCard.style.top = (rr.top + 8) + 'px';
+                zoneCard.style.height = (rr.height - 16) + 'px';
+                zoneNew.querySelector('.zone-text').textContent = '拖到上方预览区 = 新建图片镜头';
+            }
+        } else {
+            overlay.classList.remove('tl-drop');
+        }
     });
     document.addEventListener('dragleave', (e) => {
         if (!isFileDrag(e)) return;
@@ -303,12 +361,13 @@ export function initFileDrop() {
         zoneCard.classList.toggle('disabled', multi);
         zoneCard.querySelector('.zone-text').textContent = multi
             ? '暂不支持单镜头多图（下一轮）'
-            : '拖到镜头卡片上 = 设为该镜头背景';
+            : (state.viewMode === 'timeline'
+                ? '拖到下方镜头块 = 设为该镜头背景'
+                : '拖到镜头卡片上 = 设为该镜头背景');
         setFileHover(multi ? null : (e.target.closest ? e.target.closest('.shot-card') : null));
     });
     document.addEventListener('drop', async (e) => {
         if (!isFileDrag(e)) return;
-        if (state.viewMode === 'timeline') return;  // v0.9.36：时间线视图禁文件拖入
         e.preventDefault();
         e.stopPropagation();
         dragCounter = 0;

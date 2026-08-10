@@ -545,6 +545,34 @@ def shot_action(project_dir, db_path, shot_id, data):
             undo.push(f"修改 {old['name']}", {"db": [(shot_id, old_fields)]})
         return {"status": "ok"}, 200
 
+    elif action == "move_dialogue":
+        # v0.9.68：台词移动/互换原子化——原前端两次独立 update 各 push 一条 undo，
+        # 一次撤销只回放一条 → 移动后撤销台词消失（需求池 474 行 bug 实测复现）。
+        # 现在：一次写两个镜头 + 单条 undo entry（db 两条记录，undo_action 一次回放全恢复）
+        dst_id = data.get("dst_id", "")
+        if not dst_id or dst_id == shot_id:
+            return {"status": "error", "message": "invalid dst_id"}, 400
+        src = get_shot(db_path, shot_id)
+        if not src:
+            return {"status": "error", "message": "not found"}, 404
+        dst = get_shot(db_path, dst_id)
+        if not dst:
+            return {"status": "error", "message": "dst not found"}, 404
+        src_text = src.get("dialogue") or ""
+        dst_text = dst.get("dialogue") or ""
+        swap = bool(dst_text and dst_text.strip())
+        try:
+            update_shot(db_path, shot_id, dialogue=(dst_text if swap else ""))
+            update_shot(db_path, dst_id, dialogue=src_text)
+        except Exception as ex:
+            # 第二个写失败 → 回滚第一个写，保持两镜头一致
+            update_shot(db_path, shot_id, dialogue=src_text)
+            return {"status": "error", "message": f"write failed: {ex}"}, 500
+        undo.push(f"{'互换' if swap else '移动'}台词 {src['name']}→{dst['name']}", {
+            "db": [(shot_id, {"dialogue": src_text}), (dst_id, {"dialogue": dst_text})],
+        })
+        return {"status": "ok"}, 200
+
     # All actions below need the shot record
     shot = get_shot(db_path, shot_id)
     if not shot:

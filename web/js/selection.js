@@ -34,6 +34,10 @@ export function updateSelectionUI() {
     document.querySelectorAll('.shot-card').forEach(c => {
         c.classList.toggle('selected', state.selectedIds.has(c.dataset.id));
     });
+    // v0.9.57：时间线台词条高亮跟随选中态（宫格/列表视图下 .tl-dlg-clip 不存在，空循环零开销）
+    document.querySelectorAll('.tl-dlg-clip').forEach(b => {
+        b.classList.toggle('selected', state.selectedIds.has(b.dataset.dlgId));
+    });
     updateStats();
 }
 

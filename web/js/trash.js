@@ -18,6 +18,9 @@ export async function enterTrashMode() {
     state.trashMode = true;
     clearSelection();
     document.body.classList.add('trash-mode');
+    // v0.9.61：垃圾桶四功能按钮（时间线/预览/创建/台词）统一灰掉+去蓝底——
+    // syncViewToggleButton 是必经入口（原 v0.9.58/60 散落的显式 classList 收编到此）
+    syncViewToggleButton();
     const btn = document.getElementById('trashBtn');
     // v0.9.24：按钮图标化后不再重写 innerHTML——高亮 + tooltip(data-tip) 区分模式
     btn.classList.add('active-view');
@@ -30,6 +33,8 @@ export async function exitTrashMode(silent) {
     state.trashMode = false;
     clearSelection();
     document.body.classList.remove('trash-mode');
+    // v0.9.61：退出垃圾桶恢复四按钮（syncViewToggleButton 按 viewMode/previewOn/dialogueOn 还原蓝底）
+    syncViewToggleButton();
     const btn = document.getElementById('trashBtn');
     btn.classList.remove('active-view');
     btn.dataset.tip = '垃圾桶：查看/恢复已删除的镜头';

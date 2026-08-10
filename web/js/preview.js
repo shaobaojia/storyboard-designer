@@ -215,7 +215,9 @@ export function updatePreview() {
 
 export function setPreview(on) {
     // v0.9.36：时间线视图自带顶部预览区（决策 3A），侧边预览框在时间线模式下不参与
-    if (state.viewMode === 'timeline') return;
+    // v0.9.55c：「关」必须放行——从宫格/列表带着预览切到时间线时 setView 自动调 setPreview(false)
+    // 清理 grid 的 preview-on margin（不清理会残留 441px 右 margin，时间线布局被挤扁）
+    if (state.viewMode === 'timeline' && on) return;
     if (on === state.previewOn) return;
     state.previewOn = on;
     const gridEl = document.getElementById('grid');

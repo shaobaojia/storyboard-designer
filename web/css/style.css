@@ -134,8 +134,12 @@
             top: 0;
             z-index: 700;
             background: var(--bg-body);
-            display: flex;
-            justify-content: space-between;
+            /* v0.9.67：grid 三列 1fr minmax 1fr——搜索框严格页面居中（左右 1fr 强制等宽，
+               与标题/按钮宽度无关；flex auto margin 只平分「标题右缘↔按钮左缘」空隙，
+               标题 252 vs 按钮区窄时中心偏右 100px 实测）；
+               minmax(160,300) 保留窄窗收缩（absolute 固定 300 在 818px 窗口与标题重叠 14px 实测） */
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) minmax(160px, 300px) minmax(0, 1fr);
             align-items: center;
             height: var(--header-h);
             /* v0.9.26：padding 上下对称（15/15）——标题/搜索框/按钮在标题栏垂直居中；
@@ -143,7 +147,7 @@
             padding: 15px 0 15px;
             border-bottom: 1px solid var(--border);
         }
-        .header h1 { font-size: 18px; font-weight: 600; line-height: 30px; }
+        .header h1 { font-size: 18px; font-weight: 600; line-height: 30px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }  /* v0.9.67：默认 stretch 填满左列（justify-self:start 会让 h1 宽=内容宽，窄窗溢出列与搜索框重叠）+ min-width 0 + ellipsis 窄窗省略 */
         /* v0.9.5：标题栏统计（总镜数/总时长）——紧贴标题，弱化小字 */
         .stats-bar {
             font-size: 12px;
@@ -152,8 +156,8 @@
             margin-left: 10px;
             white-space: nowrap;
         }
-        /* 搜索栏（v0.9.3）：header 内嵌，下拉浮层绝对定位 */
-        .search-wrap { position: relative; margin: 0 16px; flex: 0 1 300px; min-width: 160px; }
+        /* 搜索栏（v0.9.3）：header 内嵌，下拉浮层绝对定位（v0.9.67：grid 中间列居中，width 100% 填列宽） */
+        .search-wrap { position: relative; justify-self: center; width: 100%; }
         .search-wrap input {
             width: 100%; background: var(--bg-elevated); border: 1px solid var(--border-input); color: var(--text);
             border-radius: 4px; padding: 0 10px; height: 30px; font-size: 13px; outline: none;
@@ -180,7 +184,7 @@
             background: var(--bg-chip); color: var(--text-faint); border-radius: 3px;
             padding: 1px 6px; font-size: 11px; flex: none;
         }
-        .header .actions { display: flex; align-items: center; }
+        .header .actions { display: flex; align-items: center; justify-self: end; }
         .header .actions button {
             background: var(--bg-btn);
             border: none;
@@ -594,7 +598,7 @@
             top: var(--header-h);
             z-index: 600;
             background: var(--bg-body);
-            grid-template-columns: calc(var(--list-thumb-w) * var(--list-scale)) calc(150px * var(--list-scale)) calc(60px * var(--list-scale)) 7fr 3fr calc(110px * var(--list-scale));
+            grid-template-columns: calc(var(--list-thumb-w) * var(--list-scale)) calc(75px * var(--list-scale)) calc(60px * var(--list-scale)) 7fr 3fr calc(110px * var(--list-scale));
             column-gap: 14px;
             align-items: center;
             padding: 6px 14px;
@@ -605,7 +609,7 @@
         .list-header.on { display: grid; }
         .shot-card.list-item {
             display: grid;
-            grid-template-columns: calc(var(--list-thumb-w) * var(--list-scale)) calc(150px * var(--list-scale)) calc(60px * var(--list-scale)) 7fr 3fr calc(110px * var(--list-scale));
+            grid-template-columns: calc(var(--list-thumb-w) * var(--list-scale)) calc(75px * var(--list-scale)) calc(60px * var(--list-scale)) 7fr 3fr calc(110px * var(--list-scale));  /* v0.9.70：镜头名 150→75 减半，腾出空间由 7fr/3fr 自动吸收（需求池 477 行） */
             column-gap: 14px;
             align-items: center;
             margin-bottom: 6px;
@@ -661,7 +665,13 @@
         .shot-card.list-item .list-frames .frame-thumb img {
             aspect-ratio: var(--aspect, 1.778);
         }
-        .shot-card.list-item .shot-name { margin-bottom: 0; }
+        .shot-card.list-item .shot-name {
+            margin-bottom: 0;
+            /* v0.9.70：镜头名列 150→75 减半后长名 ellipsis，防溢出盖内容列 */
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
         .multi-badge {
             display: inline-block;
             margin-left: 6px;
@@ -689,10 +699,10 @@
         .shot-card.list-item .shot-name-input,
         .shot-card.list-item .field-input { width: 100%; margin-bottom: 0; font-weight: 400; }
         /* v0.9.19：内容/台词列编辑态 = 多行 textarea（高随内容，至少撑满条目内容区
-           与显示态一致；字号随列表缩放；resize:none 禁手柄、overflow:hidden 由 JS 适配） */
+           与显示态一致；字号固定 12px 不随 --list-scale（v0.9.69）；resize:none 禁手柄、overflow:hidden 由 JS 适配） */
         .shot-card.list-item .field-input.multiline {
             display: block;
-            font-size: calc(12px * var(--list-scale));
+            font-size: 12px;  /* v0.9.69：与 .cell-text 同步固定（原 calc(12px*scale) 开预览缩字） */
             line-height: 1.4;
             padding: 2px 4px;
             margin: 0;
@@ -709,7 +719,7 @@
         }
         .shot-card.list-item .shot-meta { white-space: nowrap; }
         .shot-card.list-item .cell-text {
-            font-size: calc(12px * var(--list-scale));  /* v0.9.19：字号随列表缩放 */
+            font-size: 12px;  /* v0.9.69：字号固定——开预览 --list-scale 只缩列宽不缩字（原 calc(12px*scale) 开预览后 6px 不可读，需求池 476 行） */
             line-height: 1.4;
             color: var(--text-2);
             /* v0.9.19：单行截断 → 多行文本框（内容可换行显示；超出条目高截断，
@@ -921,29 +931,34 @@
             outline: none;
         }
 
-        /* 底部居中工具条（v0.9.24）：视图控制组（宫格/列表/预览）+ 功能组（新建/台词/画幅/垃圾桶） */
+        /* 底部居中工具条（v0.9.24）：视图控制组（宫格/列表/预览）+ 功能组（新建/台词/画幅/垃圾桶）
+           v0.9.56：高度统一 35px（与左下角 zoom-bar、右下角 corner-right 一致）——三容器 bottom 同钉
+           16px，等高后图标上沿/下沿在一条水平线上（原 48px = 8px padding + 30px 按钮，图标低 7px）
+           v0.9.56b：用户拍板中间工具条等比放大 1.5 倍（按钮 36 / 图标 24 / 间距 gap 15 / 高 53），
+           下沿间距保持 16px；左右两容器保持 35px 不变 */
         .size-slider {
             position: fixed;
             left: 50%;
             transform: translateX(-50%);
             bottom: 16px;
+            height: 53px;
             display: flex;
             align-items: center;
-            gap: 10px;
+            gap: 15px;
             background: var(--bg-card);
             border: 1px solid var(--border-2);
-            border-radius: 8px;
-            padding: 8px 12px;
+            border-radius: 12px;
+            padding: 0 18px;
             z-index: 900;
         }
         .size-slider .tool-group {
             display: flex;
             align-items: center;
-            gap: 6px;
+            gap: 9px;
         }
         .size-slider .tool-divider {
             width: 1px;
-            height: 24px;
+            height: 36px;
             background: var(--border-2);
             flex: none;
         }
@@ -951,12 +966,12 @@
             background: transparent;   /* v0.9.24：默认无底衬，hover 才显示 */
             border: none;
             color: var(--text);
-            width: 30px;
-            height: 30px;
+            width: 36px;   /* v0.9.56b：等比 1.5 倍（原 24px） */
+            height: 36px;
             padding: 0;
-            border-radius: 4px;
+            border-radius: 6px;
             cursor: pointer;
-            font-size: 16px;   /* v0.9.26：SVG 图标 1em——原 iconfont 16px 视觉 */
+            font-size: 24px;   /* v0.9.56b：SVG 图标 1em——等比 1.5 倍（原 16px） */
             position: relative;
             display: inline-flex;
             align-items: center;
@@ -965,10 +980,14 @@
         }
         .size-slider .bar-btn:hover { background: var(--bg-hover); }
         .size-slider .bar-btn.active-view { background: var(--accent); color: var(--text-strong); }
-        .size-slider .zoom-step {
-            font-size: 13px;
-            line-height: 1;
+        /* v0.9.58：按钮禁用态（灰掉 + 不可点）——列表视图台词按钮 / 垃圾桶、其它视图创建按钮 */
+        .size-slider .bar-btn.disabled {
+            opacity: 0.35;
+            pointer-events: none;
+            cursor: default;
         }
+        /* v0.9.56：删除 .zoom-step 死代码（原 font-size:13px——特异性 (0,1,0) 输给
+           .zoom-bar .bar-btn (0,2,0)，从未生效；保留会误导将来提特异性后 -/+ 图标变小） */
         /* v0.9.8：台词开关按钮的高亮态（工具条按钮在 header，选择器放宽到全局） */
         .bar-btn.active-view { background: var(--accent); color: var(--text-strong); }
         /* v0.9.24：按钮 hover 文字——data-tip 自定义 tooltip，hover 立即显示（无原生 title 冷启动延迟） */
@@ -1026,15 +1045,16 @@
         }
         #trashCount {
             /* v0.9.35：流内 span → absolute 浮层角标（挂按钮右上角，脱离文档流不再挤压图标；
-               按钮 .bar-btn 本身 position:relative，角标天然跟随按钮位置） */
+               按钮 .bar-btn 本身 position:relative，角标天然跟随按钮位置）
+               v0.9.56b：随按钮等比 1.5 倍（-6→-9px，10→12px） */
             position: absolute;
-            top: -6px;
-            right: -6px;
+            top: -9px;
+            right: -9px;
             background: var(--danger);
             color: var(--text-strong);
-            border-radius: 8px;
-            font-size: 10px;
-            padding: 1px 5px;
+            border-radius: 10px;
+            font-size: 12px;
+            padding: 1px 6px;
             line-height: 1.4;
             pointer-events: none;   /* 角标探出按钮外，点击穿透到按钮 */
             display: none;
@@ -1069,11 +1089,29 @@
             text-overflow: ellipsis;
             white-space: nowrap;
         }
+        /* v0.9.64：其它视图列表条目——无帧图/时长/内容/台词列，场景名 + 相机两列覆盖 .list-item 六列模板。
+           场景名列接列表滑块（--list-thumb-w × 预览等比 --list-scale），clamp 防极值过宽/过窄 */
+        .shot-card.list-item.other-card {
+            grid-template-columns: clamp(120px, calc(var(--list-thumb-w) * var(--list-scale) * 2), 460px) 1fr;
+            column-gap: 14px;
+            padding: 6px 12px;
+        }
+        .shot-card.list-item.other-card .other-name {
+            font-size: 14px;
+            text-align: left;
+            max-width: none;
+        }
+        .shot-card.list-item.other-card .other-meta {
+            font-size: 12px;
+            max-width: none;
+        }
 
         /* 右下角统计 (#8) + 快捷键按钮（v0.9.21：并排一行，统计左、快捷键右） */
         .corner-right {
             position: fixed;
-            right: 16px;
+            /* v0.9.55f：视觉右间距 = 16px（与左下角缩放滑条一致）——right 按可视区 16 计算，
+               再减常驻滚动条宽度（100vw-100% = 滚动条宽，body 无 margin 时成立；overlay 滚动条时为 0 自动回退） */
+            right: calc(16px - (100vw - 100%));
             bottom: 16px;
             display: flex;
             align-items: center;
@@ -1131,6 +1169,25 @@
             100% { transform: translateY(8px) scale(.97); opacity: 0; }
         }
         .shortcuts-panel .sc-title { font-size: 13px; font-weight: 700; color: var(--text); margin-bottom: 8px; }
+        /* v0.9.56e：快捷键面板 Tab 标签（全局/时间线） */
+        .sc-tabs {
+            display: flex;
+            gap: 6px;
+            margin-bottom: 10px;
+            padding-bottom: 8px;
+            border-bottom: 1px solid var(--border-2);
+        }
+        .sc-tab {
+            padding: 4px 14px;
+            border-radius: 5px;
+            font-size: 12px;
+            cursor: pointer;
+            background: transparent;
+            color: var(--text-secondary);
+            border: 1px solid var(--border-2);
+        }
+        .sc-tab:hover { background: var(--bg-hover); color: var(--text); }
+        .sc-tab.active { background: var(--accent); border-color: var(--accent); color: var(--text-strong); }
         .sc-row {
             display: flex;
             align-items: center;
@@ -1523,6 +1580,14 @@
         }
         #dropZoneNew .zone-text { font-size: 15px; background: transparent; }
         #dropZoneNew.active .zone-text { color: var(--zone-text-active); }
+        /* v0.9.64：时间线视图拖图分区——按预览区/缩略图区当前比例（JS 设 top/height，
+           absolute 脱离 flex 80/20 固定分区；hideOverlay 清理 inline 样式防切视图残留） */
+        #dropOverlay.tl-drop .drop-zone {
+            position: absolute;
+            left: 16px;
+            right: 16px;
+            margin: 0;
+        }
         .drop-zone.disabled {
             border-color: var(--text-muted);
             background: var(--zone-disabled);
@@ -1582,10 +1647,10 @@
             cursor: default;
         }
 
-        /* 垃圾桶页面模式 (#3)：隐藏新建/同步/时间线，标题变色 */
-        body.trash-mode #btnCreate,
-        body.trash-mode #btnSync,
-        body.trash-mode #viewTimelineBtn { display: none; }
+        /* 垃圾桶页面模式 (#3)：隐藏新建/同步/时间线，标题变色
+           v0.9.58：#btnCreate 不再隐藏——垃圾桶里灰掉不可点（disabled class，需求拍板）
+           v0.9.60：#viewTimelineBtn 同样不隐藏改灰掉（trash.js 进出模式加/删 disabled class） */
+        body.trash-mode #btnSync { display: none; }
         body.trash-mode .header h1 { color: var(--warn-text); }
         body.trash-mode #trashBtn { background: var(--accent); color: var(--text-strong); }
 
@@ -1650,7 +1715,8 @@
             transition: opacity .15s;
             pointer-events: none;
         }
-        .dialogue-box:hover .dialogue-resize::after { opacity: 1; }
+        .dialogue-box:hover .dialogue-resize::after,
+        .tl-dlg-clip:hover .dialogue-resize::after { opacity: 1; }   /* v0.9.41：时间线台词块同款 hover 显示手柄 */
         /* v0.9.16 台词条拖拽移动/互换：源条半透明跟随 + 目标高亮（风格同 .selected 蓝光）
            pointer-events:none 同 v0.9.5 卡片拖拽坑：transform 跟随让源条盖在鼠标下，
            elementFromPoint 永远命中源条自己 → 目标高亮永不显示 */
@@ -1662,6 +1728,36 @@
         }
         .shot-card.dlg-drop-target, .dialogue-box.dlg-drop-target {
             box-shadow: 0 0 0 2px rgba(var(--accent-rgb), 0.65), 0 0 14px rgba(var(--accent-rgb), 0.35);
+        }
+        /* v0.9.43 时间线台词块拖拽（扩展自 v0.9.16 宫格台词条拖拽）——源块半透明跟手 + 目标高亮 */
+        .tl-dlg-clip.dlg-dragging {
+            opacity: .72;
+            transition: none;      /* transform 实时跟随必须禁过渡（否则拖不动） */
+            z-index: 60;
+            pointer-events: none;  /* 命中穿透源条到下方目标 */
+        }
+        /* v0.9.44：时间线拖拽目标焦点框——实色 2px accent 环 + 光晕（用户拍板"高焦点框"；
+           v0.9.43 半透明 0.65 环太低调；特异性 (0,2,0) 同 .shot-card.dlg-drop-target 靠后定义覆盖）
+           v0.9.44b：选择器加 .shot-card 提特异性到 (0,3,0)——.timeline-clip:hover/.selected (0,2,0)
+           后定义会覆盖焦点环（真实鼠标悬停目标块时 :hover 生效，环被吃掉 = 用户看不到亮框） */
+        .timeline-clip.shot-card.dlg-drop-target,
+        .tl-dlg-clip.dlg-drop-target {
+            box-shadow: 0 0 0 2px var(--accent), 0 0 18px rgba(var(--accent-rgb), 0.5);
+        }
+        /* v0.9.43 时间线台词开关/拖拽动画——位移 38px = 台词轨道高（.tl-shot-lane top:38px 同源）：
+           开/落位 = 块从镜头 clip 顶沿位置上升淡入（长出来）；关/移走 = 缩回 clip 内淡出（收回去） */
+        .tl-dlg-in { animation: tlDlgGrow 0.35s ease-out; }
+        @keyframes tlDlgGrow {
+            from { transform: translateY(38px); opacity: 0; }
+            to   { transform: translateY(0); opacity: 1; }
+        }
+        .tl-dlg-leave {
+            animation: tlDlgShrink 0.35s ease-in forwards;  /* forwards 保持终态（缩进 + 透明） */
+            pointer-events: none;
+        }
+        @keyframes tlDlgShrink {
+            from { transform: translateY(0); opacity: 1; }
+            to   { transform: translateY(38px); opacity: 0; }
         }
 
         /* ═══ v0.9.27 皮肤系统：浅色主题（data-theme="light" 覆盖 :root 颜色变量）═══
@@ -1731,7 +1827,9 @@
             min-height: calc(100vh - var(--header-h) - 92px);  /* v0.9.38f：min-height——clip 超高先借 stage 空间（applyTlSplit 收缩预览区），借到 stage 保底 180 仍不够才撑开页面滚动 */
             margin-top: 0;
             overflow: hidden;
-            padding: 0 16px 12px;
+            /* v0.9.55e/f：顶部 16px = 左下角缩放滑条距边缘的间距（用户拍板基准）；
+               左右 0（body padding 16 即视觉 16px，与 zoom-bar 一致）——预览区不再紧贴标题栏 */
+            padding: 16px 0 12px;
         }
         /* 空态：整页居中提示（同 v0.9.35 grid-empty 语义） */
         #grid.timeline-mode.grid-empty {
@@ -1745,6 +1843,15 @@
             display: flex;
             flex-direction: column;
             gap: 8px;
+            /* 2026-08-10：切到时间线视图时预览区 500ms 淡入 + 从下向上升起 16px
+               （buildStage 每次插入新元素 → animation 自动播放一次；播完无 fill-mode
+               残留回 opacity:1 / transform:none）
+               原 50ms 肉眼不可感知（用户实测看不到），改 500ms；位移=用户追加需求 */
+            animation: tlStageFadeIn 500ms ease-out;
+        }
+        @keyframes tlStageFadeIn {
+            from { opacity: 0; transform: translateY(16px); }
+            to { opacity: 1; transform: translateY(0); }
         }
         .tl-stage-body {
             position: relative;
@@ -1758,11 +1865,29 @@
             border-radius: 8px;
             overflow: hidden;
         }
-        .tl-stage-body img {
+        .tl-stage-body .tl-stage-frame {
+            /* v0.9.58：画面容器（画幅形状）——字幕浮层相对它定位（以画幅为基础），
+               body 比画面高时浮层不再落到画面外的留边区（原 .subtitle-overlay 相对 body 底部）。
+               尺寸锚 = width:100% + aspect-ratio + max-height 钳制（flex 内容撑会循环依赖塌陷，
+               v0.9.58 实测 frame 0×0）；img 100% 填满，object-fit 处理图内容 */
+            position: relative;
+            width: 100%;
+            max-height: 100%;
+            aspect-ratio: var(--aspect, 1.7778);
+            flex: none;
+        }
+        .tl-stage-body .tl-stage-frame img {
+            /* v0.9.55d：与宫格/列表预览窗口同款画幅规则——frame = 画幅形状
+               （aspect-ratio + auto/max 约束），img 100% 填满 frame；
+               更宽 cover 裁上下 / 更高 contain 留边；
+               cover/contain 动态值由 aspect.js applyAspect 注入覆盖（同特异性后定义胜）
+               var(--aspect) 为动态规则缺失时的兜底 */
             width: 100%;
             height: 100%;
             object-fit: contain;
             display: block;
+            background: #111113;
+            border-radius: 4px;
         }
         .tl-stage-empty {
             color: var(--text-secondary);
@@ -1775,6 +1900,8 @@
             left: 50%;
             transform: translateX(-50%);
             max-width: 80%;
+            max-height: 60%;      /* v0.9.45：多行字幕（盖住者+自己）超高时内部滚动兜底 */
+            overflow-y: auto;
             background: rgba(0, 0, 0, 0.68);
             color: #fff;
             padding: 6px 16px;
@@ -1795,21 +1922,67 @@
             padding: 0 4px;
             flex-shrink: 0;
         }
+        /* v0.9.56c：预览区下缘工具条（上一/下一/前5/后5 焦点切换）——v0.9.56d 用户拍板：
+           按钮组绝对居中于预览区画面（left 50% 与信息条宽度无关），顺序 前5/上一/下一/后5 */
+        #timelineStage { position: relative; }
+        .tl-stage-toolbar {
+            position: absolute;
+            left: 50%;
+            transform: translateX(-50%);
+            bottom: 0;           /* 与 .tl-stage-info 行同底（信息行紧贴 stage 下缘） */
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            flex-shrink: 0;
+        }
+        .tl-stage-toolbar .tl-jump-btn {
+            width: 24px;
+            height: 24px;
+            background: transparent;   /* 同工具条风格：默认无底衬，hover 才有 */
+            border: none;
+            color: var(--text-secondary);
+            padding: 0;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;   /* SVG 图标 1em */
+            position: relative;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            flex: none;
+        }
+        .tl-stage-toolbar .tl-jump-btn:hover { background: var(--bg-hover); color: var(--text); }
         .tl-stage-info #tlStageName {
             color: var(--text);
             font-weight: 600;
         }
         /* v0.9.38c 分隔条已移除（v0.9.40 方案 A：比例按缩略图大小自适应） */
-        #timeline {
+        /* v0.9.53 舞台：flex 属性移到 .tl-wrap（遮罩挂载容器），#timeline 去边框/底色融入页面背景 */
+        .tl-wrap {
+            position: relative;
             flex: 1 0 auto;   /* v0.9.38e：shrink 0 + JS min-height——clip 超高时撑开，不裁切 */
+            min-height: 0;
+            display: flex;
+            flex-direction: column;
+        }
+        #timeline {
+            flex: 1;
             min-height: 0;
             overflow-x: auto;
             overflow-y: auto;   /* v0.9.38f：兜底（stage 借到保底 180 仍不够时的极端场景）；常规下 timeline 高恒 ≥ clip 需要高 */
             position: relative;
-            border: 1px solid var(--border);
-            border-radius: 8px;
-            background: var(--bg-card);
         }
+        /* v0.9.53 舞台淡出遮罩：两侧各 15% 渐隐带——镜头块滚入带内被渐变盖住（z 高于 clip 2/台词条 1/拖拽态 60，pointer-events 穿透不挡交互） */
+        #tlFadeL, #tlFadeR {
+            position: absolute;
+            top: 0;
+            bottom: 0;
+            width: 15%;
+            pointer-events: none;
+            z-index: 70;
+        }
+        #tlFadeL { left: 0; background: linear-gradient(to right, var(--bg-body), transparent); }
+        #tlFadeR { right: 0; background: linear-gradient(to left, var(--bg-body), transparent); }
         .tl-inner {
             /* v0.9.38e：absolute inset 0——flex item 的百分比高度在 main size indefinite 时解析为 auto（塌 0），
                inset 定位不受影响 */
@@ -1834,6 +2007,7 @@
             position: absolute;
             bottom: 0;   /* v0.9.38e：下沿对齐（clip 底部贴缩略图区域底部，放大向上长） */
             /* v0.9.38b：height 由 JS 动态设（缩略图等比缩放，clip 高 = (clipW-2)×3/4 + 22） */
+            z-index: 2;  /* v0.9.44b：层级在台词条之上——台词开关动画从镜头块后面钻出/钻入（用户拍板） */
             background: var(--bg-card);
             border: 1px solid var(--border);
             border-radius: 6px;
@@ -1851,11 +2025,32 @@
             border-color: var(--accent);
             box-shadow: 0 0 0 1px var(--accent);
         }
+        /* v0.9.48：时间线展开态焦点对齐宫格——镜头选中表达下沉到帧格底衬
+           （宫格 frame-cell 同款：border:none + 深灰底衬 + 选中深蓝灰变色）；
+           展开态 clip 外框隐藏（帧格是焦点主体，折叠态 clip 外框保留） */
+        .timeline-clip:has(.tl-expand-row).selected {
+            border-color: transparent;
+            box-shadow: none;
+        }
+        .timeline-clip .tl-expand-row {
+            background: var(--bg-frame-cell);   /* 连片底衬（帧格间距/折叠按钮位同底色，连成一体） */
+        }
+        .timeline-clip .tl-expand-cell .tl-expand-name {
+            background: transparent;  /* v0.9.48 已并入原规则（v0.9.50 修正：此处规则被原规则后定义覆盖，无效——见原规则注释） */
+        }
+        .timeline-clip:has(.tl-expand-row).selected .tl-expand-row {
+            background: var(--bg-frame-selected);  /* 选中底衬变深蓝灰（宫格 .frame-cell.selected 同款） */
+        }
+        /* v0.9.49：选中态子帧露边同步深蓝灰（含图露边融入总底，不残留深灰子底） */
+        .timeline-clip:has(.tl-expand-row).selected .tl-expand-cell .frame-img {
+            background: var(--bg-frame-selected);
+        }
         .timeline-clip .tl-clip-thumb {
-            /* v0.9.38：完整显示（contain）+ 左对齐 + 宽 100% 跟随 clip；
-               v0.9.38b：等比缩放——aspect-ratio 4:3，高随宽自动（不再固定 78） */
+            /* v0.9.51：区域比例 4:3 → 16:9（对齐宫格 --aspect 与画面真实比例，contain 零露边）；
+               v0.9.38：完整显示（contain）+ 左对齐 + 宽 100% 跟随 clip；
+               v0.9.38b：等比缩放——高随宽自动（不再固定 78） */
             width: 100%;
-            aspect-ratio: 4 / 3;
+            aspect-ratio: 16 / 9;
             margin: 4px 0 0;
             object-fit: contain;
             object-position: left center;
@@ -1872,24 +2067,57 @@
             color: var(--text-secondary);
             flex-shrink: 0;
         }
-        .timeline-clip .tl-clip-name {
+        .timeline-clip .tl-clip-bottom {
+            display: flex;
+            align-items: baseline;
             height: 18px;
             line-height: 18px;
-            font-size: 11px;
-            padding: 0 5px;
+            /* v0.9.59：镜头号上下加间隔——padding 5px 上下与 .tl-clip-name padding-left 5px
+               同源对称（文字与缩略图/镜头块下缘的间隔 = 与左缘的间隔） */
+            padding: 5px 0;
+            background: var(--bg-card);
+            flex-shrink: 0;
+        }
+        .timeline-clip .tl-clip-name {
+            flex: 1;
+            min-width: 0;
+            height: 18px;
+            line-height: 18px;
+            font-size: 13px;   /* v0.9.58：对齐宫格 .shot-name（13px/600） */
+            font-weight: 600;
+            padding: 0 0 0 5px;
             overflow: hidden;
             white-space: nowrap;
             text-overflow: ellipsis;
             color: var(--text);
-            background: var(--bg-card);
             flex-shrink: 0;
         }
-        /* 时间线 clip 内改名输入框（复用 startRename，窄条适配） */
+        .timeline-clip .tl-clip-meta {
+            font-size: 11px;
+            color: var(--text-secondary);
+            padding: 0 5px 0 6px;
+            white-space: nowrap;
+            flex-shrink: 0;
+        }
+        /* 时间线 clip 内改名输入框（复用 startRename，窄条适配；v0.9.58：字号对齐宫格 13px + flex 容器适配） */
         .timeline-clip .shot-name-input {
             height: 18px;
-            width: 100%;
+            flex: 1;
+            width: auto;
             min-width: 0;
-            font-size: 11px;
+            font-size: 13px;
+            padding: 0 4px;
+            box-sizing: border-box;
+        }
+        /* v0.9.63：时间线 clip 内时长编辑输入框（复用 startFieldEdit，与改名输入框同款 flex 适配） */
+        .timeline-clip .field-input {
+            height: 18px;
+            flex: 1;
+            width: auto;
+            min-width: 0;
+            margin-bottom: 0;
+            font-size: 13px;
+            font-weight: 400;
             padding: 0 4px;
             box-sizing: border-box;
         }
@@ -1897,17 +2125,28 @@
             position: absolute;
             top: 0;
             height: 34px;
-            background: rgba(var(--accent-rgb), 0.14);
-            border: 1px solid var(--accent);
+            z-index: 1;  /* v0.9.44b：常态/动画态在镜头块（z 2）下一层；拖拽态 .dlg-dragging z-index 60 仍覆盖 */
+            background: var(--bg-dialogue);   /* v0.9.57：常态低调（与宫格台词条同色系），只有选中才 accent 高亮 */
+            border: 1px solid var(--border-dialogue);
             border-radius: 4px;
             font-size: 11px;
             line-height: 32px;
             padding: 0 6px;
+            /* v0.9.41：overflow 移到 .tl-dlg-text——块自身 overflow:hidden 会裁掉右缘外的拖宽手柄图标（right:-7.8px） */
+            color: var(--text);
+            box-sizing: border-box;
+        }
+        /* v0.9.57：时间线台词条只有选中的才高亮——选中态 = 原常驻 accent 底衬+蓝边框；
+           不加 box-shadow（同特异性 (0,2,0) 后定义会盖掉 .tl-dlg-clip.dlg-drop-target 焦点环，属性不重叠才可共存） */
+        .tl-dlg-clip.selected {
+            background: rgba(var(--accent-rgb), 0.14);
+            border-color: var(--accent);
+        }
+        .tl-dlg-clip .tl-dlg-text {
+            display: block;
             overflow: hidden;
             white-space: nowrap;
             text-overflow: ellipsis;
-            color: var(--text);
-            box-sizing: border-box;
         }
         /* v0.9.40：时间线台词编辑态——input 撑满块（单行，无换行），编辑中高亮边框 */
         .tl-dlg-clip.editing {
@@ -1928,6 +2167,81 @@
             box-sizing: border-box;
             outline: none;
             text-overflow: ellipsis;
+        }
+        /* v0.9.45 时间线多图展开/折叠：帧格横排连片（宫格同款语义），折叠态右上角帧数角标 */
+        .timeline-clip .tl-expand-row {
+            display: flex;
+            height: 100%;
+            padding-right: 9px;   /* 右缘留折叠按钮位（9px，与帧格间距同宽） */
+            box-sizing: border-box;
+        }
+        .timeline-clip .tl-expand-cell {
+            flex: 0 0 auto;
+            display: flex;
+            flex-direction: column;
+            margin-right: 9px;    /* 帧格间距 9px（宫格外沿同款） */
+            box-sizing: border-box;
+        }
+        .timeline-clip .tl-expand-cell:last-child { margin-right: 0; }
+        .timeline-clip .tl-expand-cell .frame-img {
+            width: 100%;
+            aspect-ratio: 16 / 9;  /* v0.9.51：4:3 → 16:9（对齐宫格 --aspect/画面比例，contain 零露边，文字条贴画面下沿） */
+            object-fit: contain;
+            object-position: left center;
+            display: block;
+            border-radius: 4px;
+            background: var(--bg-frame-cell);  /* v0.9.49：子帧露边与总底同色（contain 露边融入连片，消除两层底；宫格 cover 无露边天然单层） */
+            flex-shrink: 0;
+            box-sizing: border-box;
+        }
+        /* 焦点帧蓝框（宫格展开帧格同款 border 方案：替换元素 inset shadow 不可见） */
+        .timeline-clip .tl-expand-cell .frame-img.frame-focused {
+            border: 2px solid var(--accent);
+        }
+        .timeline-clip .tl-expand-cell .frame-img.frame-missing {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 11px;
+            color: var(--text-secondary);
+            background: var(--bg-thumb);
+            border-radius: 4px;
+        }
+        .timeline-clip .tl-expand-cell .tl-expand-name {
+            height: 18px;
+            line-height: 18px;
+            font-size: 11px;
+            padding: 0 5px;
+            overflow: hidden;
+            white-space: nowrap;
+            text-overflow: ellipsis;
+            color: var(--text);
+            /* v0.9.50：透底衬（宫格 shot-info 同款）——v0.9.48 曾加 transparent 覆盖规则但
+               同特异性 (0,3,0) 且插在本规则前，被后定义的 --bg-card 赢 → 大灰条残留（用户实测抓包）。
+               正确姿势 = 直接改本规则，别加同特异性覆盖 */
+            background: transparent;
+            flex-shrink: 0;
+        }
+        /* 折叠态帧数角标（复用 .stack-badge 语义；时间线固定尺寸右上角，覆盖宫格左上包角定位） */
+        .timeline-clip .stack-badge {
+            top: 4px;
+            right: 4px;
+            left: auto;
+            width: 22px;
+            height: 22px;
+            padding: 0;
+            font-size: 11px;
+            border-radius: 6px;
+            background: var(--accent);
+            color: var(--text-strong);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            line-height: 1;
+        }
+        /* 展开态折叠按钮（复用 .collapse-btn：右缘间隔内垂直居中；宫格 top 偏移基于 info 区，时间线无 info 区改 -8px） */
+        .timeline-clip .collapse-btn {
+            top: calc(50% - 8px);
         }
         /* 时间线视图下侧边预览框不参与（决策 3A：时间线自带顶部预览区） */
         body:has(#grid.timeline-mode) .preview-panel {

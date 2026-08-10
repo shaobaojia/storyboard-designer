@@ -12,16 +12,20 @@ import { updatePreview } from './preview.js';
 
 // expandedShotIds 挂在 state 上（state.js 初始化 Set），此处只做读写
 
+// v0.9.45：展开状态按视图分流——时间线用 expandedShotIdsTl（与宫格/列表分开，互不同步），
+// 其余视图用 expandedShotIds。menu/keyboard/main 全部走 isExpanded/toggleExpand，分流后自动生效
+function expandedSet() {
+    return state.viewMode === 'timeline' ? state.expandedShotIdsTl : state.expandedShotIds;
+}
+
 export function isExpanded(shotId) {
-    return state.expandedShotIds.has(shotId);
+    return expandedSet().has(shotId);
 }
 
 export function toggleExpand(shotId) {
-    if (state.expandedShotIds.has(shotId)) {
-        state.expandedShotIds.delete(shotId);
-    } else {
-        state.expandedShotIds.add(shotId);
-    }
+    const s = expandedSet();
+    if (s.has(shotId)) s.delete(shotId);
+    else s.add(shotId);
 }
 
 export function collapseAll() {
@@ -69,6 +73,44 @@ function focusFirstFrame(shotId) {
 // 展开：先抓折叠卡 rect 作 origin，toggle+render 后让每个帧格从 origin
 // 缩弹回自己的格位（逐格错峰 40ms）
 export function expandAnimated(shotId) {
+    if (state.viewMode === 'timeline') {
+        // v0.9.45：时间线展开——帧格从折叠 clip 中心向各自格位弹簧展开（错峰 40ms，宫格同款曲线）
+        const token = _nextToken(shotId);
+        const collapsed = grid.querySelector(`.timeline-clip[data-id="${shotId}"]`);
+        const originCx = collapsed
+            ? collapsed.getBoundingClientRect().left + collapsed.getBoundingClientRect().width / 2 : null;
+        toggleExpand(shotId);
+        renderGrid();
+        const clip = grid.querySelector(`.timeline-clip[data-id="${shotId}"]`);
+        const cells = clip ? [...clip.querySelectorAll('.tl-expand-cell')] : [];
+        if (originCx !== null && cells.length) {
+            requestAnimationFrame(() => {
+                if (_animToken.get(shotId) !== token) return;
+                const startDx = cells.map((cell) => {
+                    const r = cell.getBoundingClientRect();
+                    return originCx - (r.left + r.width / 2);
+                });
+                cells.forEach((cell, i) => {
+                    cell.style.transition = 'none';
+                    cell.style.transform = `translateX(${startDx[i]}px)`;
+                });
+                void clip.offsetWidth;  // reflow 提交起点
+                cells.forEach((cell, i) => {
+                    cell.style.transition = `transform 0.5s ${SPRING} ${i * 40}ms`;
+                    cell.style.transform = '';
+                });
+                setTimeout(() => {
+                    if (_animToken.get(shotId) !== token) return;
+                    cells.forEach((cell) => {
+                        cell.style.transition = '';
+                        cell.style.transform = '';
+                    });
+                }, 520 + cells.length * 40);
+            });
+        }
+        focusFirstFrame(shotId);
+        return;
+    }
     if (state.viewMode === 'list') {
         const token = _nextToken(shotId);
         toggleExpand(shotId);
@@ -146,6 +188,80 @@ export function expandAnimated(shotId) {
 
 // 收起：帧格脱离文档流 → renderGrid 立即触发其他卡片 FLIP → 帧格同步飞回封面位置
 export function collapseAnimated(shotId) {
+    if (state.viewMode === 'timeline') {
+        // v0.9.46d：时间线收起改宫格同款时序——帧格 fixed 脱离文档流 → 立即 toggle+renderGrid
+        // （其他 clip FLIP / 台词条 FLIP 随子帧图同时开始收回，不再等 380ms 重建；用户实测拍板）
+        // → 帧格浮层同步飞回封面格 + 淡出 → 动画结束清理
+        const clip = grid.querySelector(`.timeline-clip[data-id="${shotId}"]`);
+        const cells = clip ? [...clip.querySelectorAll('.tl-expand-cell')] : [];
+        if (cells.length === 0) {
+            toggleExpand(shotId); renderGrid(); return;
+        }
+        const token = _nextToken(shotId);
+        state.animatingShots.add(shotId);
+
+        // 1. 帧格脱离文档流（fixed 定位在原地，保留屏幕位置）
+        const rects = cells.map(c => c.getBoundingClientRect());
+        cells.forEach((cell, i) => {
+            const r = rects[i];
+            cell.style.position = 'fixed';
+            cell.style.left = r.left + 'px';
+            cell.style.top = r.top + 'px';
+            cell.style.width = r.width + 'px';
+            cell.style.margin = '0';
+            cell.style.zIndex = String(50 + i);
+            cell.style.transformOrigin = 'top left';
+            cell.style.transition = 'none';
+            cell.style.transform = 'none';
+            // v0.9.46e：脱离流后 .timeline-clip .tl-expand-cell 组合选择器全部失效——
+            // img 失去 width:100%/aspect-ratio 约束以 320×180 原尺寸渲染（3 张叠成"闪大图"，
+            // 用户实测 c0010 折叠时闪现）。inline 样式不依赖选择器，fixed 期间始终生效。
+            const im = cell.querySelector('.frame-img');
+            if (im) {
+                im.style.width = '100%';
+                im.style.aspectRatio = '16 / 9';  // v0.9.51：区域比例同步 4:3 → 16:9（与 tlClipH/静态规则一致，防浮层闪变）
+                im.style.objectFit = 'contain';
+                im.style.objectPosition = 'left center';
+                im.style.display = 'block';
+                im.style.boxSizing = 'border-box';
+            }
+            const nm = cell.querySelector('.tl-expand-name');
+            if (nm) {
+                nm.style.height = '18px';
+                nm.style.lineHeight = '18px';
+                nm.style.fontSize = '11px';
+                nm.style.overflow = 'hidden';
+                nm.style.boxSizing = 'border-box';
+            }
+            document.body.appendChild(cell);
+        });
+
+        // 2. 立即 toggle + renderGrid：其他卡片 FLIP 直接开始（宫格同款时序）
+        toggleExpand(shotId);
+        renderGrid();
+
+        // 3. 帧格同步飞向第一格（封面位置，展开态第一格即封面位），淡出
+        const target = rects[0];
+        const n = cells.length;
+        const totalDuration = 350;  // 收起 0.35s（时间线现状曲线）
+        cells.forEach((cell, i) => {
+            const r = rects[i];
+            const s = target.width / r.width;
+            const d = (n - 1 - i) * 30;
+            cell.style.transition = `transform ${totalDuration}ms ease-in ${d}ms, opacity ${totalDuration * 0.6}ms ease ${d * 0.8}ms`;
+            cell.style.transform = `translate(${target.left - r.left}px, ${target.top - r.top}px) scale(${s})`;
+            cell.style.opacity = '0';
+        });
+
+        // 4. 动画结束时清理浮层（与最后一张帧格淡出同步）
+        const ttl = totalDuration + (n - 1) * 30 + 20;
+        setTimeout(() => {
+            if (_animToken.get(shotId) !== token) { cells.forEach(c => c.remove()); return; }
+            cells.forEach(c => c.remove());
+            state.animatingShots.delete(shotId);
+        }, ttl);
+        return;
+    }
     const cells = _frameCells(shotId);
     if (state.viewMode === 'list') {
         // v0.9.2：按 shotId 精确选本镜头的 panel（批量折叠时 querySelector('.list-frames')
@@ -233,7 +349,8 @@ export function focusFrame(shotId, frameId) {
         // v0.9.33：加框只匹配展开态帧格（宫格 .frame-cell / 列表 .frame-thumb）——
         // 折叠态（宫格 cover / 列表 shot-thumb）不再有封面内框（用户拍板：
         // 折叠态焦点 = 只有卡片 selected 外框）
-        grid.querySelectorAll(`.shot-card.frame-cell[data-id="${shotId}"] .frame-img[data-frame-id="${frameId}"], .shot-card.list-item[data-id="${shotId}"] .frame-thumb[data-frame-id="${frameId}"]`)
+        // v0.9.45：时间线展开态帧格同款蓝框（.timeline-clip .frame-img）
+        grid.querySelectorAll(`.shot-card.frame-cell[data-id="${shotId}"] .frame-img[data-frame-id="${frameId}"], .shot-card.list-item[data-id="${shotId}"] .frame-thumb[data-frame-id="${frameId}"], .timeline-clip[data-id="${shotId}"] .frame-img[data-frame-id="${frameId}"]`)
             .forEach(el => el.classList.add('frame-focused'));
     }
 }
@@ -244,7 +361,8 @@ export function focusFrame(shotId, frameId) {
 // 扫视只在缩略图范围内触发（列表视图文字区不扫视，恢复封面）；移出卡片恢复封面（v0.8.3）
 function restoreCover(card) {
     if (card.dataset.hoverOrigSrc === undefined) return;
-    const coverImg = card.querySelector('.frame-stack .frame-img.cover') || card.querySelector('.shot-thumb');
+    // v0.9.62：时间线折叠态多图缩略图是 .tl-clip-thumb（宫格 .frame-stack/.shot-thumb 之外的第三形态）
+    const coverImg = card.querySelector('.frame-stack .frame-img.cover') || card.querySelector('.shot-thumb') || card.querySelector('.tl-clip-thumb');
     if (coverImg) {
         coverImg.src = card.dataset.hoverOrigSrc;
         coverImg.dataset.frameId = card.dataset.hoverOrigFrameId || '';
@@ -277,7 +395,7 @@ export function initStackHover() {
         const frame = shot.frames[idx];
         if (!frame || !frame.imageUrl) return;
 
-        const coverImg = card.querySelector('.frame-stack .frame-img.cover') || card.querySelector('.shot-thumb');
+        const coverImg = card.querySelector('.frame-stack .frame-img.cover') || card.querySelector('.shot-thumb') || card.querySelector('.tl-clip-thumb');  // v0.9.62：+时间线 .tl-clip-thumb
         if (coverImg && coverImg.dataset.frameId !== frame.id) {
             // 首次扫视：记住原始 src/frameId，鼠标移出时恢复封面（v0.8.3 修复悬停后不回到封面）
             if (card.dataset.hoverOrigSrc === undefined) {

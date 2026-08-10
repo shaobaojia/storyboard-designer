@@ -160,7 +160,24 @@ grid.addEventListener('click', (e) => {
     cardClick(e, card.dataset.id);
     // v0.9.36：时间线 clip 点击 = 纯选中（无折叠按钮/帧焦点语义，跳过 grid 专属逻辑）；
     // updatePreview 不能跳——时间线模式下它转发到顶部预览区（preview.js 内部）
+    // v0.9.45b：对齐宫格帧焦点语义——展开态帧格点击（图/名字条）= 焦点蓝框跟手；
+    // 折叠态多图 = 焦点落封面帧（状态准备，折叠态不显框）；单图 = 清焦点
     if (state.viewMode === 'timeline') {
+        const cellEl = e.target.closest('.tl-expand-cell');
+        if (cellEl && cellEl.dataset.frameId) {
+            focusFrame(card.dataset.id, cellEl.dataset.frameId);
+        } else {
+            const _shot = state.shots.find(s => s.id === card.dataset.id);
+            const _frames = (_shot && _shot.frames) || [];
+            const _cover = _frames.find(f => f.isCover) || _frames[0];
+            if (_frames.length > 1 && _cover) {
+                focusFrame(card.dataset.id, _cover.id);
+            } else {
+                state.focusedFrameId = null;
+                grid.querySelectorAll('.frame-img.frame-focused, .frame-thumb.frame-focused, .shot-thumb.frame-focused')
+                    .forEach(el => el.classList.remove('frame-focused'));
+            }
+        }
         updatePreview();
         return;
     }
@@ -199,10 +216,35 @@ grid.addEventListener('click', (e) => {
 });
 
 grid.addEventListener('dblclick', (e) => {
-    // v0.9.36：时间线视图双击 clip 任意处 = 打开镜头（Blender）；时间线无展开/改名语义
     if (state.viewMode === 'timeline') {
+        // v0.9.45：时间线双击——展开态帧格 = 跳回该构图；多图 = 展开/折叠（宫格同款）；单图 = 打开镜头
         const card = e.target.closest('.shot-card');
-        if (card && card.dataset.id) openShot(card.dataset.id);
+        if (!card || !card.dataset.id) return;
+        const shotId = card.dataset.id;
+        const shot = state.shots.find(s => s.id === shotId);
+        // v0.9.63：时间线双击镜头号 = 就地改名、双击时长 = 就地编辑（宫格同款）——
+        // 优先于展开/打开语义，双击名字条/时长条不再触发展开/打开镜头
+        const nameEl = e.target.closest('.tl-clip-name');
+        if (nameEl) {
+            startRename(e, shotId);
+            return;
+        }
+        const metaEl = e.target.closest('.tl-clip-meta');
+        if (metaEl) {
+            startFieldEdit(e, metaEl, shotId, 'duration');
+            return;
+        }
+        const frameImg = e.target.closest('.frame-img');
+        if (frameImg && card.querySelector('.tl-expand-cell')) {
+            jumpToFrame(shotId, parseInt(frameImg.dataset.frameNo));
+            return;
+        }
+        if (shot && (shot.frames || []).length > 1) {
+            if (isExpanded(shotId)) collapseAnimated(shotId);
+            else expandAnimated(shotId);
+            return;
+        }
+        openShot(shotId);
         return;
     }
     // 双击可编辑单元格（时长/内容/台词）= 就地编辑 (#15)
@@ -309,6 +351,8 @@ syncViewToggleButton();
 document.documentElement.style.setProperty('--aspect', 16 / 9);
 document.documentElement.style.setProperty('--aspect-h', 9 / 16);
 showSkeleton();  // 骨架屏先铺上，数据到了由 renderGrid 接棒 (#1)
+// v0.9.54：首屏直落时间线视图（localStorage sb-view=timeline）→ 数据到达 renderTimeline 时播入场生长动画（"打开"场景）
+if (state.viewMode === 'timeline') state.tlEnterAnim = true;
 setInterval(heartbeat, 1500);
 loadProjectTitle();
 fetchShots();

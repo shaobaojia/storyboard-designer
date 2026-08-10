@@ -2,7 +2,7 @@
 // 宫格：段落式列数缩放，每排 N 张
 // 列表：线性像素缩放，滑块无极
 import { applyExpandedLayout, relocateDialogue } from './render.js';
-import { TL_W_MIN, TL_W_MAX, TL_W_STEP, tlAnchor, tlRestoreAnchor } from './timeline.js';  // v0.9.38d：档位常量 + 缩放锚定
+import { TL_W_MIN, TL_W_MAX, TL_W_STEP, tlAnchor, setTlScroll, tlResizeLayout } from './timeline.js';  // v0.9.38d：档位常量 + 缩放锚定（v0.9.46：锚定并入 renderTimeline）；v0.9.53：舞台 clamp；v0.9.66：resize 布局重算
 const GAP = 12;
 const MIN_W = 120;
 const MAX_W = 480;
@@ -70,21 +70,23 @@ export function initZoom() {
         // 刷新直落 timeline 时 initZoom 的 apply 也会走这里，若读滑块 value 会用未同步值
         // 覆盖用户持久化档位（实测 200→176 污染）
         if (window.__sb && window.__sb.state.viewMode === 'timeline') {
-            const a = tlAnchor();   // v0.9.38d：缩放中心锚定焦点镜头（水平）
+            const a = tlAnchor();   // v0.9.38d：缩放锚定（v0.9.65 起 = 画面中心）
             const w0 = parseInt(localStorage.getItem('sb-tl-w') || '', 10) || 200;
             const idx = Math.round((w0 - TL_W_MIN) / TL_W_STEP);
             const w = Math.min(TL_W_MAX, Math.max(TL_W_MIN, TL_W_MIN + idx * TL_W_STEP));
             localStorage.setItem('sb-tl-w', String(w));
             const sl2 = document.getElementById('sizeSlider');
             if (sl2) sl2.value = idx;
-            if (window.__sb.renderTimeline) window.__sb.renderTimeline();
-            tlRestoreAnchor(a);
+            // v0.9.54：值未变 = 纯同步调用（setView/fetchShots/initZoom 后的滑块刷新）——跳过重渲染；
+            // 否则 renderTimeline 重建 DOM 会清掉切换入场生长动画（滑块/步进都先写持久化再 apply，值必变，不受影响）
+            if (w !== w0 && window.__sb.renderTimeline) window.__sb.renderTimeline(a);  // v0.9.46：锚定并入渲染——FLIP 起点含滚动补偿，锚点内容动画钉住（v0.9.65 锚点 = 画面中心）
             return;
         }
         const a = anchor();  // 缩放前捕获选中项位置
         if (window.__sb && window.__sb.state.viewMode === 'list') {
-            // 列表：线性像素，最大 = 最大帧数镜头展开浮层刚顶到页面右缘
-            const maxW = listMaxW();
+            // 列表：线性像素，最大 = 最大帧数镜头展开浮层刚顶到页面右缘 × 2（v0.9.70：需求池 477 行「极值增加2倍」；
+            // 注意展开浮层会溢出右缘——用户主动拉大的自然结果，折叠态不溢出）
+            const maxW = Math.round(listMaxW() * 2);
             listThumbW = Math.min(maxW, Math.max(LIST_MIN_W, listThumbW));
             document.documentElement.style.setProperty('--list-thumb-w', listThumbW + 'px');
             sizeSlider.min = LIST_MIN_W;
@@ -139,8 +141,12 @@ export function initZoom() {
         if (window.__sb && window.__sb.state.viewMode === 'list') {
             listThumbW = parseInt(sizeSlider.value, 10);
         } else if (window.__sb && window.__sb.state.viewMode === 'timeline') {
-            // v0.9.38：时间线横轴——滑块档位序号先写持久化，apply 幂等消费
+            // v0.9.38：时间线横轴——滑块档位序号先写持久化
+            // v0.9.56：写盘后必须显式渲染——apply 的 w!==w0 去重（v0.9.54 防清入场动画）以"调用时
+            // 持久化值"判断，input 已把新值写入 → w===w0 恒成立 → 拖动被吞（时间线缩放完全失效）
             localStorage.setItem('sb-tl-w', String(TL_W_MIN + parseInt(sizeSlider.value, 10) * TL_W_STEP));
+            if (window.__sb.renderTimeline) window.__sb.renderTimeline(tlAnchor());
+            return;   // 已落盘+已渲染；滑块 value 即合法档位，无需 apply 的 value 对齐
         } else {
             const [, nMax] = nRange();
             cols = nMax - parseInt(sizeSlider.value, 10);
@@ -166,7 +172,8 @@ export function initZoom() {
             localStorage.setItem('sb-tl-w', String(w));
             const sl3 = document.getElementById('sizeSlider');
             if (sl3) sl3.value = (w - TL_W_MIN) / TL_W_STEP;
-            apply();
+            // v0.9.56：显式渲染——apply 去重会吞掉步进（持久化已更新 → w===w0），±/Ctrl+滚轮/Ctrl++- 同理
+            if (window.__sb.renderTimeline) window.__sb.renderTimeline(tlAnchor());
             return;
         }
         if (window.__sb && window.__sb.state.viewMode === 'list') {
@@ -184,7 +191,15 @@ export function initZoom() {
     // Ctrl+滚轮
     let pending = 0;
     document.addEventListener('wheel', (e) => {
-        if (!e.ctrlKey && !e.metaKey) return;
+        if (!e.ctrlKey && !e.metaKey) {
+            // v0.9.53：时间线视图下普通滚轮 = 横向滚动缩略图区域（需求池：时间线滚轮横滚）
+            if (window.__sb && window.__sb.state.viewMode === 'timeline') {
+                e.preventDefault();
+                const tl = document.getElementById('timeline');
+                if (tl) setTlScroll(tl.scrollLeft + (e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY) + e.deltaX);
+            }
+            return;
+        }
         // v0.9.37：时间线不再拦截——Ctrl+滚轮 = 横轴档位步进（stepZoom 内部分流）
         e.preventDefault();
         if (window.__sb && window.__sb.state.viewMode === 'list') {
@@ -199,11 +214,19 @@ export function initZoom() {
         }
     }, {passive: false});
 
-    // resize
+    // resize（v0.9.66：时间线视图只重算布局不重建 DOM——stage/lane/minHeight 高度源随视口变，
+    // apply() 的 w!==w0 门控会跳过 renderTimeline 导致布局不更新、缩略图悬空；其余视图走原 apply）
     let resizeRaf = null;
     window.addEventListener('resize', () => {
         if (resizeRaf) return;
-        resizeRaf = requestAnimationFrame(() => { resizeRaf = null; apply(); });
+        resizeRaf = requestAnimationFrame(() => {
+            resizeRaf = null;
+            if (window.__sb && window.__sb.state.viewMode === 'timeline') {
+                tlResizeLayout();
+                return;
+            }
+            apply();
+        });
     });
 
     window.__zoomApply = apply;

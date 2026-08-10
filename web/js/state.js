@@ -15,7 +15,9 @@ export const state = {
     trashMode: false,      // 垃圾桶页面模式：宫格复用，菜单只剩恢复/彻底删除
     otherMode: false,      // 「其它」页面模式（v0.9.25）：非镜头场景（手动/幽灵）专用页
     viewMode: localStorage.getItem('sb-view') || 'grid',  // 'grid' | 'list'
+    prevViewMode: null,        // 最近一次视图切换前的视图（Tab 来回切用；null=尚无记录，toggleView 兜底）
     expandedShotIds: new Set(),  // 多图镜头展开态（视图态，不写库，刷新全折叠 v0.7.0）
+    expandedShotIdsTl: new Set(),  // 时间线多图展开态（v0.9.45：与宫格/列表分开保存，互不同步，刷新全折叠）
     animatingShots: new Set(),   // 弹簧编排接管中的 shotId：renderGrid 跳过它们的 FLIP/入场（v0.8.0）
     focusedFrameId: null,        // 展开态焦点帧：蓝框跟手点击，默认落封面（v0.8.1）
     previewOn: false,            // 预览框开关（v0.9.4，视图态不写库）
@@ -25,6 +27,7 @@ export const state = {
     aspect: 16 / 9,              // 项目画幅比（v0.9.7，/api/project 拉取；不写 localStorage 防多项目串味）
     resolution: null,            // {x, y} 项目分辨率（画幅对话框预填）
     pendingAnchor: null,         // v0.9.18：台词开关锚定滚动请求（renderGrid 内部 FLIP 前消费，一次性）
+    tlEnterAnim: false,          // v0.9.54：时间线切换入场生长动画标志（setView/main 设置，renderTimeline 消费，一次性）
 };
 
 // 已有帧图的基准画幅比（用户拍板：镜头里已有的图以 16:9 为基准，宽比裁上下、高比上下留空）

@@ -8,9 +8,11 @@ export function initMarquee() {
 
     document.addEventListener('mousedown', (e) => {
         if (e.button !== 0) return;
-        if (state.viewMode === 'timeline') return;  // v0.9.36：时间线视图禁框选
-        if (e.target.closest('.shot-card') || e.target.closest('.context-menu') ||
-            e.target.closest('.modal-overlay') || e.target.closest('.size-slider') ||
+        // v0.9.62：时间线视图启用框选——clip 复用 .shot-card，mouseup 矩形相交判定天然适用；
+        // 时间线台词条（.tl-dlg-clip）按下 = 台词拖拽/调宽（pointerdown capture 先行），排除防框选抢启动
+        if (e.target.closest('.shot-card') || e.target.closest('.tl-dlg-clip') ||
+            e.target.closest('.context-menu') || e.target.closest('.modal-overlay') ||
+            e.target.closest('.size-slider') ||
             // v0.9.24：缩放滑块挪到独立 .zoom-bar 容器（左下角），排除列表必须同步——
             // 漏了的话滑块 mousedown 被 preventDefault，原生 range 拖动/点击全部失效
             e.target.closest('.zoom-bar') ||
