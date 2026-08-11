@@ -38,7 +38,14 @@ def wait_until(desc, cond, timeout=10.0, interval=0.25):
 
 
 def blender(code, timeout=20):
-    """Execute code in Blender via MCP, return stdout string."""
+    """Execute code in Blender via MCP, return stdout string.
+
+    v0.9.74 说明：MCP 调用主线程化已下沉到 BlenderMCP 侧（BlenderMCP_addon.py
+    execute_code 经主线程执行泵）——socket 线程直接 exec bpy 代码与主线程渲染
+    并发 = 堆损坏崩溃（2026-08-11 全量必崩根因）。此处保持直调 execute_code
+    （原实现），勿再加 timer 包装：包装代码的 register 调用本身也在 socket
+    线程执行，bpy.app.timers.register 无锁修改全局 timer 链表 = 新竞态。
+    """
     s = socket.socket(); s.settimeout(timeout)
     s.connect((MCP_HOST, MCP_PORT))
     s.send(json.dumps({"type": "execute_code", "params": {"code": code}}).encode())

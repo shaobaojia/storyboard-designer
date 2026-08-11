@@ -350,6 +350,17 @@ def cmd_rename_shot(params):
     return {"renamed": f"{old_name} -> {new_name}", "scene": new_scene_name}
 
 
+def cmd_list_scene_names(params):
+    """只读：返回 Blender 全部场景名列表。
+
+    v0.9.74 新增——批量重命名（_batch_rename_seq）预检场景层冲突用：
+    孤儿/幽灵场景（DB 无记录）name_exists 查不到，只有场景层能发现。
+    cmd_rename_shot 的场景防撞在改名第二阶段才 raise，会导致镜头停在
+    __ren_ 临时前缀，所以候选名生成阶段就要避开场景层占用名。
+    """
+    return sorted(bpy.data.scenes.keys())
+
+
 def cmd_set_project_resolution(params):
     """画幅比/分辨率设置（v0.9.7）：主线程遍历所有 scene 改渲染分辨率。
     决策 B：宽高直改（resolution_x/y = 输入值），画幅比 = w/h。

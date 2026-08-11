@@ -40,14 +40,43 @@ def _valid_shot_name(name):
     return True, ""
 
 
-def _queue(command, params):
+def _queue(command, params, callback=None):
     """Queue a command, always resolving core.queue fresh from sys.modules.
 
     Survives hot reloads: the module-level 'import core.queue' binding goes
     stale after 'del sys.modules[...]' reloads, so we re-import per call.
     """
     queue_mod = importlib.import_module("core.queue")
-    queue_mod.queue_command(command, params)
+    queue_mod.queue_command(command, params, callback)
+
+
+def _query_scene_names():
+    """同步查询 Blender 场景名列表（HTTP 线程调用，阻塞等主线程命令执行完）。
+
+    v0.9.74 批量重命名场景层预检用：queue_command 的 callback 在 Blender
+    主线程执行完命令后触发，这里用 Event 阻塞等待结果。主线程忙（重命令
+    执行中）时可能等满超时——返回 None 让调用方保守处理（跳过场景层检查，
+    维持旧行为，宁可撞防撞报错也不阻塞 HTTP 线程）。
+    """
+    import threading
+
+    result = {}
+    ev = threading.Event()
+
+    def _cb(cmd):
+        result["value"] = cmd.get("result")
+        result["error"] = cmd.get("error")
+        ev.set()
+
+    try:
+        _queue("list_scene_names", {}, _cb)
+    except Exception:
+        return None
+    if not ev.wait(timeout=10):
+        return None
+    if result.get("error"):
+        return None
+    return result.get("value") or []
 
 
 def _cover_frame_no(db_path, shot_id):
@@ -485,6 +514,14 @@ def _batch_rename_seq(project_dir, db_path, shot_ids):
     base = max(10, (base // 10) * 10)
     selected_names = {s["name"] for s in ordered}
 
+    # v0.9.74：候选名还要避开场景层占用名（孤儿/幽灵场景 DB 无记录，
+    # name_exists 查不到；cmd_rename_shot 的场景防撞在改名第二阶段才 raise，
+    # 会让镜头停在 __ren_ 临时前缀——坑 467）。预查一次场景名集合，
+    # 查询失败（主线程忙超时）时 occupied=None 跳过检查，维持旧行为。
+    scene_names = _query_scene_names()
+    occupied = {n[5:] for n in scene_names if n.startswith("Shot_")} \
+        if scene_names is not None else None
+
     n = base
     assignments = []
     for shot in ordered:
@@ -493,6 +530,8 @@ def _batch_rename_seq(project_dir, db_path, shot_ids):
             n += 10
             if candidate in selected_names:
                 break  # freeing this name anyway, safe
+            if occupied is not None and candidate in occupied:
+                continue  # scene-layer clash (orphan scene), skip to next free
             if not name_exists(db_path, candidate, exclude_id=shot["id"]):
                 break  # free name
         if candidate != shot["name"]:
