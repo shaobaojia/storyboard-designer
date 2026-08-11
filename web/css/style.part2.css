@@ -1,0 +1,612 @@
+/* ==============================================================
+   style.css 拆分 part 2/4 （v0.9.73 CSS 拆分方案 A）
+   本文件 = 原 style.css 第 594-1198 行连续段
+   !! 禁止调整本文件与其它 part 的 <link> 顺序 !!
+   级联数学依赖文件顺序（同特异性规则靠后定义赢），
+   调整顺序会破坏样式。新增 CSS 按所在区域写入对应 part。
+   ============================================================== */
+        /* 列表视图：grid 列布局，表头与行共用一套列宽 (#12/#13/#14)，内容:台词=7:3 (#7) */
+        .list-header {
+            display: none;
+            position: sticky;
+            top: var(--header-h);
+            z-index: 600;
+            background: var(--bg-body);
+            grid-template-columns: calc(var(--list-thumb-w) * var(--list-scale)) calc(75px * var(--list-scale)) calc(60px * var(--list-scale)) 7fr 3fr calc(110px * var(--list-scale));
+            column-gap: 14px;
+            align-items: center;
+            padding: 6px 14px;
+            font-size: 11px;
+            color: var(--text-secondary);
+            border-bottom: 1px solid var(--border);
+        }
+        .list-header.on { display: grid; }
+        .shot-card.list-item {
+            display: grid;
+            grid-template-columns: calc(var(--list-thumb-w) * var(--list-scale)) calc(75px * var(--list-scale)) calc(60px * var(--list-scale)) 7fr 3fr calc(110px * var(--list-scale));  /* v0.9.70：镜头名 150→75 减半，腾出空间由 7fr/3fr 自动吸收（需求池 477 行） */
+            column-gap: 14px;
+            align-items: center;
+            margin-bottom: 6px;
+            border-radius: 6px;
+            padding: 4px 10px 4px 4px;
+        }
+        /* 多图展开：缩略图列自适应加宽 */
+        .shot-card.list-item.expanded {
+            position: relative;
+            overflow: visible;
+        }
+        .thumb-wrap {
+            /* v0.9.4：宽度跟随 --list-scale（预览开启时列表等比缩小），
+               否则缩略图保持原始 80px 溢出列宽盖住镜头名 */
+            width: calc(var(--list-thumb-w) * var(--list-scale));
+            aspect-ratio: var(--aspect, 1.778);
+        }
+        .thumb-wrap .shot-thumb {
+            width: 100%;
+            height: 100%;
+            border-radius: 4px;
+            object-fit: cover;
+        }
+        .shot-card.list-item.expanded .list-frames {
+            position: absolute;
+            left: 4px;
+            top: 4px;
+            bottom: 4px;
+            z-index: 10;
+            background: var(--bg-list-expand);
+            border-radius: 4px;
+            padding: 2px;
+            gap: 2px;
+            box-sizing: border-box;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+            pointer-events: none;
+            display: inline-flex;
+            white-space: nowrap;
+        }
+
+        .shot-card.list-item.expanded .list-frames .frame-thumb {
+            pointer-events: auto;
+            width: auto;
+            height: 100%;
+            aspect-ratio: var(--aspect, 1.778);
+        }
+        .shot-card.list-item .shot-thumb {
+            width: calc(var(--list-thumb-w) * var(--list-scale));
+            border-radius: 4px;
+            object-fit: cover;
+        }
+        .shot-card.list-item .shot-thumb,
+        .shot-card.list-item .list-frames .frame-thumb img {
+            aspect-ratio: var(--aspect, 1.778);
+        }
+        .shot-card.list-item .shot-name {
+            margin-bottom: 0;
+            /* v0.9.70：镜头名列 150→75 减半后长名 ellipsis，防溢出盖内容列 */
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .multi-badge {
+            display: inline-block;
+            margin-left: 6px;
+            font-size: 11px;
+            font-weight: 400;
+            color: var(--accent);
+            background: rgba(var(--accent-rgb), 0.1);
+            padding: 1px 6px;
+            border-radius: 3px;
+            vertical-align: middle;
+            border: none;
+            cursor: pointer;
+            transition: background 0.15s, color 0.15s;
+        }
+        .multi-badge:hover { background: rgba(var(--accent-rgb), 0.2); color: var(--text-strong); }
+        .multi-badge.expanded { color: var(--warn); background: rgba(var(--warn-rgb), 0.1); }
+        .multi-badge.expanded:hover { background: rgba(var(--warn-rgb), 0.2); }
+        /* badge button inside float panel */
+        .list-frames .multi-badge {
+            margin-left: 4px;
+            align-self: center;
+            flex-shrink: 0;
+            pointer-events: auto;
+        }
+        .shot-card.list-item .shot-name-input,
+        .shot-card.list-item .field-input { width: 100%; margin-bottom: 0; font-weight: 400; }
+        /* v0.9.19：内容/台词列编辑态 = 多行 textarea（高随内容，至少撑满条目内容区
+           与显示态一致；字号固定 12px 不随 --list-scale（v0.9.69）；resize:none 禁手柄、overflow:hidden 由 JS 适配） */
+        .shot-card.list-item .field-input.multiline {
+            display: block;
+            font-size: 12px;  /* v0.9.69：与 .cell-text 同步固定（原 calc(12px*scale) 开预览缩字） */
+            line-height: 1.4;
+            padding: 2px 4px;
+            margin: 0;
+            resize: none;
+            overflow: hidden;
+            word-break: break-word;
+            box-sizing: border-box;
+            background: var(--bg-input);
+            color: var(--text);
+            border: 1px solid var(--accent);
+            border-radius: 3px;
+            outline: none;
+            vertical-align: top;
+        }
+        .shot-card.list-item .shot-meta { white-space: nowrap; }
+        .shot-card.list-item .cell-text {
+            font-size: 12px;  /* v0.9.69：字号固定——开预览 --list-scale 只缩列宽不缩字（原 calc(12px*scale) 开预览后 6px 不可读，需求池 476 行） */
+            line-height: 1.4;
+            color: var(--text-2);
+            /* v0.9.19：单行截断 → 多行文本框（内容可换行显示；超出条目高截断，
+               完整内容看编辑态）；align-self:stretch 撑满条目内容区高，上下间隔
+               与缩略图一致（条目 padding 4px + 本元素 2px = 缩略图居中间隔 6px） */
+            white-space: pre-wrap;
+            word-break: break-word;
+            overflow: hidden;
+            cursor: text;
+            align-self: stretch;
+            display: flex;
+            align-items: center;
+            padding: 2px 0;
+        }
+        .shot-card.list-item .cell-text.empty { color: var(--text-muted); }
+        .shot-card.list-item .shot-updated {
+            font-size: 11px;
+            color: var(--text-muted);
+            white-space: nowrap;
+            text-align: right;
+        }
+        .list-frames {
+            display: inline-flex;
+            gap: 3px;
+            align-items: center;
+        }
+        .list-frames .frame-thumb {
+            width: 56px;
+            aspect-ratio: var(--aspect, 1.778);
+            border-radius: 3px;
+            overflow: hidden;
+            cursor: pointer;
+            border: 2px solid transparent;
+            flex-shrink: 0;
+            transition: border-color 0.15s;
+            position: relative;  /* 封面角标 ::after 定位基准 */
+        }
+        .list-frames .frame-thumb img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+        .list-frames .frame-thumb.is-cover { border-color: transparent; }
+        .list-frames .frame-thumb:hover { border-color: var(--text-secondary); }
+        /* v0.9.2：列表展开态子帧单焦点蓝框（与宫格 frame-focused 同色同语义，同一时间只有一个） */
+        .list-frames .frame-thumb.frame-focused { border-color: var(--accent); box-shadow: 0 0 0 1px rgba(var(--accent-rgb), 0.3); }
+        /* 封面帧角标（v0.8.3）：与宫格展开态 cover-chip 同风格 */
+        .list-frames .frame-thumb.is-cover::after {
+            content: '封面';
+            position: absolute;
+            top: 2px;
+            right: 2px;
+            background: rgba(var(--accent-rgb), 0.92);
+            color: var(--text-strong);
+            font-size: 10px;
+            line-height: 1;
+            padding: 3px 6px;
+            border-radius: 4px;
+            pointer-events: none;
+            z-index: 2;
+        }
+        .list-frames .frame-missing {
+            width: 100%;
+            height: 100%;
+            background: var(--danger-bg-3);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 9px;
+            color: var(--danger-text-4);
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 20px;
+            color: var(--text-muted);
+        }
+        .empty-state p { margin-top: 12px; }
+        /* v0.9.35：空态提示整页垂直+水平居中（垃圾桶/其它/正常空态）——
+           grid 空态转 flex 容器，min-height 撑满 header 以下视口，不再挤在第一格 */
+        #grid.grid-empty {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: calc(100vh - var(--header-h) - 90px);
+        }
+        .context-menu {
+            position: fixed;
+            background: var(--bg-elevated);
+            border: 1px solid var(--border-input);
+            border-radius: 6px;
+            padding: 4px 0;
+            min-width: 150px;
+            z-index: 1000;
+            box-shadow: 0 4px 16px rgba(0,0,0,0.5);
+        }
+        .context-menu button {
+            display: block;
+            width: 100%;
+            padding: 8px 14px;
+            background: none;
+            border: none;
+            color: var(--text);
+            text-align: left;
+            cursor: pointer;
+            font-size: 13px;
+        }
+        .context-menu button:hover { background: var(--bg-hover-strong); }
+        .context-menu button.danger { color: var(--danger-text); }
+        .context-menu button.danger:hover { background: var(--danger-bg); }
+        /* v0.9.23：菜单里带快捷键的命令——淡色小字标在右侧 */
+        .context-menu button .menu-kbd {
+            float: right;
+            margin-left: 12px;
+            color: var(--text-muted);
+            font-size: 11px;
+            font-family: Consolas, "Courier New", monospace;
+        }
+        .context-menu .menu-title {
+            padding: 6px 14px;
+            font-size: 11px;
+            color: var(--text-secondary);
+            border-bottom: 1px solid var(--border-2);
+            margin-bottom: 2px;
+        }
+
+        /* v0.9.18：右上角主菜单按钮（v0.9.24 改 iconfont 图标）+ 弹层 */
+        .hamburger {
+            background: var(--bg-btn);
+            border: none;
+            border-radius: 4px;
+            width: 34px;
+            height: 30px;
+            padding: 0;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            color: var(--text);
+            font-size: 16px;   /* v0.9.26：SVG 图标 1em（原 menu-svg 16px） */
+        }
+        .hamburger:hover { background: var(--bg-hover-2); }
+        /* v0.9.26：图标 SVG 化后 menu 图标 1em 跟随 font-size——.header .actions button 的
+           font-size:13px（0,1,2）会覆盖 .hamburger（0,1,0），须同级特异性补回 16px */
+        .header .actions button.hamburger { font-size: 16px; }
+        .main-menu { min-width: 160px; }
+        /* v0.9.35：主菜单二级子菜单（皮肤 → 深色/浅色，hover 展开；主菜单贴视口右缘，
+           子菜单向左展开不溢出；子菜单是 .menu-item 的子元素，鼠标移入 hover 链不中断） */
+        .main-menu .menu-item { position: relative; }
+        .main-menu .menu-item .menu-arrow {
+            float: right;
+            margin-left: 12px;
+            color: var(--text-muted);
+            font-size: 14px;
+            line-height: 1;
+        }
+        .main-menu .menu-item .sub-menu {
+            display: none;
+            position: absolute;
+            right: 100%;       /* 紧贴父项左缘向左展开 */
+            top: -4px;         /* 对齐父菜单内边距（.context-menu padding 4px） */
+            background: var(--bg-elevated);
+            border: 1px solid var(--border-input);
+            border-radius: 6px;
+            padding: 4px 0;
+            min-width: 130px;
+            box-shadow: 0 4px 16px rgba(0,0,0,0.5);
+            z-index: 1300;
+        }
+        .main-menu .menu-item:hover .sub-menu { display: block; }
+
+        /* 左下角缩放滑块（v0.9.24：独立容器，高度与右下角统计块/快捷键按钮一致 35px） */
+        .zoom-bar {
+            position: fixed;
+            left: 16px;
+            bottom: 16px;
+            height: 35px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            background: var(--bg-card);
+            border: 1px solid var(--border-2);
+            border-radius: 6px;
+            padding: 0 12px;
+            z-index: 900;
+        }
+        .zoom-bar .bar-btn {
+            width: 24px;
+            height: 24px;
+            background: transparent;   /* v0.9.24：同中心横条，默认无底衬 hover 才有 */
+            border: none;
+            color: var(--text);
+            padding: 0;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;   /* v0.9.26：SVG 图标 1em——原 iconfont 16px 视觉 */
+            position: relative;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            flex: none;
+        }
+        .zoom-bar .bar-btn:hover { background: var(--bg-hover); }
+        .zoom-bar input[type="range"] {
+            width: 140px;
+            accent-color: var(--accent);
+            cursor: pointer;
+            /* v0.9.32：滑块有 accent-color 手柄视觉反馈，聚焦不再画浏览器默认焦点框 */
+            outline: none;
+        }
+
+        /* 底部居中工具条（v0.9.24）：视图控制组（宫格/列表/预览）+ 功能组（新建/台词/画幅/垃圾桶）
+           v0.9.56：高度统一 35px（与左下角 zoom-bar、右下角 corner-right 一致）——三容器 bottom 同钉
+           16px，等高后图标上沿/下沿在一条水平线上（原 48px = 8px padding + 30px 按钮，图标低 7px）
+           v0.9.56b：用户拍板中间工具条等比放大 1.5 倍（按钮 36 / 图标 24 / 间距 gap 15 / 高 53），
+           下沿间距保持 16px；左右两容器保持 35px 不变 */
+        .size-slider {
+            position: fixed;
+            left: 50%;
+            transform: translateX(-50%);
+            bottom: 16px;
+            height: 53px;
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            background: var(--bg-card);
+            border: 1px solid var(--border-2);
+            border-radius: 12px;
+            padding: 0 18px;
+            z-index: 900;
+        }
+        .size-slider .tool-group {
+            display: flex;
+            align-items: center;
+            gap: 9px;
+        }
+        .size-slider .tool-divider {
+            width: 1px;
+            height: 36px;
+            background: var(--border-2);
+            flex: none;
+        }
+        .size-slider .bar-btn {
+            background: transparent;   /* v0.9.24：默认无底衬，hover 才显示 */
+            border: none;
+            color: var(--text);
+            width: 36px;   /* v0.9.56b：等比 1.5 倍（原 24px） */
+            height: 36px;
+            padding: 0;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 24px;   /* v0.9.56b：SVG 图标 1em——等比 1.5 倍（原 16px） */
+            position: relative;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            flex: none;
+        }
+        .size-slider .bar-btn:hover { background: var(--bg-hover); }
+        .size-slider .bar-btn.active-view { background: var(--accent); color: var(--text-strong); }
+        /* v0.9.58：按钮禁用态（灰掉 + 不可点）——列表视图台词按钮 / 垃圾桶、其它视图创建按钮 */
+        .size-slider .bar-btn.disabled {
+            opacity: 0.35;
+            pointer-events: none;
+            cursor: default;
+        }
+        /* v0.9.56：删除 .zoom-step 死代码（原 font-size:13px——特异性 (0,1,0) 输给
+           .zoom-bar .bar-btn (0,2,0)，从未生效；保留会误导将来提特异性后 -/+ 图标变小） */
+        /* v0.9.8：台词开关按钮的高亮态（工具条按钮在 header，选择器放宽到全局） */
+        .bar-btn.active-view { background: var(--accent); color: var(--text-strong); }
+        /* v0.9.24：按钮 hover 文字——data-tip 自定义 tooltip，hover 立即显示（无原生 title 冷启动延迟） */
+        [data-tip] { position: relative; }
+        [data-tip]::after {
+            content: attr(data-tip);
+            position: absolute;
+            bottom: calc(100% + 8px);
+            left: 50%;
+            transform: translateX(-50%);
+            background: var(--bg-tooltip);
+            border: 1px solid var(--border-input);
+            color: var(--text);
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            line-height: 1.4;
+            white-space: nowrap;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity .1s;
+            z-index: 1200;
+        }
+        [data-tip]:hover::after { opacity: 1; }
+        /* header 顶部按钮：tooltip 向下 + 右对齐（避免超出视口右缘） */
+        .header [data-tip]::after {
+            bottom: auto;
+            top: calc(100% + 8px);
+            left: auto;
+            right: 0;
+            transform: none;
+        }
+        /* 台词框双击就地编辑输入框（v0.9.8，复用卡片改名输入框同款外观）
+           v0.9.19：input → textarea（多行自动换行适配高度，与非编辑态 box 一致大小）
+           ——padding 归 0（box 内容区已提供 6px 14px 6px 9px）、border 改 outline
+           （outline 不占布局，auto-resize 的 scrollHeight 计算无干扰）；
+           resize:none 禁右下角拖拽手柄；overflow:hidden 高度由 JS 适配禁滚动条 */
+        .dialogue-edit {
+            display: block;
+            width: 100%;
+            background: var(--bg-input-2);
+            border: none;
+            outline: 1px solid var(--accent);
+            border-radius: 4px;
+            color: var(--text);
+            font-size: 12px;
+            line-height: 1.5;
+            padding: 0;
+            margin: 0;
+            resize: none;
+            overflow: hidden;
+            word-break: break-word;   /* 与 .dialogue-box 一致：极长英文单词断词换行 */
+            box-sizing: border-box;
+            vertical-align: top;
+        }
+        #trashCount {
+            /* v0.9.35：流内 span → absolute 浮层角标（挂按钮右上角，脱离文档流不再挤压图标；
+               按钮 .bar-btn 本身 position:relative，角标天然跟随按钮位置）
+               v0.9.56b：随按钮等比 1.5 倍（-6→-9px，10→12px） */
+            position: absolute;
+            top: -9px;
+            right: -9px;
+            background: var(--danger);
+            color: var(--text-strong);
+            border-radius: 10px;
+            font-size: 12px;
+            padding: 1px 6px;
+            line-height: 1.4;
+            pointer-events: none;   /* 角标探出按钮外，点击穿透到按钮 */
+            display: none;
+        }
+        #trashCount.on { display: block; }
+
+        /* v0.9.25：「其它」页场景卡片（无帧图——场景名 + 相机，右键只剩转为镜头/删除） */
+        .other-card {
+            min-height: 110px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            cursor: default;
+        }
+        .other-card .other-name {
+            font-size: 15px;
+            font-weight: 600;
+            color: var(--text-2);
+            max-width: 90%;
+            text-align: center;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .other-card .other-meta {
+            font-size: 12px;
+            color: var(--text-secondary);
+            max-width: 90%;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        /* v0.9.64：其它视图列表条目——无帧图/时长/内容/台词列，场景名 + 相机两列覆盖 .list-item 六列模板。
+           场景名列接列表滑块（--list-thumb-w × 预览等比 --list-scale），clamp 防极值过宽/过窄 */
+        .shot-card.list-item.other-card {
+            grid-template-columns: clamp(120px, calc(var(--list-thumb-w) * var(--list-scale) * 2), 460px) 1fr;
+            column-gap: 14px;
+            padding: 6px 12px;
+        }
+        .shot-card.list-item.other-card .other-name {
+            font-size: 14px;
+            text-align: left;
+            max-width: none;
+        }
+        .shot-card.list-item.other-card .other-meta {
+            font-size: 12px;
+            max-width: none;
+        }
+
+        /* 右下角统计 (#8) + 快捷键按钮（v0.9.21：并排一行，统计左、快捷键右） */
+        .corner-right {
+            position: fixed;
+            /* v0.9.55f：视觉右间距 = 16px（与左下角缩放滑条一致）——right 按可视区 16 计算，
+               再减常驻滚动条宽度（100vw-100% = 滚动条宽，body 无 margin 时成立；overlay 滚动条时为 0 自动回退） */
+            right: calc(16px - (100vw - 100%));
+            bottom: 16px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            z-index: 900;
+        }
+        #statsBadge {
+            background: var(--bg-card);
+            border: 1px solid var(--border-2);
+            border-radius: 6px;
+            padding: 8px 12px;
+            font-size: 12px;
+            color: var(--text-faint);
+        }
+        #statsBadge b { color: var(--text); font-weight: 600; }
+
+        /* 「快捷键」按钮（在统计块右侧并排）+ 面板（v0.9.4：面板在按钮上方弹出） */
+        .shortcuts-btn {
+            background: var(--bg-card);
+            border: 1px solid var(--border-2);
+            color: var(--text);
+            border-radius: 6px;
+            padding: 8px 12px;  /* 与统计块同高（对齐统一） */
+            font-size: 12px;
+            cursor: pointer;
+        }
+        .shortcuts-btn:hover { background: var(--bg-hover); }
+        .shortcuts-btn.active { background: var(--accent); color: var(--text-strong); }
+        .shortcuts-panel {
+            position: fixed;
+            right: 16px;
+            bottom: 58px;  /* v0.9.21：面板底距按钮顶 8px = 按钮之间间距（corner-right gap 8px） */
+            width: 290px;
+            max-height: 60vh;
+            overflow-y: auto;
+            background: var(--bg-card);
+            border: 1px solid var(--border-2);
+            border-radius: 8px;
+            padding: 10px 12px;
+            z-index: 950;
+            box-shadow: 0 4px 16px rgba(0,0,0,.5);
+            cursor: default;  /* v0.9.22：文本 hover 光标固定箭头，不做任何变化 */
+        }
+        /* v0.9.5 弹簧动画：开 = 弹入（translateY+scale overshoot），关 = 先弹走再隐藏 */
+        .shortcuts-panel { transform-origin: bottom right; }
+        .shortcuts-panel.panel-in { animation: sc-spring-in .28s cubic-bezier(.34,1.56,.64,1); }
+        .shortcuts-panel.panel-out { animation: sc-spring-out .18s ease-in forwards; pointer-events: none; }
+        @keyframes sc-spring-in {
+            0% { transform: translateY(12px) scale(.96); opacity: 0; }
+            60% { transform: translateY(-2px) scale(1.01); opacity: 1; }
+            100% { transform: translateY(0) scale(1); opacity: 1; }
+        }
+        @keyframes sc-spring-out {
+            0% { transform: translateY(0) scale(1); opacity: 1; }
+            100% { transform: translateY(8px) scale(.97); opacity: 0; }
+        }
+        .shortcuts-panel .sc-title { font-size: 13px; font-weight: 700; color: var(--text); margin-bottom: 8px; }
+        /* v0.9.56e：快捷键面板 Tab 标签（全局/时间线） */
+        .sc-tabs {
+            display: flex;
+            gap: 6px;
+            margin-bottom: 10px;
+            padding-bottom: 8px;
+            border-bottom: 1px solid var(--border-2);
+        }
+        .sc-tab {
+            padding: 4px 14px;
+            border-radius: 5px;
+            font-size: 12px;
+            cursor: pointer;
+            background: transparent;
+            color: var(--text-secondary);
+            border: 1px solid var(--border-2);
+        }
+        .sc-tab:hover { background: var(--bg-hover); color: var(--text); }
+        .sc-tab.active { background: var(--accent); border-color: var(--accent); color: var(--text-strong); }
+        .sc-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 4px 0;
+            font-size: 12px;
+            color: var(--text-2);
+        }

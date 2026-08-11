@@ -1,9 +1,24 @@
 # AGENTS.md
 
 > 给下一个 Agent（或下一个自己）的交接备忘录。**收工推送前必须更新「刚做完 / 正在做 / 下一步 / 坑」四个字段。**
-> 2026-08-10 八次压缩维护：v0.9.64 五项（时间线拖图/菜单展开折叠/其它视图切换修复/中键右键横滑/横滑弹簧）并入刚做完；v0.9.61-63 压行合并；盘点未补 3 项全清；坑区追加 64 轮坑（transform 污染滚动边界等）。
+> 2026-08-11 维护：v0.9.72 时间线台词条拖宽动态钳制记入刚做完；CSS 拆分方案 A 拍板（下个对话执行）。
+> 2026-08-11 二次维护：CSS 2255 行拆分（方案 A）已执行完毕记入刚做完；下一步 CSS 拆分待办划掉。
+> 2026-08-11 三次维护：queue.py 拆分（方案 B）执行完毕记入刚做完；下一步 queue 拆分待办划掉；正式工程全量审计两个环境观察记入坑。
+> 2026-08-10 十一次维护：预览小图尺寸修复记入刚做完；待推标记合并三项。
 
-## 刚做完（v0.9.70 一项 + v0.9.69 一项 + v0.9.68 一项 + v0.9.67 一项 + v0.9.66 一项 + v0.9.65 一项 + v0.9.64 五项，2026-08-10，已推 v0.9.70）
+## 刚做完（queue.py 拆分 + CSS 2255 行拆分 + v0.9.72 一项 + 屎山治理批 A + v0.9.70 一项 + v0.9.69 一项 + v0.9.68 一项 + v0.9.67 一项 + v0.9.66 一项 + v0.9.65 一项 + v0.9.64 五项，2026-08-11/10，未推）
+
+**queue.py 953 行拆分（2026-08-11，未推，方案 B 三拆）**：queue.py 瘦身至 ~200 行（队列机制 + COMMANDS 注册表 + re-export 兼容层），命令实现按域拆两个新文件——core/commands_shots.py（镜头域 16 命令 + _cover_frame_no 私有副本，~480 行）+ core/commands_frames.py（帧域 render_frame/set_cover_frame/delete_frame + _switch_scene/_restore_scene，~150 行）。死函数 _render_frame_of（全仓无调用者）按用户拍板删除。依赖方向单向无环（queue → commands_shots → commands_frames → core 叶子；函数内 import 提升到模块级）。**公开 API 面 10 符号全保**（queue_command/ensure_timer/redraw_view3d/panel_db_cache/queue_idle/recent_errors/execute_command/process_queue + cmd_render_frame/cmd_delete_frame/cmd_delete_shot/_cover_frame_no re-export）→ __init__.py / actions.py 零改动。**验证**：ast 保真核对 30 函数（5 个差异全归类为五代退役改动/import 提升/_shutil→shutil 等价改写）+ 机制函数逐行一致 + 干净库全量 89/89 全 PASS（47+12+30）。版本号不升
+
+**CSS 2255 行单文件拆分（2026-08-11，未推，方案 A 执行）**：style.css 切成 style.part1-4.css（593/605/618/439 行），index.html 按原顺序 4 link + 注释「禁止调整 link 顺序」。**切分点必须用块扫描器确认**（行尾括号深度 0 且不在注释/字符串内）——原始边界 600/1200/1800 全落在规则块内部（.list-header/.sc-row kbd/:root 浅色主题变量块），未闭合块 EOF 自动闭合 + 下文件开头属性行与 `}` 被丢弃 = 规则残缺/丢失（首次验证 FAIL：389→386 条且 .list-header 属性不全）；安全点 = 593 空行/1198 块闭合/1816 浅色主题块闭合。**验证链**：去注释拼接字节级一致 + 每文件尾深度 0 注释闭合 + CSSOM 389 条规则序列逐条相等（基线 vs 拆后）+ 21 项视觉特征 computed 全等 + 同条件 reload 截图 0.000% diff（拆前基线截图差异 0.359% 是 navigate no-op 残留滚动位置的环境差异）+ 列表/宫格/时间线三视图冒烟各 74 元素。旧 style.css 无引用已删（源码+部署）。版本号不升
+
+**v0.9.72 时间线台词条拖宽动态钳制（2026-08-11，未推）**：用户报「时间视图台词不能自由拉动」——实测根因：拖宽钳制是常量（下限 120px + 上限可视右缘 85%），最小档 clipW=52 时台词条初始宽 86px < 120，**往短拖反而变宽**（c0030 实测最短只能 120、最长 227）。**改动**：render.js initDialogueResize onMove 时间线分支改动态变量（用户拍板）——最短 = 当前镜头宽 clipW、最长 = 向右 3 个镜头位 3×(clipW+CLIP_GAP)，随缩放实时变化；宫格分支保持原语义（120 下限 + 同排容量 capW/可视右缘）。**验证**：最小档 52/192、最大档 316/984（比例恒定盖镜头数不漂移）、落盘 {m:2,p:0} reload 无回弹、c0030+c0330 双镜头实测、宫格回归 196→436。版本号不升
+
+**预览窗口小图尺寸修复（2026-08-10，未推）**：宫格/列表预览窗口中，小图（320×180 缩略图）阶段以原生尺寸显示、大图（1920×1080）被 max 约束缩放到画幅容器——大小图显示尺寸不一致（用户实测抓包"小图不匹配"）。**根因不是五代退役引入**：aspect.js 动态注入的 `.preview-body img` 规则（v0.9.34 画幅容器改造）用 `width:auto; height:auto; max-width:100%; max-height:100%`，与静态 CSS 1317 行（100%×100%）同特异性 (0,1,1) 后注入覆盖——小图没到 max 约束线就原生显示，大图被 max 缩放。**修复**：aspect.js `.preview-body img` 改回 `width:100%; height:100%`（保留 aspect-ratio + object-fit 画幅裁切语义）——小图阶段放大到容器画幅尺寸与大图一致，切换只有模糊→清晰无尺寸跳变。验证 WebBridge：CSSOM 新规则生效 + 小图 320×180→430×562 + 大图 1920×1080 填满同容器 + 大小图同尺寸 + 老单图镜头（仅 still.png 无 still.jpg）大图 404 停小图放大态（符合"不再读 png"拍板，小图兜底）。改 web/js/aspect.js 一处 4 行。
+
+**五代兼容层退役（2026-08-10，未推，屎山治理批 A④）**：五代格式兜底全删（用户拍板：不存在旧工程/png 不再读取/新镜头一律 {name}_{id}/老格式宽度数据回自动大小无损失）——**代1** db.py init_db 删老库迁移三块（type 列删除/orphan_shots 回填 frames/frames.ver 补列/still.png→thumb.jpg 改指），保留通用补列循环（幂等防御）；**代2** 全链路去 png：preview.js 删 stillFallback 函数+两条 onerror 重试链（showPreviewImage/preloadNeighbors，jpg 404 直接缺图红格）、queue.py 删帧三候选改两候选（不再清 _still.png）+duplicate still_candidates 去 png+改名 still_path 拼 still.jpg（原拼 still.png 永不命中写空串）、render.py/queue.py docstring 修正；**代3** sync.py 删 legacy {id} 目录迁移分支（dirs_migrated 恒 0）+**顺手修既有 bug**：__init__.py Sync Scenes 按钮解构 6 元组 vs sync 返回 7 元组（v0.9.63 加 registered 时漏改调用方，点按钮 ValueError）+报告加 registered 计数；**代4** render.js dlgEntry/getDialogueWidth 删纯数字+旧时间线 {w,base:有值} 换算两条远古分支——现行只两种格式（宫格 {w,base:null} 固定像素/时间线 {m,p} 镜头位，分开存功能语义不动），老数据命中被删格式回自动大小；**代5** render.js 删 thumbImgHtml 函数+两处回退调用（列表/宫格单图）——shots.thumb_path 的 thumb.jpg legacy 兜底退役，imageUrl 缺失统一 SVG_NOIMG 红格子。验证：全量 89/89（47+12+30）+ 代4/5 语义 5/5（宫格固定像素 333/时间线 {m:1,p:0.5}=394 与公式精确吻合/纯数字与 {w,base} 老格式均回自动 clipW=148/缺图 SVG_NOIMG）。版本号不升
+
+**屎山治理批 A 三项（2026-08-10，未推，纯结构重构零行为变化）**：①**编辑模板合一**——新建 web/js/inline_edit.js（73 行共享模板：input/textarea 创建、7 类事件 stopPropagation、Enter/Escape/blur 语义、done 标志 finish 闭包），rename.js（startRename/startFieldEdit）/render.js（startDlgEdit）/timeline.js（startTlDlgEdit）四处入口瘦身成薄封装（各自保留 DOM 定位/commit API/校验，输入框生命周期全走 inlineEdit；timeline 版 rebuildText 改为 textEl.replaceWith——inlineEdit 已还原 targetEl，原 input.replaceWith 对 disconnected 元素无效）。验证 WebBridge 16/16（改名/时长单行/内容多行/宫格台词/时间线台词全链路提交+Escape+还原）。②**审计公共层**——新建 scripts/audit_lib.py（MCP_HOST/PORT/HTTP + blender/api/wait_until/print_record 一份实现），audit.py/audit_context_menu.py/web_audit.py 各删复制段（state() 保留各自——audit 三元组 vs ctx 单元组形状不同不强合；audit.py 的 wait_ok 保留——带 record FAIL 语义）。③**shot_action 拆 handler 表**——actions.py 210 行单函数 14 个 if/elif → 14 个 `_act_xxx(project_dir, db_path, shot_id, data, shot)` 函数 + `_ACTION_HANDLERS` 表（action→(handler, needs_shot)）+ 22 行分发器（update/move_dialogue 自查记录 needs_shot=False 传 None）。验证：本地分发 5/5（unknown 400/update 404/rename 404/move_dialogue 边界 400/update 200）。**推前全量干净库 89/89 全 PASS（47+12+30）**——三脚本运行时 + handler 表化后端全路径 + inlineEdit 前端路径三重验证。版本号不升（无产品功能改动）
 
 **审计脚本增强（2026-08-10，v0.9.70 后追加，已推）**：①audit.py 新增 s13 段 move_dialogue 原子性固化（v0.9.68 漏网 bug 修复进回归网防复发：移动/互换 + 一次撤销全恢复 + 边界拒绝 400/400/404 数据不动，零残留模式操作 N 次撤销 N 次）②web_audit.py 新增 timeline 段 7 项（覆盖最大盲区——此前 web_audit 9 段全测宫格/列表：进时间线 setView/clip 渲染数=API/台词条数/多图展开折叠 expandedShotIdsTl 分流/滑块缩放 clip 宽/切回宫格）③s3 cleanup 时序修复：purge 场景删除是 queue 异步，不等场景消失就 sync 会被 _register_other_scenes 登记成「其它」镜头（name=Shot_ 前缀）→ leftover 假 FAIL（SMB 慢盘 9s 实测）——purge 后 wait_ok 场景消失再继续④restore_all 的 toggleView → setView('grid')（v0.9.55 起 toggleView 是 MRU 最近两视图切换，prev 非 grid 时切不回宫格）。推前全量干净库 89/89 全 PASS（47+12+30，~3min）
 
@@ -94,9 +109,8 @@
 
 ## 正在做
 
-- **v0.9.41 ~ v0.9.70 已推 GitHub**（v0.9.70，2026-08-10：推前干净库 audit_clean.blend 全量 77/77 全 PASS（42+12+23，~3min），版本号 0.9.40→0.9.70（bl_info+index.html 徽章两处））；**审计脚本增强已推**（2026-08-10：s13 move_dialogue 段 + timeline 段 + cleanup 时序修复，推前全量 89/89 全 PASS，版本号不升——无产品功能改动）
-- 待办，等用户逐项指派（需求池 [ ] 剩 1 项）：宫格缩略图下缘黑条（观察项，先不动）；「拖拽完台词再撤销台词会消失」已修（v0.9.68）、「列表开预览字体大小一致」已修（v0.9.69）、「列表缩放极值×2+镜头名减半」已修（v0.9.70，2026-08-10，池内未回勾）
-- ⚠ 需求池另 1 项 AGENTS 曾漏记（2026-08-10 开局对照发现）：时间线视图垂直缩放网页窗口时实时匹配（缩略图保持向下对齐，需求池 481 行 [ ] 未勾）——真待办候选，等指派
+- **v0.9.41 ~ v0.9.70 已推 GitHub**（v0.9.70，2026-08-10：推前干净库 audit_clean.blend 全量 77/77 全 PASS（42+12+23，~3min），版本号 0.9.40→0.9.70（bl_info+index.html 徽章两处））；**审计脚本增强已推**（2026-08-10：s13 move_dialogue 段 + timeline 段 + cleanup 时序修复，推前全量 89/89 全 PASS，版本号不升——无产品功能改动）；**屎山治理批 A + 五代退役 + 预览小图修复 + CSS 拆分 + queue 拆分 + v0.9.72 待推**（2026-08-10/11：inline_edit.js + audit_lib.py + handler 表化 + 五代兼容层全删 + aspect.js 预览小图放大 + style.css 拆 4 part + queue.py 三拆 + 拖宽动态钳制，验证全过，版本号不升）
+- 待办，等用户逐项指派：宫格缩略图下缘黑条（观察项，先不动）；需求池 Phase 2 未勾项已全部回勾（474/476/477/478/473 均 [x]，2026-08-10 开局核对）；Phase 3 四大项（VSE 串片/animatic 预览/垃圾桶其它侧边栏/实时视口零延时）为长期大项，不在当前范围
 - 盘点未补 3 项已全部补齐（v0.9.64）：时间线右键菜单展开/折叠、外部图片拖入、中键/右键滑动翻面横滚时间线
 
 ## 下一步
@@ -109,6 +123,13 @@
   6. **静态文件 Cache-Control: no-cache**：治"部署了但浏览器跑旧 JS"玄学
   7. **sync 自动对账 name/scene/dir 三元组**：孤儿场景从"只报告"升级为自动收敛（c0030 事件）
   8. **.blend 体积治理**：FULL_COPY 复制重场景让 1.4GB 文件持续膨胀
+- **减屎山候选（2026-08-10 代码质量静态评估产出；批 A ①②③ 已落地——见刚做完屎山治理批 A）**，剩余按性价比排序：
+  1. ~~三份就地编辑 input 模板合一~~ **已落地（批 A ①，inline_edit.js）**
+  2. ~~审计三脚本公共模板抽共享模块~~ **已落地（批 A ②，audit_lib.py）**
+  3. ~~shot_action 按 action 拆 handler 表~~ **已落地（批 A ③，_ACTION_HANDLERS）**
+  4. ~~兼容层退役线~~ **已落地（五代退役，见刚做完）**——五代格式兜底全删（老库迁移/png 读取/目录 {id} 迁移/台词宽度远古格式/thumb.jpg legacy），顺手修 Sync Scenes 按钮解构 ValueError 既有 bug
+  5. ~~CSS 2255 行单文件拆分~~ **已落地（2026-08-11 方案 A：切 4 part 按序 link，块扫描器确认切分点，CSSOM 389 条逐条相等验证）**——切分点必须落在规则块间隙（原始 600/1200/1800 边界全在块内会丢规则）；新 CSS 按区域写入对应 part，禁止调整 link 顺序
+  6. ~~queue.py 953 行 30 函数拆分~~ **已落地（2026-08-11 方案 B 三拆：queue 机制 + commands_shots + commands_frames）**——公开 API re-export 零调用方改动，干净库全量 89/89 全 PASS
 - 单用户信任环境下已明确**不修**：目录穿越读/写、CSRF、输入类型混淆（v0.6.3 审计 P1/P2/P3，纸老虎）
 
 ## 开发铁律
@@ -205,6 +226,13 @@ CREATE INDEX IF NOT EXISTS idx_frames_shot ON frames(shot_id);
 | 拖拽驱动 | CDP 真实鼠标 `mousePressed` + `mouseMoved` **带 `buttons:1`**（多次送达，不带 buttons 只送第一次）；ESC 取消验证 = `Input.dispatchKeyEvent` Escape；**合成事件不驱动 CSS :hover**——验证受 :hover 影响的样式必须真实鼠标 + computed |
 
 ## 坑（已踩过的雷）
+
+### 近期（v0.9.72，未推）
+- **正式工程连续渲染后 OpenGL 挂起**（2026-08-11 全量审计实测，与代码无关）：bpy.ops.render.opengl(write_still=True) 在 timer 主线程调用后**不返回**（主线程栈可见卡在 _op_call）→ timer 停摆 → queue 积压（qsize 可达 50+）→ API 线程饿死假死（先 timeout 后 ConnectionRefused）。重启 Blender 后单次渲染正常，但跑几分钟连续渲染（创建/拍帧/重拍/复制）后又挂——**大场景正式工程触发，干净库小场景不触发**；非最小化/前台窗口无关（IsIconic=False 实测）。处置：全量审计只在干净库跑（推前标准姿势，AGENTS 已有），正式工程只跑段级 --only；挂起后重启 Blender 恢复。诊断手法：MCP（独立线程）查 sys._current_frames()[主线程].stack 定位卡点 + qsize 积压确认。
+- **rename_seq 候选名只查 DB 不查场景**（2026-08-11 实测）：_batch_rename_seq 的 name_exists 只查 shots 表 name，cmd_rename_shot 有场景层冲突保护（`Shot_{name} in bpy.data.scenes` raise）——正式工程有**残留场景 Shot_c0010**（DB 无记录，历史删除不彻底）时批量改名候选名撞场景 → rename_shot 报 "Scene Shot_c0010 already exists" → 该镜头停在 __ren_ 前缀（两阶段改名 phase2 失败）。**既有设计缺口非本轮引入**（拆分前后行为一致）；干净库无残留场景不受影响。用户工程可在网页「其它」视图找到残留场景手动处理。
+- **时间线台词条 {m,p} 格式物理下限 = clipW+GAP**（拖宽钳制改动态变量时实测）：w < clipW+GAP 落盘 {m:0,p:0} 渲染回 clipW+GAP（≤12px 回弹）——拖宽下限若设 clipW（用户语义「最短=镜头宽」），拖到最左松手会回弹 12px，是格式固有边界非 bug；上限 3×(clipW+GAP) 恰好落 {m:2,p:0} 无回弹
+- **initDialogueResize 的 rAF 节流**（拖宽测试两轮假 FAIL）：onMove `if (raf) return` + requestAnimationFrame 应用宽度——同一 evaluate 同步 dispatch 多个 mousemove 只应用第一步（后续被短路），同步读 offsetWidth 必读到未应用值。分步拖宽 = 每步独立 evaluate + sleep 0.07 等 rAF
+- **WebBridge evaluate 里 localStorage.setItem 第二参传对象字面量 = 写坏**（`setItem('k', {"a":1})` JS 隐式 toString → "[object Object]"）：恢复持久化状态必须 `setItem(k, JSON.stringify(<JSON文本>))` 包一层；ev() 读 localStorage 返回值 dict/str 不确定（坑 36），写回前先 map_of 归一
 
 ### 近期（v0.9.54，未推，详细）
 - **zoomApply 的 timeline 分支无条件重渲染 renderTimeline**（v0.9.54 实测两处踩）：setView 末尾/fetchShots 后（data.js 17 行）都会调 __zoomApply——timeline 分支里值没变也照渲（lane.innerHTML 重建）→ 刚播的入场动画/刚设置的内联样式全被清掉（切视图/首屏直落动画假死，探针全 N 排查 4 轮）。**修复 = 分支里算出的档位 w 与持久化 w0 相同（纯同步调用）时跳过 renderTimeline**；滑块/±/Ctrl 滚轮路径都先写 sb-tl-w 再 apply，值必变不受影响。判别：动画起点已提交（computed 有 matrix）但下一帧消失 = 被后续重渲染重建清掉，查调用链里 renderGrid 之后还有没有 zoomApply/renderTimeline
@@ -342,8 +370,8 @@ CREATE INDEX IF NOT EXISTS idx_frames_shot ON frames(shot_id);
 ## 细节指针
 
 - 架构：Blender 插件 + 内嵌 HTTP（0.0.0.0:8089）+ `bpy.app.timers` 主线程队列
-- 后端模块地图：`core/server.py`（ROUTES 表 + 静态服务）→ `core/actions.py`（每端点一函数）→ `core/queue.py`（COMMANDS 注册表 + 错误回传 + redraw_view3d）/ `core/db.py`（含 next_c_name/next_c_number）/ `core/undo.py`（撤销栈）/ `core/paths.py` / `core/scenes.py`（场景工厂）/ `core/sync.py`（同步唯一实现）/ `core/render.py`（拍屏公共函数）
-- 前端模块地图（21 个 JS）：`web/index.html`（骨架+CSS）+ `web/js/`：state（共享状态）/ ui（toast+确认条）/ render（宫格+列表+FLIP+DOM差分+首屏门控）/ data（拉取+心跳+错误toast+undoLast）/ selection / dnd（卡片拖拽+拖图分区）/ frames（帧级操作）/ rename（改名+字段就地编辑）/ menu（右键/中键滑动+回弹+菜单）/ create（弹框）/ marquee（框选）/ zoom（滑块+Ctrl滚轮连续缩放）/ keyboard（快捷键+方向键）/ trash（垃圾桶弹窗）/ search（搜索栏定位）/ preview（预览框）/ shortcuts（快捷键面板）/ aspect（画幅比）/ icons（图标表+注入）/ timeline（时间线视图）/ main（入口接线）
+- 后端模块地图：`core/server.py`（ROUTES 表 + 静态服务）→ `core/actions.py`（每端点一函数；shot_action = `_ACTION_HANDLERS` 表分发 14 个 `_act_xxx`，v0.9.71）→ `core/queue.py`（COMMANDS 注册表 + 错误回传 + redraw_view3d）/ `core/db.py`（含 next_c_name/next_c_number）/ `core/undo.py`（撤销栈）/ `core/paths.py` / `core/scenes.py`（场景工厂）/ `core/sync.py`（同步唯一实现）/ `core/render.py`（拍屏公共函数）
+- 前端模块地图（22 个 JS）：`web/index.html`（骨架+CSS）+ `web/js/`：state（共享状态）/ ui（toast+确认条）/ render（宫格+列表+FLIP+DOM差分+首屏门控）/ data（拉取+心跳+错误toast+undoLast）/ selection / dnd（卡片拖拽+拖图分区）/ frames（帧级操作）/ rename（改名+字段就地编辑）/ inline_edit（v0.9.71：就地编辑输入框生命周期共享模板）/ menu（右键/中键滑动+回弹+菜单）/ create（弹框）/ marquee（框选）/ zoom（滑块+Ctrl滚轮连续缩放）/ keyboard（快捷键+方向键）/ trash（垃圾桶弹窗）/ search（搜索栏定位）/ preview（预览框）/ shortcuts（快捷键面板）/ aspect（画幅比）/ icons（图标表+注入）/ timeline（时间线视图）/ main（入口接线）
 - 改名：`cmd_rename_shot`（queue.py）四层联动实现
 - 测试：改完跑 `python3 scripts/audit.py`（47 项）+ `python3 scripts/audit_context_menu.py`（12 项）+ 网页 JS 改动 webbridge 全交互回归（web_audit 30 项）
 - 基线（2026-08-10）：audit 47 + ctx 12 + web_audit 30 = 89 项（v0.9.70 后新增 s13 move_dialogue 段 + timeline 段；旧基线 42+12+23=77）

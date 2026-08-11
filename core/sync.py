@@ -4,12 +4,12 @@ Used by BOTH the panel operator (storyboard.sync_scenes) and the web queue
 command (cmd_sync_scenes). Blender file is the authority: DB records for
 missing scenes are removed, duplicate records per scene are deduplicated,
 new non-storyboard scenes (manual / ghost) are registered as origin='other',
-and orphan/legacy directories on disk are cleaned or migrated.
+and orphan directories on disk are cleaned.
 
 v0.9.25 心跳自动对账：sync_scenes_light() 每 5s 由主线程 timer 跑一次——
 场景 ↔ DB 记录双向收敛（登记新场景 / 删孤儿记录 / 去重 / orphan frames），
 不做磁盘目录清理（rmtree 只留在启动/手动完整 sync）。sync_scenes_with_db()
-保留完整版（含目录清理/迁移），启动时跑一次。
+保留完整版（含目录清理），启动时跑一次。
 """
 import os
 import shutil
@@ -129,9 +129,9 @@ def sync_scenes_light():
 
 
 def sync_scenes_with_db():
-    """完整 sync（启动/手动）：轻量对账 + 磁盘孤儿目录清理/迁移。
+    """完整 sync（启动/手动）：轻量对账 + 磁盘孤儿目录清理。
     返回 (removed, orphan_scenes, deduped, dirs_removed, dirs_migrated,
-    frames_removed, registered)。"""
+    frames_removed, registered)。dirs_migrated 恒 0（v0.9.71 删 legacy 目录迁移）。"""
     empty = (0, [], 0, 0, 0, 0, 0)
     project_dir = get_project_dir()
     if not project_dir or not os.path.exists(project_dir):
@@ -148,14 +148,12 @@ def sync_scenes_with_db():
     # 保留该返回字段仅为向后兼容（恒为空列表）
     orphan_scenes = []
 
-    # Clean orphan directories on disk; migrate legacy {id} dirs to {name}_{id}
-    # (include_deleted: trash-bin shots keep their directories)
+    # Clean orphan directories on disk (include_deleted: trash-bin shots keep theirs)
+    # v0.9.71：legacy {id} 目录迁移分支已删——新镜头一律 {name}_{id}，不存在旧格式目录
     shots_dir = os.path.join(project_dir, "shots")
     all_shots = get_all_shots(db_path, include_deleted=True)
     valid_ids = {s["id"] for s in all_shots}
-    id_to_name = {s["id"]: s["name"] for s in all_shots}
     dirs_removed = 0
-    dirs_migrated = 0
     if os.path.isdir(shots_dir):
         for d in list(os.listdir(shots_dir)):
             full = os.path.join(shots_dir, d)
@@ -167,21 +165,6 @@ def sync_scenes_with_db():
                 print(f"[Storyboard] Removing orphan directory: {d}")
                 shutil.rmtree(full)
                 dirs_removed += 1
-            elif d == dir_id:
-                new_name = shot_dir_rel(id_to_name[dir_id], dir_id)
-                new_full = os.path.join(shots_dir, new_name)
-                if not os.path.exists(new_full):
-                    print(f"[Storyboard] Migrating legacy dir: {d} -> {new_name}")
-                    os.rename(full, new_full)
-                else:
-                    print(f"[Storyboard] Merging legacy dir: {d} -> {new_name}")
-                    for f in os.listdir(full):
-                        src = os.path.join(full, f)
-                        dst = os.path.join(new_full, f)
-                        if not os.path.exists(dst):
-                            os.rename(src, dst)
-                    shutil.rmtree(full)
-                dirs_migrated += 1
 
-    return (removed, orphan_scenes, deduped, dirs_removed, dirs_migrated,
+    return (removed, orphan_scenes, deduped, dirs_removed, 0,
             frames_removed, registered)

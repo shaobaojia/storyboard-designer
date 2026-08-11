@@ -4,6 +4,7 @@ import { toast } from './ui.js';  // v0.9.8：台词就地编辑的保存反馈
 import { ICONS } from './icons.js';  // v0.9.26：动态图标（收起箭头/列表角标）
 import { renderTimeline, tlClipW, applyTlDlgWidths, CLIP_GAP } from './timeline.js';  // v0.9.36：时间线视图（renderGrid 分支转发）；v0.9.40：时间线台词自适应宽度；v0.9.52：CLIP_GAP 台词条镜头位换算
 import { setPreview } from './preview.js';  // v0.9.55c：切时间线自动关侧边预览（循环引用同 timeline.js，函数体引用安全）
+import { inlineEdit } from './inline_edit.js';  // v0.9.71：就地编辑输入框生命周期共享模板
 
 // v0.9.6：XSS 防护——所有用户数据插 innerHTML 前统一过 esc（search.js 已有同款，此处补主渲染路径）
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
@@ -92,56 +93,49 @@ function scheduleDlgLeaveCleanup() {
 // 自定义（拖动手柄或取消勾选后固定宽度）。状态 = map 里有没有该镜头：
 // 无 = 自动（跟随列宽），有 = 自定义（固定值）。手动拖动自动写入 map（解除同步）。
 // v0.9.10 的全局默认 sb-dialogue-w 已废弃（需求：默认必须跟卡片同步，不保留固定默认值）。
-// v0.9.42：map 值格式升级 {w, base}——w=像素宽，base=时间线拖宽/取消勾选时的 clipW。
-// 时间线渲染 = round(w × clipW / base)（固定比例跟随缩放，比例 = w/base 恒定）；
-// 宫格 = w 固定像素（base 不参与）；旧纯数字格式（无 base）= 固定像素（不跳变）。
-const DLG_MAP_KEY = 'sb-dialogue-w-map';  // per-shot 自定义宽度：{shotId: {w, base}}
+// 台词自定义宽度存储（v0.9.71 屎山治理代4：纯数字、旧时间线 {w,base:有值} 两条
+// 远古读取分支已删——当前只有两种现行格式）：
+//   宫格    = {w, base:null} 固定像素（宫格拖宽写入）
+//   时间线  = {m, p} 镜头位（v0.9.52：完整盖住的后面镜头数 m + 再下一个镜头的百分比 p，
+//             渲染 w = (m+1)×(clipW+CLIP_GAP) + p×clipW，任何档位盖住位置恒定）
+// 老数据命中被删格式 = 该镜头回自动大小（跟随卡片宽），无数据损失。
+const DLG_MAP_KEY = 'sb-dialogue-w-map';  // per-shot 自定义宽度
 let dlgWidthMap = (() => {
     try { return JSON.parse(localStorage.getItem(DLG_MAP_KEY) || '{}') || {}; }
     catch { return {}; }
 })();
 
-// 归一化读取：旧格式数字 → {w, base:null}；新格式对象原样；无值 → null
+// 归一化读取：宫格 {w,base:null} 原样；时间线 {m,p} 原样；其它（纯数字/旧 {w,base}）→ null（回自动大小）
 function dlgEntry(shotId) {
     const v = dlgWidthMap[shotId];
-    if (!v) return null;
-    if (typeof v === 'number') return { w: v, base: null };
-    if (typeof v.w === 'number' && v.w > 0) return v;
-    if (typeof v.m === 'number' && typeof v.p === 'number') return v;  // v0.9.52 时间线镜头位格式 {m, p}
+    if (!v || typeof v !== 'object') return null;
+    if (typeof v.w === 'number' && v.w > 0 && !v.base) return v;   // 宫格固定像素
+    if (typeof v.m === 'number' && typeof v.p === 'number') return v;  // 时间线镜头位 {m, p}
     return null;
 }
 
 // 每条宽度：map 有值 = 自定义；无 = 自动跟随卡片宽（列宽），缩放同步变化
 function dialogueWidthOf(shotId) {
     const e = dlgEntry(shotId);
-    if (e) return e.w;
+    if (e && typeof e.w === 'number') return e.w;  // 宫格固定像素
     const colW = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--card-min')) || 200;
     return colW;
 }
 
 // v0.9.40：跨模块读自定义宽度（时间线台词块用）——map 有值 = 自定义；无 = fallback（时间线 = clipW）
-// v0.9.42：时间线自定义宽 = 固定比例跟随——base 存在时 w × fallback/base（fallback = 当前 clipW），
-// 缩放后比例恒 = w/base；base 缺省（旧数据/宫格写入）= 固定像素
-// v0.9.52：时间线改「镜头位」语义——间隔固定 12px 下，像素比例折算成镜头位会随档位漂移
-// （52 档 gap 占 18.8%、316 档 3.7%），改为记录「完整盖住的后面镜头数 m + 再下一个镜头的百分比 p」，
+// v0.9.52：时间线「镜头位」语义 {m, p}——间隔固定 12px 下像素比例折算镜头位随档位漂移，
+// 改为记录「完整盖住的后面镜头数 m + 再下一个镜头的百分比 p」，
 // 渲染 w = (m+1)×(clipW+CLIP_GAP) + p×clipW → 任何档位下盖住的镜头位置（百分比）恒定。
-// 新格式 {m, p}；旧格式 {w, base} 渲染时换算兜底（不迁移存储）。
+// v0.9.71：旧 {w,base} 换算分支已删（老数据回 fallback 自动大小）。
 export function getDialogueWidth(shotId, fallback) {
     const e = dlgEntry(shotId);
     if (!e) return fallback;
     if (typeof e.m === 'number' && typeof e.p === 'number') {
-        // v0.9.52 镜头位格式 {m, p}：w = (m+1)×(clipW+CLIP_GAP) + p×clipW
+        // 时间线镜头位 {m, p}：w = (m+1)×(clipW+CLIP_GAP) + p×clipW
         return Math.max(52, Math.round((e.m + 1) * (fallback + CLIP_GAP) + e.p * fallback));
     }
-    // 宫格固定像素（{w, base:null} / 旧数字）
-    if (!e.base) return e.w;
-    // 旧时间线数据 {w, base}：延伸量 = w - base（自己之后的 gap+完整镜头+部分镜头）
-    const ext = Math.max(0, e.w - e.base);
-    const unit = e.base + CLIP_GAP;
-    const m = Math.floor(ext / unit);
-    // 剩余要减掉最后一个 gap（ext = m×unit + GAP + p×base）
-    const p = Math.min(1, Math.max(0, (ext - m * unit - CLIP_GAP) / e.base));
-    return Math.max(52, Math.round((m + 1) * (fallback + CLIP_GAP) + p * fallback));
+    // 宫格固定像素 {w, base:null}
+    return e.w;
 }
 
 // v0.9.52：像素宽 → {m: 完整盖住的后面镜头数, p: 再下一个镜头被盖百分比}（时间线落盘用）
@@ -374,17 +368,18 @@ export function initDialogueResize() {
             if (raf) return;
             raf = requestAnimationFrame(() => {
                 raf = 0;
-                // v0.9.21：上限同步渲染端右缘钳制（box 左偏移 + 宽 ≤ grid 右缘-16，
-                // 与 relocateDialogue 的 availRight 同源，防拖宽超过剩余空间）
-                // v0.9.41：时间线 = 台词轨道可视右缘（#timeline 滚动容器 scrollLeft + clientWidth；
-                // 注意不能用 lane.clientWidth——.tl-lane absolute 拉伸到 tlInner 内容宽（76 clip ≈ 14000px）
-                // - 块左偏移 - 16 边距；台词盖到后面镜头是设计语义，上限只挡"拖出可视区域"
-                // v0.9.53：舞台语义——可视右缘改为 85%（15% 淡出带不进，与镜头块滚动极限一致，决策 3-A）
-                const tlEl = document.getElementById('timeline');
-                const availRight = isTl
-                    ? Math.max(120, ((tlEl ? tlEl.scrollLeft : 0) + Math.round((tlEl ? tlEl.clientWidth : 0) * 0.85)) - 16 - box.offsetLeft)
-                    : Math.max(120, gridW - 16 - box.offsetLeft);
-                const w = Math.round(Math.min(Math.max(startW + ev.clientX - startX, 120), capW, availRight));
+                // v0.9.72（2026-08-11 用户拍板）：时间线拖宽钳制 = 动态变量——最短 = 当前镜头宽
+                // clipW，最长 = 向右 3 个镜头位 3×(clipW+CLIP_GAP)，随缩放变化（不再是常量 120 /
+                // 可视右缘 85%）；宫格保持原语义（120 下限 + 同排容量 capW / 可视右缘）
+                let wMin = 120, wMax = capW;
+                if (isTl) {
+                    const cw = tlClipW();
+                    wMin = cw;
+                    wMax = 3 * (cw + CLIP_GAP);
+                } else {
+                    wMax = Math.min(capW, Math.max(120, gridW - 16 - box.offsetLeft));
+                }
+                const w = Math.round(Math.min(Math.max(startW + ev.clientX - startX, wMin), wMax));
                 // v0.9.10：只改被拖的这条（每条独立宽度）——v0.9.9 曾同步应用全部 box
                 // 是全局共享宽度语义，现已废弃
                 box.style.width = w + 'px';
@@ -628,51 +623,38 @@ export function startDlgEdit(e, shotId) {
     state.editingDlg = shotId;
     // v0.9.19：input → textarea（多行自动换行适配高度，与非编辑态 box 一致大小）；
     // Enter(无Shift)=保存、Shift+Enter=手动换行、Esc=取消、blur=保存
-    const input = document.createElement('textarea');
-    input.className = 'dialogue-edit';
-    input.value = shot.dialogue;
-    input.draggable = false;
-    input.rows = 1;
-    input.wrap = 'soft';
-    ['mousedown', 'mousemove', 'mouseup', 'dragstart', 'selectstart', 'click', 'dblclick'].forEach(t => {
-        input.addEventListener(t, (ev) => ev.stopPropagation());
+    // v0.9.71：输入框生命周期走 inlineEdit 共享模板
+    let st = null;
+    inlineEdit({
+        targetEl: textEl,
+        multiline: true,
+        className: 'dialogue-edit',
+        value: shot.dialogue,
+        shiftEnter: true,
+        onSetup: (input) => {
+            // v0.9.19：高度随文字量自适应（textarea 撑高 box，父条高度跟随 = 下一排即时让位）
+            const autoResize = () => {
+                input.style.height = 'auto';
+                input.style.height = input.scrollHeight + 'px';
+                st = boxEl.closest('.dialogue-strip');
+                if (st) st.style.height = boxEl.offsetHeight + 'px';
+            };
+            input.addEventListener('input', autoResize);
+            autoResize();
+            // v0.9.13：新建父条（无父条排添加台词）高度跟实际编辑框走——量在 autoResize 后
+            //（v0.9.19 前 input 比台词文本矮 padding 1px vs 6px，量错高度会让提交后父条高突变）
+            if (newStrip) newStrip.style.height = boxEl.offsetHeight + 'px';
+        },
+        onFinish: (commit, newText) => {
+            state.editingDlg = null;
+            // DOM 已由 inlineEdit 还原（输入框换回 textEl）
+            if (commit && newText !== shot.dialogue) {
+                commitDialogue(shotId, newText);
+            } else {
+                renderGrid();  // 未变更也重渲染，确保 strip 文本与 state 一致
+            }
+        },
     });
-    textEl.replaceWith(input);
-    // v0.9.19：高度随文字量自适应（textarea 撑高 box，父条高度跟随 = 下一排即时让位）
-    const autoResize = () => {
-        input.style.height = 'auto';
-        input.style.height = input.scrollHeight + 'px';
-        const st = boxEl.closest('.dialogue-strip');
-        if (st) st.style.height = boxEl.offsetHeight + 'px';
-    };
-    input.addEventListener('input', autoResize);
-    autoResize();
-    // v0.9.13：新建父条（无父条排添加台词）高度跟实际编辑框走——量在 autoResize 后
-    //（v0.9.19 前 input 比台词文本矮 padding 1px vs 6px，量错高度会让提交后父条高突变）
-    if (newStrip) newStrip.style.height = boxEl.offsetHeight + 'px';
-    input.focus();
-    input.select();
-
-    let done = false;
-    const finish = (commit) => {
-        if (done) return;
-        done = true;
-        const newText = input.value.trim();
-        state.editingDlg = null;
-        // 换回文本元素（updateDialogue 会按最新 state.shots 同步内容）
-        if (input.isConnected) input.replaceWith(textEl);
-        if (commit && newText !== shot.dialogue) {
-            commitDialogue(shotId, newText);
-        } else {
-            renderGrid();  // 未变更也重渲染，确保 strip 文本与 state 一致
-        }
-    };
-    input.addEventListener('keydown', (ev) => {
-        if (ev.key === 'Enter' && !ev.shiftKey) { ev.preventDefault(); finish(true); }
-        else if (ev.key === 'Escape') finish(false);
-        ev.stopPropagation();
-    });
-    input.addEventListener('blur', () => finish(true));
 }
 
 // v0.9.40：导出——时间线台词就地编辑（timeline.js）复用同一提交链路（toast 一致）
@@ -710,14 +692,9 @@ function screenCardCount(screens) {
     return cols * rows * screens;
 }
 
-function thumbImgHtml(shot, eager) {
-    const load = eager ? 'eager' : 'lazy';
-    return shot.thumb_path
-        ? `<img class="shot-thumb" draggable="false" src="/shots/${encodeURIComponent(shot.name)}_${shot.id}/thumb.jpg?v=${shot.thumb_ver || 0}" loading="${load}" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%22320%22 height=%22180%22><rect fill=%22%23333%22 width=%22320%22 height=%22180%22/><text fill=%22%23666%22 x=%2250%25%22 y=%2250%25%22 text-anchor=%22middle%22>No image</text></svg>'">`
-        : `<div class="shot-thumb" style="display:flex;align-items:center;justify-content:center;color:#666;">No render</div>`;
-}
-
 // ---- 多图镜头（v0.7.0）----
+// v0.9.71 代5：thumbImgHtml（shots.thumb_path 读 thumb.jpg 的 legacy 兜底）已删——
+// 卡片图统一走 frames.imageUrl，缺失 = SVG_NOIMG 红格子
 export const SVG_NOIMG = `data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%22320%22 height=%22180%22><rect fill=%22%23333%22 width=%22320%22 height=%22180%22/><text fill=%22%23666%22 x=%2250%25%22 y=%2250%25%22 text-anchor=%22middle%22>No image</text></svg>`;
 
 function frameImgHtml(frame, shot, eager, extraClass = '') {
@@ -931,13 +908,13 @@ function buildCard(shot, eager) {
         const toggleId = shot.id.replace(/[^a-zA-Z0-9]/g,'');
         const multiBadge = isMulti ? `<button class="multi-badge${expanded ? ' expanded' : ''}" onclick="window.__sb.toggleListMulti('${shot.id}');event.stopPropagation();">${frames.length}帧${expanded ? ICONS.collapse : ICONS.expand}</button>` : '';
         // v0.8.4: 所有镜头折叠态缩略图 = 封面帧图（统一 frames 模型，单图=1 帧镜头；
-        // 封面变更立即跟随；thumb.jpg 仅作 legacy 兜底）
+        // 封面变更立即跟随。v0.9.71 代5：thumb.jpg legacy 兜底已删——imageUrl 缺失 = 红格子）
         const coverFrame = frames.find(f => f.isCover) || frames[0];
         // v0.9.33：列表折叠态缩略图不再参与帧焦点（折叠态焦点 = 只有卡片 selected
         // 外框，用户拍板）；data-frame-id 一并移除（无消费者）
         const thumbHtml = coverFrame && coverFrame.imageUrl
             ? `<img class="shot-thumb" draggable="false" src="${coverFrame.imageUrl}" loading="${eager ? 'eager' : 'lazy'}" onerror="this.src='${SVG_NOIMG}'">`
-            : thumbImgHtml(shot, eager);
+            : `<img class="shot-thumb" draggable="false" src="${SVG_NOIMG}" alt="">`;
         // 展开态：封面图保持行高，帧缩略图浮层叠加
         let framesOverlay = '';
         if (expanded) {
@@ -984,11 +961,12 @@ function buildCard(shot, eager) {
                     </div>
                 </div>`;
         } else {
-            // v0.8.4: 单图 = 1 帧镜头，卡片图统一用封面帧图（与列表/展开态同源）
+            // v0.8.4: 单图 = 1 帧镜头，卡片图统一用封面帧图（与列表/展开态同源；
+            // v0.9.71 代5：thumb.jpg legacy 兜底已删——imageUrl 缺失 = 红格子）
             const coverFrame = frames.find(f => f.isCover) || frames[0];
             const coverImgHtml = coverFrame && coverFrame.imageUrl
                 ? `<img class="shot-thumb" draggable="false" src="${coverFrame.imageUrl}" loading="${eager ? 'eager' : 'lazy'}" onerror="this.src='${SVG_NOIMG}'">`
-                : thumbImgHtml(shot, eager);
+                : `<img class="shot-thumb" draggable="false" src="${SVG_NOIMG}" alt="">`;
             wrap.innerHTML = `
                 <div class="shot-card ${sel}" draggable="false" data-id="${shot.id}">
                     ${coverImgHtml}

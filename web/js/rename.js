@@ -3,6 +3,7 @@ import { state } from './state.js';
 import { renderGrid } from './render.js';
 import { toast } from './ui.js';
 import { fetchShots } from './data.js';
+import { inlineEdit } from './inline_edit.js';
 
 export function startRename(e, shotId) {
     if (e) {
@@ -19,39 +20,21 @@ export function startRename(e, shotId) {
 
     state.editingId = shotId;
     card.draggable = false;  // 编辑态禁止卡片拖拽（拖选文字不拖卡）
-    const input = document.createElement('input');
-    input.className = 'shot-name-input';
-    input.value = shot.name;
-    input.draggable = false;
-    // 输入框内的事件一律不冒泡：拖选文字不触发卡片拖拽/框选
-    ['mousedown', 'mousemove', 'mouseup', 'dragstart', 'selectstart', 'click', 'dblclick'].forEach(t => {
-        input.addEventListener(t, (ev) => ev.stopPropagation());
+    inlineEdit({
+        targetEl: nameEl,
+        className: 'shot-name-input',
+        value: shot.name,
+        onFinish: (commit, newName) => {
+            state.editingId = null;
+            card.draggable = true;
+            // DOM 已由 inlineEdit 还原（输入框换回名字元素，防差分复用孤儿化）
+            if (commit && newName && newName !== shot.name) {
+                commitRename(shotId, newName);
+            } else {
+                renderGrid();
+            }
+        },
     });
-    nameEl.replaceWith(input);
-    input.focus();
-    input.select();
-
-    let done = false;
-    const finish = (commit) => {
-        if (done) return;
-        done = true;
-        const newName = input.value.trim();
-        state.editingId = null;
-        card.draggable = true;
-        // 先把输入框换回名字元素（DOM 差分会复用卡片，不还原的话输入框会孤儿化）
-        if (input.isConnected) input.replaceWith(nameEl);
-        if (commit && newName && newName !== shot.name) {
-            commitRename(shotId, newName);
-        } else {
-            renderGrid();
-        }
-    };
-    input.addEventListener('keydown', (ev) => {
-        if (ev.key === 'Enter') finish(true);
-        else if (ev.key === 'Escape') finish(false);
-        ev.stopPropagation();
-    });
-    input.addEventListener('blur', () => finish(true));
 }
 
 async function commitRename(shotId, newName) {
@@ -92,60 +75,42 @@ export function startFieldEdit(e, cellEl, shotId, field) {
     // v0.9.19：内容/台词 = 多行 textarea（自动换行 + 高随内容，至少撑满条目内容区
     // 与显示态一致）；时长 = 单行 input
     const isMultiline = (field === 'content' || field === 'dialogue');
-    const input = document.createElement(isMultiline ? 'textarea' : 'input');
-    input.className = isMultiline ? 'field-input multiline' : 'field-input';
-    input.value = oldVal;
-    input.draggable = false;
-    if (isMultiline) {
-        input.rows = 1;
-        input.wrap = 'soft';
-        const cellH = cellEl.offsetHeight;   // 编辑前显示态高度（撑满条目内容区）
-        const autoResize = () => {
-            input.style.height = 'auto';
-            input.style.height = Math.max(input.scrollHeight, cellH) + 'px';
-        };
-        input.addEventListener('input', autoResize);
-        autoResize();
-    }
-    ['mousedown', 'mousemove', 'mouseup', 'dragstart', 'selectstart', 'click', 'dblclick'].forEach(t => {
-        input.addEventListener(t, (ev) => ev.stopPropagation());
-    });
-    cellEl.replaceWith(input);
-    input.focus();
-    input.select();
-
-    let done = false;
-    const finish = (commit) => {
-        if (done) return;
-        done = true;
-        const raw = input.value.trim();
-        state.editingId = null;
-        if (card) card.draggable = true;
-        // 先还原单元格 DOM（差分渲染会复用卡片，输入框不能留在里面）
-        if (input.isConnected) input.replaceWith(cellEl);
-        if (commit && raw !== oldVal) {
-            if (field === 'duration') {
-                const v = parseFloat(raw);
-                if (!isFinite(v) || v <= 0) {
-                    toast('时长必须是大于 0 的数字', true);
-                    renderGrid();
-                    return;
+    inlineEdit({
+        targetEl: cellEl,
+        multiline: isMultiline,
+        className: isMultiline ? 'field-input multiline' : 'field-input',
+        value: oldVal,
+        shiftEnter: isMultiline,  // v0.9.19：多行框 Enter=保存、Shift+Enter=换行
+        onSetup: (input) => {
+            if (!isMultiline) return;
+            const cellH = cellEl.offsetHeight;   // 编辑前显示态高度（撑满条目内容区）
+            const autoResize = () => {
+                input.style.height = 'auto';
+                input.style.height = Math.max(input.scrollHeight, cellH) + 'px';
+            };
+            input.addEventListener('input', autoResize);
+            autoResize();
+        },
+        onFinish: (commit, raw) => {
+            state.editingId = null;
+            if (card) card.draggable = true;
+            if (commit && raw !== oldVal) {
+                if (field === 'duration') {
+                    const v = parseFloat(raw);
+                    if (!isFinite(v) || v <= 0) {
+                        toast('时长必须是大于 0 的数字', true);
+                        renderGrid();
+                        return;
+                    }
+                    commitField(shotId, {duration: v});
+                } else {
+                    commitField(shotId, {[field]: raw});
                 }
-                commitField(shotId, {duration: v});
             } else {
-                commitField(shotId, {[field]: raw});
+                renderGrid();
             }
-        } else {
-            renderGrid();
-        }
-    };
-    input.addEventListener('keydown', (ev) => {
-        // v0.9.19：多行框 Enter=保存、Shift+Enter=换行；单行框 Enter=保存
-        if (ev.key === 'Enter' && !(isMultiline && ev.shiftKey)) { ev.preventDefault(); finish(true); }
-        else if (ev.key === 'Escape') finish(false);
-        ev.stopPropagation();
+        },
     });
-    input.addEventListener('blur', () => finish(true));
 }
 
 async function commitField(shotId, fields) {

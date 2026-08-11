@@ -22,9 +22,9 @@
 """
 import socket, json, urllib.request, time, os, sys, re
 
-MCP_HOST = os.environ.get("SB_MCP", "192.168.3.71")
-MCP_PORT = int(os.environ.get("SB_MCP_PORT", "9876"))
-HTTP = f"http://{MCP_HOST}:{os.environ.get('SB_HTTP_PORT', '8089')}"
+# v0.9.71：公共层抽 audit_lib（blender/api/wait_until/print_record 一份实现）
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from audit_lib import MCP_HOST, MCP_PORT, HTTP, blender, api, wait_until, print_record
 
 RESULTS = []  # (category, name, ok, detail)
 
@@ -36,9 +36,7 @@ _UNDO_DEPTH0 = None
 
 def record(category, name, ok, detail=""):
     RESULTS.append((category, name, ok, detail))
-    ts = time.strftime('%H:%M:%S')
-    mark = "PASS" if ok else "FAIL"
-    print(f"  [{ts}] [{mark}] {name}" + (f" -- {detail}" if detail else ""))
+    print_record(name, ok, detail)
 
 
 # ---- 轮询等待（2026-08-07 用户拍板：固定 sleep 防抖 → 50ms 轮询，完成即继续） ----
@@ -60,23 +58,6 @@ def _shot_by_name(nm):
             return s
     return None
 
-def wait_until(desc, cond, timeout=10.0, interval=0.25):
-    """轮询 cond() 直到 True（完成即继续）；超时抛 TimeoutError。查询瞬时异常不算超时。
-    稳定确认：cond True 后 0.3s 再验一次——queue 命令分步执行（DB 先写、场景后动），
-    避免 HTTP 查询命中命令执行中途窗口（v0.9.14 轮询化实测 Soft delete/Purge 假 FAIL）。"""
-    deadline = time.time() + timeout
-    while True:
-        try:
-            if cond():
-                time.sleep(0.3)
-                if cond():
-                    return
-        except Exception:
-            pass
-        if time.time() >= deadline:
-            raise TimeoutError(f"等待超时: {desc}（>{timeout}s）")
-        time.sleep(interval)
-
 def wait_ok(desc, cond, timeout=10.0):
     """wait_until + 超时 → record FAIL（不中断，后续断言继续跑，重复 FAIL 同根因）。"""
     try:
@@ -85,40 +66,6 @@ def wait_ok(desc, cond, timeout=10.0):
     except TimeoutError as e:
         record("web", desc, False, str(e))
         return False
-
-
-def blender(code, timeout=20):
-    """Execute code in Blender via MCP, return stdout string."""
-    s = socket.socket(); s.settimeout(timeout)
-    s.connect((MCP_HOST, MCP_PORT))
-    s.send(json.dumps({"type": "execute_code", "params": {"code": code}}).encode())
-    data = b""
-    r = {}
-    while True:
-        try:
-            chunk = s.recv(8192)
-            if not chunk:
-                break
-            data += chunk
-            r = json.loads(data.decode())
-            break
-        except json.JSONDecodeError:
-            continue
-    s.close()
-    res = r.get("result", {})
-    if isinstance(res, dict):
-        return res.get("result", "")
-    return str(res)
-
-
-def api(method, path, data=None):
-    url = f"{HTTP}{path}"
-    if data is not None:
-        req = urllib.request.Request(url, data=json.dumps(data).encode(),
-            headers={"Content-Type": "application/json"}, method=method)
-    else:
-        req = urllib.request.Request(url, method=method)
-    return json.loads(urllib.request.urlopen(req, timeout=10).read().decode())
 
 
 def state():

@@ -531,214 +531,254 @@ def _batch_rename_seq(project_dir, db_path, shot_ids):
 
 # ---------- per-shot actions ----------
 
+# v0.9.71：handler 表化——每 action 一个函数，shot_action 只做前置查找+分发。
+# 签名统一 _act_xxx(project_dir, db_path, shot_id, data, shot)；
+# needs_shot=False 的 handler（update/move_dialogue 自查记录）shot 传 None。
+
+def _act_update(project_dir, db_path, shot_id, data, shot):
+    fields = data.get("fields", {})
+    old = get_shot(db_path, shot_id)
+    if not old:
+        return {"status": "error", "message": "not found"}, 404
+    update_shot(db_path, shot_id, **fields)
+    old_fields = {k: old[k] for k in fields if k in old}
+    if old_fields:
+        undo.push(f"修改 {old['name']}", {"db": [(shot_id, old_fields)]})
+    return {"status": "ok"}, 200
+
+
+def _act_move_dialogue(project_dir, db_path, shot_id, data, shot):
+    # v0.9.68：台词移动/互换原子化——原前端两次独立 update 各 push 一条 undo，
+    # 一次撤销只回放一条 → 移动后撤销台词消失（需求池 474 行 bug 实测复现）。
+    # 现在：一次写两个镜头 + 单条 undo entry（db 两条记录，undo_action 一次回放全恢复）
+    dst_id = data.get("dst_id", "")
+    if not dst_id or dst_id == shot_id:
+        return {"status": "error", "message": "invalid dst_id"}, 400
+    src = get_shot(db_path, shot_id)
+    if not src:
+        return {"status": "error", "message": "not found"}, 404
+    dst = get_shot(db_path, dst_id)
+    if not dst:
+        return {"status": "error", "message": "dst not found"}, 404
+    src_text = src.get("dialogue") or ""
+    dst_text = dst.get("dialogue") or ""
+    swap = bool(dst_text and dst_text.strip())
+    try:
+        update_shot(db_path, shot_id, dialogue=(dst_text if swap else ""))
+        update_shot(db_path, dst_id, dialogue=src_text)
+    except Exception as ex:
+        # 第二个写失败 → 回滚第一个写，保持两镜头一致
+        update_shot(db_path, shot_id, dialogue=src_text)
+        return {"status": "error", "message": f"write failed: {ex}"}, 500
+    undo.push(f"{'互换' if swap else '移动'}台词 {src['name']}→{dst['name']}", {
+        "db": [(shot_id, {"dialogue": src_text}), (dst_id, {"dialogue": dst_text})],
+    })
+    return {"status": "ok"}, 200
+
+
+def _act_rename(project_dir, db_path, shot_id, data, shot):
+    new_name = (data.get("new_name") or "").strip()
+    if not new_name:
+        return {"status": "error", "message": "empty name"}, 400
+    if new_name == shot["name"]:
+        return {"status": "ok", "message": "unchanged"}, 200
+    if name_exists(db_path, new_name, exclude_id=shot_id):
+        return {"status": "error", "message": f"name taken: {new_name}"}, 409
+    ok, reason = _valid_shot_name(new_name)  # v0.9.6：非法名拒绝（rename 四层联动含目录改名）
+    if not ok:
+        return {"status": "error", "message": f"invalid name: {reason}"}, 400
+    _queue("rename_shot", {
+        "shot_id": shot_id,
+        "old_name": shot["name"],
+        "new_name": new_name,
+        "project_dir": project_dir,
+    })
+    undo.push(f"改名 {shot['name']}→{new_name}", {
+        "queue": [("rename_shot", {
+            "shot_id": shot_id, "old_name": new_name,
+            "new_name": shot["name"], "project_dir": project_dir,
+        })]
+    })
+    return {"status": "ok", "message": "queued"}, 200
+
+
+def _act_set_background(project_dir, db_path, shot_id, data, shot):
+    # Drop image onto a card: save to shot dir, set as the shot camera's
+    # background (100% opacity), auto-render.
+    filename = os.path.basename(data.get("filename") or "background.png")
+    dir_path = shot_dir(project_dir, shot["name"], shot_id)
+    os.makedirs(dir_path, exist_ok=True)
+    img_path = os.path.join(dir_path, filename)
+    try:
+        raw = base64.b64decode(data.get("data_base64", ""))
+        with open(img_path, "wb") as f:
+            f.write(raw)
+    except Exception as e:
+        return {"status": "error", "message": f"save failed: {e}"}, 500
+    _queue("set_camera_background", {
+        "scene_name": shot["scene_name"],
+        "image_path": img_path,
+        "shot_id": shot_id,
+        "shot_name": shot["name"],
+        "project_dir": project_dir,
+    })
+    return {"status": "ok", "message": "queued"}, 200
+
+
+def _act_delete(project_dir, db_path, shot_id, data, shot):
+    # Soft delete: shot goes to the trash bin (restorable, undoable)
+    undo.push(f"删除 {shot['name']}", _trash_one(project_dir, db_path, shot))
+    return {"status": "ok"}, 200
+
+
+def _act_restore(project_dir, db_path, shot_id, data, shot):
+    # Back from the trash bin
+    if not shot.get("deleted"):
+        return {"status": "ok", "message": "not in trash"}, 200
+    orig_scene = shot["scene_name"].replace("__trash__", "", 1)
+    if name_exists(db_path, shot["name"], exclude_id=shot_id):
+        return {"status": "error", "message": f"name taken: {shot['name']}"}, 409
+    update_shot(db_path, shot_id, deleted=0, scene_name=orig_scene)
+    try:
+        _queue("restore_shot", {
+            "trash_scene_name": shot["scene_name"],
+            "scene_name": orig_scene,
+        })
+    except Exception:
+        # v0.9.6：queue 失败回滚 DB（否则 DB 说已恢复但场景没改回来）
+        update_shot(db_path, shot_id, deleted=1, scene_name=shot["scene_name"])
+        raise
+    # Restoring is itself undoable (inverse = trash it again)
+    undo.push(f"恢复 {shot['name']}", {
+        "db": [(shot_id, {"deleted": 1, "scene_name": shot["scene_name"]})],
+        "queue": [("trash_shot", {"scene_name": orig_scene,
+                                  "trash_scene_name": shot["scene_name"]})],
+    })
+    return {"status": "ok"}, 200
+
+
+def _act_purge(project_dir, db_path, shot_id, data, shot):
+    # Permanent delete from the trash bin — NOT undoable
+    delete_shot(db_path, shot_id)
+    try:
+        _queue("delete_shot", {
+            "scene_name": shot["scene_name"],
+            "shot_name": shot["name"],
+            "shot_id": shot_id,
+            "project_dir": project_dir,
+        })
+    except Exception:
+        # v0.9.6：queue 失败回滚 DB（否则 DB 已删但场景还在，孤儿场景）
+        from core.db import create_shot as _re_create
+        _re_create(db_path, shot["name"], shot["scene_name"],
+                   camera=shot.get("camera", ""), duration=shot.get("duration", 2.0),
+                   shot_id=shot_id)
+        raise
+    return {"status": "ok"}, 200
+
+
+def _act_open(project_dir, db_path, shot_id, data, shot):
+    _queue("open_shot", {"scene_name": shot["scene_name"]})
+    return {"status": "ok", "message": "queued"}, 200
+
+
+def _act_rerender(project_dir, db_path, shot_id, data, shot):
+    # v0.8.4：重渲染 = 重拍封面帧（统一 frames 模型，等价旧 RenderShot）
+    _queue("render_frame", {
+        "scene_name": shot["scene_name"],
+        "shot_id": shot_id,
+        "project_dir": project_dir,
+        "frame_no": _cover_frame_no(db_path, shot_id),
+    })
+    return {"status": "ok", "message": "queued"}, 200
+
+
+def _act_duplicate(project_dir, db_path, shot_id, data, shot):
+    new_name = data.get("new_name") or next_c_name(db_path)
+    new_name = _duplicate_one(project_dir, db_path, shot, new_name)
+    return {"status": "ok", "message": "queued", "new_name": new_name}, 200
+
+
+# ---------- multi-frame actions (v0.7.0) ----------
+
+def _act_render_frame(project_dir, db_path, shot_id, data, shot):
+    # 拍屏指定帧（新增帧或重拍同帧，覆盖由后端 upsert 处理）
+    frame_no = data.get("frame_no")
+    if frame_no is None:
+        return {"status": "error", "message": "frame_no required"}, 400
+    _queue("render_frame", {
+        "scene_name": shot["scene_name"],
+        "shot_id": shot_id,
+        "project_dir": project_dir,
+        "frame_no": int(frame_no),
+    })
+    return {"status": "ok", "message": "queued"}, 200
+
+
+def _act_set_cover(project_dir, db_path, shot_id, data, shot):
+    frame_id = data.get("frame_id")
+    if not frame_id:
+        return {"status": "error", "message": "frame_id required"}, 400
+    _queue("set_cover_frame", {
+        "shot_id": shot_id,
+        "frame_id": frame_id,
+        "project_dir": project_dir,
+    })
+    return {"status": "ok", "message": "queued"}, 200
+
+
+def _act_jump_to_frame(project_dir, db_path, shot_id, data, shot):
+    # 跳回构图：切 Scene + 时间轴跳帧
+    frame_no = data.get("frame_no")
+    if frame_no is None:
+        return {"status": "error", "message": "frame_no required"}, 400
+    _queue("jump_to_frame", {
+        "scene_name": shot["scene_name"],
+        "frame_no": int(frame_no),
+    })
+    return {"status": "ok", "message": "queued"}, 200
+
+
+def _act_delete_frame(project_dir, db_path, shot_id, data, shot):
+    frame_id = data.get("frame_id")
+    if not frame_id:
+        return {"status": "error", "message": "frame_id required"}, 400
+    _queue("delete_frame", {
+        "shot_id": shot_id,
+        "frame_id": frame_id,
+        "project_dir": project_dir,
+    })
+    return {"status": "ok", "message": "queued"}, 200
+
+
+# action → (handler, 是否需要预取 shot 记录)
+_ACTION_HANDLERS = {
+    "update":        (_act_update, False),
+    "move_dialogue": (_act_move_dialogue, False),
+    "rename":        (_act_rename, True),
+    "set_background": (_act_set_background, True),
+    "delete":        (_act_delete, True),
+    "restore":       (_act_restore, True),
+    "purge":         (_act_purge, True),
+    "open":          (_act_open, True),
+    "rerender":      (_act_rerender, True),
+    "duplicate":     (_act_duplicate, True),
+    "render_frame":  (_act_render_frame, True),
+    "set_cover":     (_act_set_cover, True),
+    "jump_to_frame": (_act_jump_to_frame, True),
+    "delete_frame":  (_act_delete_frame, True),
+}
+
+
 def shot_action(project_dir, db_path, shot_id, data):
     action = data.get("action", "")
-
-    if action == "update":
-        fields = data.get("fields", {})
-        old = get_shot(db_path, shot_id)
-        if not old:
+    entry = _ACTION_HANDLERS.get(action)
+    if not entry:
+        return {"status": "error", "message": "unknown action"}, 400
+    handler, needs_shot = entry
+    shot = None
+    if needs_shot:
+        shot = get_shot(db_path, shot_id)
+        if not shot:
             return {"status": "error", "message": "not found"}, 404
-        update_shot(db_path, shot_id, **fields)
-        old_fields = {k: old[k] for k in fields if k in old}
-        if old_fields:
-            undo.push(f"修改 {old['name']}", {"db": [(shot_id, old_fields)]})
-        return {"status": "ok"}, 200
-
-    elif action == "move_dialogue":
-        # v0.9.68：台词移动/互换原子化——原前端两次独立 update 各 push 一条 undo，
-        # 一次撤销只回放一条 → 移动后撤销台词消失（需求池 474 行 bug 实测复现）。
-        # 现在：一次写两个镜头 + 单条 undo entry（db 两条记录，undo_action 一次回放全恢复）
-        dst_id = data.get("dst_id", "")
-        if not dst_id or dst_id == shot_id:
-            return {"status": "error", "message": "invalid dst_id"}, 400
-        src = get_shot(db_path, shot_id)
-        if not src:
-            return {"status": "error", "message": "not found"}, 404
-        dst = get_shot(db_path, dst_id)
-        if not dst:
-            return {"status": "error", "message": "dst not found"}, 404
-        src_text = src.get("dialogue") or ""
-        dst_text = dst.get("dialogue") or ""
-        swap = bool(dst_text and dst_text.strip())
-        try:
-            update_shot(db_path, shot_id, dialogue=(dst_text if swap else ""))
-            update_shot(db_path, dst_id, dialogue=src_text)
-        except Exception as ex:
-            # 第二个写失败 → 回滚第一个写，保持两镜头一致
-            update_shot(db_path, shot_id, dialogue=src_text)
-            return {"status": "error", "message": f"write failed: {ex}"}, 500
-        undo.push(f"{'互换' if swap else '移动'}台词 {src['name']}→{dst['name']}", {
-            "db": [(shot_id, {"dialogue": src_text}), (dst_id, {"dialogue": dst_text})],
-        })
-        return {"status": "ok"}, 200
-
-    # All actions below need the shot record
-    shot = get_shot(db_path, shot_id)
-    if not shot:
-        return {"status": "error", "message": "not found"}, 404
-
-    if action == "rename":
-        new_name = (data.get("new_name") or "").strip()
-        if not new_name:
-            return {"status": "error", "message": "empty name"}, 400
-        if new_name == shot["name"]:
-            return {"status": "ok", "message": "unchanged"}, 200
-        if name_exists(db_path, new_name, exclude_id=shot_id):
-            return {"status": "error", "message": f"name taken: {new_name}"}, 409
-        ok, reason = _valid_shot_name(new_name)  # v0.9.6：非法名拒绝（rename 四层联动含目录改名）
-        if not ok:
-            return {"status": "error", "message": f"invalid name: {reason}"}, 400
-        _queue("rename_shot", {
-            "shot_id": shot_id,
-            "old_name": shot["name"],
-            "new_name": new_name,
-            "project_dir": project_dir,
-        })
-        undo.push(f"改名 {shot['name']}→{new_name}", {
-            "queue": [("rename_shot", {
-                "shot_id": shot_id, "old_name": new_name,
-                "new_name": shot["name"], "project_dir": project_dir,
-            })]
-        })
-        return {"status": "ok", "message": "queued"}, 200
-
-    elif action == "set_background":
-        # Drop image onto a card: save to shot dir, set as the shot camera's
-        # background (100% opacity), auto-render.
-        filename = os.path.basename(data.get("filename") or "background.png")
-        dir_path = shot_dir(project_dir, shot["name"], shot_id)
-        os.makedirs(dir_path, exist_ok=True)
-        img_path = os.path.join(dir_path, filename)
-        try:
-            raw = base64.b64decode(data.get("data_base64", ""))
-            with open(img_path, "wb") as f:
-                f.write(raw)
-        except Exception as e:
-            return {"status": "error", "message": f"save failed: {e}"}, 500
-        _queue("set_camera_background", {
-            "scene_name": shot["scene_name"],
-            "image_path": img_path,
-            "shot_id": shot_id,
-            "shot_name": shot["name"],
-            "project_dir": project_dir,
-        })
-        return {"status": "ok", "message": "queued"}, 200
-
-    elif action == "delete":
-        # Soft delete: shot goes to the trash bin (restorable, undoable)
-        undo.push(f"删除 {shot['name']}", _trash_one(project_dir, db_path, shot))
-        return {"status": "ok"}, 200
-
-    elif action == "restore":
-        # Back from the trash bin
-        if not shot.get("deleted"):
-            return {"status": "ok", "message": "not in trash"}, 200
-        orig_scene = shot["scene_name"].replace("__trash__", "", 1)
-        if name_exists(db_path, shot["name"], exclude_id=shot_id):
-            return {"status": "error", "message": f"name taken: {shot['name']}"}, 409
-        update_shot(db_path, shot_id, deleted=0, scene_name=orig_scene)
-        try:
-            _queue("restore_shot", {
-                "trash_scene_name": shot["scene_name"],
-                "scene_name": orig_scene,
-            })
-        except Exception:
-            # v0.9.6：queue 失败回滚 DB（否则 DB 说已恢复但场景没改回来）
-            update_shot(db_path, shot_id, deleted=1, scene_name=shot["scene_name"])
-            raise
-        # Restoring is itself undoable (inverse = trash it again)
-        undo.push(f"恢复 {shot['name']}", {
-            "db": [(shot_id, {"deleted": 1, "scene_name": shot["scene_name"]})],
-            "queue": [("trash_shot", {"scene_name": orig_scene,
-                                      "trash_scene_name": shot["scene_name"]})],
-        })
-        return {"status": "ok"}, 200
-
-    elif action == "purge":
-        # Permanent delete from the trash bin — NOT undoable
-        delete_shot(db_path, shot_id)
-        try:
-            _queue("delete_shot", {
-                "scene_name": shot["scene_name"],
-                "shot_name": shot["name"],
-                "shot_id": shot_id,
-                "project_dir": project_dir,
-            })
-        except Exception:
-            # v0.9.6：queue 失败回滚 DB（否则 DB 已删但场景还在，孤儿场景）
-            from core.db import create_shot as _re_create
-            _re_create(db_path, shot["name"], shot["scene_name"],
-                       camera=shot.get("camera", ""), duration=shot.get("duration", 2.0),
-                       shot_id=shot_id)
-            raise
-        return {"status": "ok"}, 200
-
-    elif action == "open":
-        _queue("open_shot", {"scene_name": shot["scene_name"]})
-        return {"status": "ok", "message": "queued"}, 200
-
-    elif action == "rerender":
-        # v0.8.4：重渲染 = 重拍封面帧（统一 frames 模型，等价旧 RenderShot）
-        _queue("render_frame", {
-            "scene_name": shot["scene_name"],
-            "shot_id": shot_id,
-            "project_dir": project_dir,
-            "frame_no": _cover_frame_no(db_path, shot_id),
-        })
-        return {"status": "ok", "message": "queued"}, 200
-
-    elif action == "duplicate":
-        new_name = data.get("new_name") or next_c_name(db_path)
-        new_name = _duplicate_one(project_dir, db_path, shot, new_name)
-        return {"status": "ok", "message": "queued", "new_name": new_name}, 200
-
-    # ---------- multi-frame actions (v0.7.0) ----------
-
-    elif action == "render_frame":
-        # 拍屏指定帧（新增帧或重拍同帧，覆盖由后端 upsert 处理）
-        frame_no = data.get("frame_no")
-        if frame_no is None:
-            return {"status": "error", "message": "frame_no required"}, 400
-        _queue("render_frame", {
-            "scene_name": shot["scene_name"],
-            "shot_id": shot_id,
-            "project_dir": project_dir,
-            "frame_no": int(frame_no),
-        })
-        return {"status": "ok", "message": "queued"}, 200
-
-    elif action == "set_cover":
-        frame_id = data.get("frame_id")
-        if not frame_id:
-            return {"status": "error", "message": "frame_id required"}, 400
-        _queue("set_cover_frame", {
-            "shot_id": shot_id,
-            "frame_id": frame_id,
-            "project_dir": project_dir,
-        })
-        return {"status": "ok", "message": "queued"}, 200
-
-    elif action == "jump_to_frame":
-        # 跳回构图：切 Scene + 时间轴跳帧
-        frame_no = data.get("frame_no")
-        if frame_no is None:
-            return {"status": "error", "message": "frame_no required"}, 400
-        _queue("jump_to_frame", {
-            "scene_name": shot["scene_name"],
-            "frame_no": int(frame_no),
-        })
-        return {"status": "ok", "message": "queued"}, 200
-
-    elif action == "delete_frame":
-        frame_id = data.get("frame_id")
-        if not frame_id:
-            return {"status": "error", "message": "frame_id required"}, 400
-        _queue("delete_frame", {
-            "shot_id": shot_id,
-            "frame_id": frame_id,
-            "project_dir": project_dir,
-        })
-        return {"status": "ok", "message": "queued"}, 200
-
-    return {"status": "error", "message": "unknown action"}, 400
+    return handler(project_dir, db_path, shot_id, data, shot)

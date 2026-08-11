@@ -13,6 +13,7 @@ import { updateStats, getDialogueWidth, commitDialogue, SVG_NOIMG } from './rend
 import { updateSelectionUI } from './selection.js';  // v0.9.56c：预览区工具条焦点切换
 import { focusFrame } from './frames.js';  // v0.9.56c：moveTlFocus 清蓝框
 import { ICONS } from './icons.js';  // v0.9.45：展开态折叠按钮图标
+import { inlineEdit } from './inline_edit.js';  // v0.9.71：就地编辑输入框生命周期共享模板
 
 export const CLIP_GAP = 12;   // clip 水平间距（v0.9.52 export：render.js 台词条镜头位语义换算用）
 const NAME_H = 28;       // 名字条总高（clip 底部；v0.9.59：18 行高 + 上下 padding 5×2，镜头号上下间隔与左缘对称）
@@ -732,6 +733,7 @@ function makeTlDlgBox(shotId, leftPx, widthPx) {
 }
 
 // 编辑态 input：Enter 保存 / Esc 取消 / blur 保存；事件全 stopPropagation（防右键滑动/框选/拖拽）
+// v0.9.71：输入框生命周期走 inlineEdit 共享模板
 export function startTlDlgEdit(shotId) {
     if (state.editingDlg || state.trashMode) return;
     const shot = state.shots.find(s => s.id === shotId);
@@ -751,51 +753,36 @@ export function startTlDlgEdit(shotId) {
     }
     const textEl = box.querySelector('.tl-dlg-text');
     if (!textEl) return;
-    const input = document.createElement('input');
-    input.className = 'tl-dlg-edit';
-    input.value = shot.dialogue || '';
-    input.draggable = false;
-    ['mousedown', 'mousemove', 'mouseup', 'dragstart', 'selectstart', 'click', 'dblclick'].forEach(t => {
-        input.addEventListener(t, (ev) => ev.stopPropagation());
-    });
     box.classList.add('editing');
-    textEl.replaceWith(input);
     state.editingDlg = shotId;
-    input.focus();
-    input.select();
-
-    let done = false;
-    const finish = (commit) => {
-        if (done) return;
-        done = true;
-        const newText = input.value.trim();
-        state.editingDlg = null;
-        box.classList.remove('editing');
-        const rebuildText = (t) => {
-            const span = document.createElement('span');
-            span.className = 'tl-dlg-text';
-            span.textContent = t;
-            input.replaceWith(span);
-            box.title = t.replace(/\n/g, ' ');
-        };
-        if (commit && newText !== shot.dialogue) {
-            if (tempBox && !newText) {
-                box.remove();           // 添加模式空文本 = 取消不加
+    inlineEdit({
+        targetEl: textEl,
+        className: 'tl-dlg-edit',
+        value: shot.dialogue || '',
+        onFinish: (commit, newText) => {
+            state.editingDlg = null;
+            box.classList.remove('editing');
+            // inlineEdit 已把 textEl 换回原位；时间线这里重建新 span 替换它（内容更新 + title 刷新）
+            const rebuildText = (t) => {
+                const span = document.createElement('span');
+                span.className = 'tl-dlg-text';
+                span.textContent = t;
+                textEl.replaceWith(span);
+                box.title = t.replace(/\n/g, ' ');
+            };
+            if (commit && newText !== shot.dialogue) {
+                if (tempBox && !newText) {
+                    box.remove();           // 添加模式空文本 = 取消不加
+                } else {
+                    commitDialogue(shotId, newText);   // 成功 toast；心跳刷新 state.shots 后重建正式块
+                    rebuildText(newText);              // 本地先更新显示（不等心跳）
+                }
             } else {
-                commitDialogue(shotId, newText);   // 成功 toast；心跳刷新 state.shots 后重建正式块
-                rebuildText(newText);              // 本地先更新显示（不等心跳）
+                if (tempBox) box.remove();  // 添加模式 Esc/无改动 = 不加
+                else rebuildText(shot.dialogue || '');
             }
-        } else {
-            if (tempBox) box.remove();  // 添加模式 Esc/无改动 = 不加
-            else rebuildText(shot.dialogue || '');
-        }
-    };
-    input.addEventListener('keydown', (ev) => {
-        if (ev.key === 'Enter') { ev.preventDefault(); finish(true); }
-        else if (ev.key === 'Escape') finish(false);
-        ev.stopPropagation();
+        },
     });
-    input.addEventListener('blur', () => finish(true));
 }
 
 // 双击台词块就地编辑（委托：块是动态 DOM；与宫格 .dialogue-text 委托互不干扰——时间线块无该 class）

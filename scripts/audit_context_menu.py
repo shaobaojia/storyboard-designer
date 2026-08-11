@@ -17,41 +17,15 @@
 """
 import socket, json, urllib.request, time, os, sys
 
-MCP_HOST = os.environ.get("SB_MCP", "192.168.3.71")
-MCP_PORT = int(os.environ.get("SB_MCP_PORT", "9876"))
-HTTP = f"http://{MCP_HOST}:8089"
+# v0.9.71：公共层抽 audit_lib（blender/api/print_record 一份实现）
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from audit_lib import MCP_HOST, MCP_PORT, HTTP, blender, api, print_record
 
 RESULTS = []
 
 def record(name, ok, detail=""):
     RESULTS.append((name, ok, detail))
-    ts = time.strftime('%H:%M:%S')
-    print(f"  [{ts}] [{'PASS' if ok else 'FAIL'}] {name}" + (f" -- {detail}" if detail else ""))
-
-def blender(code, timeout=20):
-    s = socket.socket(); s.settimeout(timeout)
-    s.connect((MCP_HOST, MCP_PORT))
-    s.send(json.dumps({"type": "execute_code", "params": {"code": code}}).encode())
-    data = b""; r = {}
-    while True:
-        try:
-            chunk = s.recv(8192)
-            if not chunk: break
-            data += chunk
-            r = json.loads(data.decode()); break
-        except json.JSONDecodeError: continue
-    s.close()
-    res = r.get("result", {})
-    return res.get("result", "") if isinstance(res, dict) else str(res)
-
-def api(method, path, data=None):
-    url = f"{HTTP}{path}"
-    if data is not None:
-        req = urllib.request.Request(url, data=json.dumps(data).encode(),
-            headers={'Content-Type': 'application/json'}, method=method)
-    else:
-        req = urllib.request.Request(url, method=method)
-    return json.loads(urllib.request.urlopen(req, timeout=10).read().decode())
+    print_record(name, ok, detail)
 
 def state():
     out = blender('''import bpy, os, json

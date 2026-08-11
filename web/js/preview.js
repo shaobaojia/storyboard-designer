@@ -24,8 +24,8 @@ let wFull = 0;        // 开预览时的 grid 全宽（列表 --list-scale 的�
 let closeTimer = null;  // 关闭动画计时器（防快速开关冲突，v0.9.5）
 let currentShotId = null;  // 当前预览镜头 id（详情双击编辑用，v0.9.21）
 
-// 大图 URL：缩略图文件名 → 全尺寸 still（v0.9.4 新格式 _still.jpg / still.jpg；
-// 老数据 _still.png / still.png 由 showPreviewImage 的 onerror 兜底），保留 ?v= 缓存戳
+// 大图 URL：缩略图文件名 → 全尺寸 still（v0.9.4 起统一 _still.jpg / still.jpg；
+// v0.9.71 去 png 兜底——jpg 丢失/404 直接缺图红格，不再回退 png），保留 ?v= 缓存戳
 function stillUrl(url) {
     if (!url) return url;
     const [p, q] = url.split('?');
@@ -33,10 +33,6 @@ function stillUrl(url) {
     if (s.endsWith('_thumb.jpg')) s = s.slice(0, -10) + '_still.jpg';
     else if (s.endsWith('thumb.jpg')) s = s.slice(0, -9) + 'still.jpg';
     return q ? `${s}?${q}` : s;
-}
-// jpg 404（存量镜头还是 png）→ 退回 png
-function stillFallback(url) {
-    return url.replace('_still.jpg', '_still.png').replace('still.jpg', 'still.png');
 }
 
 // 先小图后清晰：立即显示缩略图（已缓存，即时），大图就绪后替换（同帧渲染无闪烁）
@@ -60,17 +56,8 @@ function showPreviewImage(thumbUrl, bigUrl, target) {
         }
     };
     loader.onerror = () => {
-        if (el.dataset.pending !== pending) return;
-        const pngUrl = stillFallback(bigUrl);
-        if (pngUrl === bigUrl) return;
-        const p2 = new Image();
-        p2.onload = () => {
-            if (el.dataset.pending === pending) {
-                el.src = pngUrl;
-                preloadCache.set(pngUrl, { ready: true });
-            }
-        };
-        p2.src = pngUrl;
+        // v0.9.71：jpg 404/丢失 → 预载缓存标记失败，显示停留缩略图（缺图语义统一红格由帧格 onerror 管）
+        preloadCache.delete(bigUrl);
     };
     loader.src = bigUrl;
 }
@@ -99,18 +86,7 @@ function preloadNeighbors() {
             preloadCache.set(u, holder);
             const im = new Image();
             im.onload = () => { holder.ready = true; };
-            im.onerror = () => {
-                preloadCache.delete(u);
-                // 存量 png 镜头：jpg 404 → 把 png 也预载上，切回时秒显
-                const pngUrl = stillFallback(u);
-                if (pngUrl === u) return;
-                const holder2 = { ready: false };
-                preloadCache.set(pngUrl, holder2);
-                const im2 = new Image();
-                im2.onload = () => { holder2.ready = true; };
-                im2.onerror = () => { preloadCache.delete(pngUrl); };
-                im2.src = pngUrl;
-            };
+            im.onerror = () => { preloadCache.delete(u); };  // v0.9.71 去 png：404 即失败不预载
             im.src = u;
         });
     }, 120);
@@ -353,5 +329,5 @@ export function initPreview() {
     });
 }
 
-// v0.9.36：导出大图加载链路给 timeline.js 复用（先小图后大图 + 预载缓存 + jpg/png 兜底）
+// v0.9.36：导出大图加载链路给 timeline.js 复用（先小图后大图 + 预载缓存；v0.9.71 去 png 兜底）
 export { showPreviewImage, stillUrl };

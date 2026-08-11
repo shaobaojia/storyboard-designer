@@ -1,0 +1,446 @@
+/* ==============================================================
+   style.css 拆分 part 4/4 （v0.9.73 CSS 拆分方案 A）
+   本文件 = 原 style.css 第 1817-2255 行连续段
+   !! 禁止调整本文件与其它 part 的 <link> 顺序 !!
+   级联数学依赖文件顺序（同特异性规则靠后定义赢），
+   调整顺序会破坏样式。新增 CSS 按所在区域写入对应 part。
+   ============================================================== */
+        /* 主菜单皮肤项勾选（v0.9.27） */
+        .context-menu button.checked::before {
+            content: '✓ ';
+            color: var(--accent);
+        }
+
+        /* ═══ v0.9.36 时间线视图：顶部预览区 + 底部时间线区（决策 1B 宽∝时长 / 2A 台词块=镜头区间 / 3A 自带预览 / 5A 固定刻度）═══ */
+        #grid.timeline-mode {
+            display: flex;
+            flex-direction: column;
+            min-height: calc(100vh - var(--header-h) - 92px);  /* v0.9.38f：min-height——clip 超高先借 stage 空间（applyTlSplit 收缩预览区），借到 stage 保底 180 仍不够才撑开页面滚动 */
+            margin-top: 0;
+            overflow: hidden;
+            /* v0.9.55e/f：顶部 16px = 左下角缩放滑条距边缘的间距（用户拍板基准）；
+               左右 0（body padding 16 即视觉 16px，与 zoom-bar 一致）——预览区不再紧贴标题栏 */
+            padding: 16px 0 12px;
+        }
+        /* 空态：整页居中提示（同 v0.9.35 grid-empty 语义） */
+        #grid.timeline-mode.grid-empty {
+            align-items: center;
+            justify-content: center;
+        }
+        #timelineStage {
+            flex: 0 0 auto;
+            flex-shrink: 0;   /* v0.9.40：高度全由 JS 精确设（applyTlSplit）——缩略图区自适应后 stage 吃剩余，保底 180，flex 不自行压缩 */
+            min-height: 180px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            /* 2026-08-10：切到时间线视图时预览区 500ms 淡入 + 从下向上升起 16px
+               （buildStage 每次插入新元素 → animation 自动播放一次；播完无 fill-mode
+               残留回 opacity:1 / transform:none）
+               原 50ms 肉眼不可感知（用户实测看不到），改 500ms；位移=用户追加需求 */
+            animation: tlStageFadeIn 500ms ease-out;
+        }
+        @keyframes tlStageFadeIn {
+            from { opacity: 0; transform: translateY(16px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .tl-stage-body {
+            position: relative;
+            flex: 1;
+            min-height: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: var(--bg-preview);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        .tl-stage-body .tl-stage-frame {
+            /* v0.9.58：画面容器（画幅形状）——字幕浮层相对它定位（以画幅为基础），
+               body 比画面高时浮层不再落到画面外的留边区（原 .subtitle-overlay 相对 body 底部）。
+               尺寸锚 = width:100% + aspect-ratio + max-height 钳制（flex 内容撑会循环依赖塌陷，
+               v0.9.58 实测 frame 0×0）；img 100% 填满，object-fit 处理图内容 */
+            position: relative;
+            width: 100%;
+            max-height: 100%;
+            aspect-ratio: var(--aspect, 1.7778);
+            flex: none;
+        }
+        .tl-stage-body .tl-stage-frame img {
+            /* v0.9.55d：与宫格/列表预览窗口同款画幅规则——frame = 画幅形状
+               （aspect-ratio + auto/max 约束），img 100% 填满 frame；
+               更宽 cover 裁上下 / 更高 contain 留边；
+               cover/contain 动态值由 aspect.js applyAspect 注入覆盖（同特异性后定义胜）
+               var(--aspect) 为动态规则缺失时的兜底 */
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+            display: block;
+            background: #111113;
+            border-radius: 4px;
+        }
+        .tl-stage-empty {
+            color: var(--text-secondary);
+            font-size: 14px;
+        }
+        /* 字幕浮层：大图下方居中（电影字幕位，跟随 T 开关） */
+        .subtitle-overlay {
+            position: absolute;
+            bottom: 14px;
+            left: 50%;
+            transform: translateX(-50%);
+            max-width: 80%;
+            max-height: 60%;      /* v0.9.45：多行字幕（盖住者+自己）超高时内部滚动兜底 */
+            overflow-y: auto;
+            background: rgba(0, 0, 0, 0.68);
+            color: #fff;
+            padding: 6px 16px;
+            border-radius: 6px;
+            font-size: 15px;
+            line-height: 1.5;
+            text-align: center;
+            pointer-events: none;
+            z-index: 2;
+            box-sizing: border-box;
+        }
+        .tl-stage-info {
+            display: flex;
+            align-items: center;
+            gap: 18px;
+            font-size: 13px;
+            color: var(--text-secondary);
+            padding: 0 4px;
+            flex-shrink: 0;
+        }
+        /* v0.9.56c：预览区下缘工具条（上一/下一/前5/后5 焦点切换）——v0.9.56d 用户拍板：
+           按钮组绝对居中于预览区画面（left 50% 与信息条宽度无关），顺序 前5/上一/下一/后5 */
+        #timelineStage { position: relative; }
+        .tl-stage-toolbar {
+            position: absolute;
+            left: 50%;
+            transform: translateX(-50%);
+            bottom: 0;           /* 与 .tl-stage-info 行同底（信息行紧贴 stage 下缘） */
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            flex-shrink: 0;
+        }
+        .tl-stage-toolbar .tl-jump-btn {
+            width: 24px;
+            height: 24px;
+            background: transparent;   /* 同工具条风格：默认无底衬，hover 才有 */
+            border: none;
+            color: var(--text-secondary);
+            padding: 0;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;   /* SVG 图标 1em */
+            position: relative;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            flex: none;
+        }
+        .tl-stage-toolbar .tl-jump-btn:hover { background: var(--bg-hover); color: var(--text); }
+        .tl-stage-info #tlStageName {
+            color: var(--text);
+            font-weight: 600;
+        }
+        /* v0.9.38c 分隔条已移除（v0.9.40 方案 A：比例按缩略图大小自适应） */
+        /* v0.9.53 舞台：flex 属性移到 .tl-wrap（遮罩挂载容器），#timeline 去边框/底色融入页面背景 */
+        .tl-wrap {
+            position: relative;
+            flex: 1 0 auto;   /* v0.9.38e：shrink 0 + JS min-height——clip 超高时撑开，不裁切 */
+            min-height: 0;
+            display: flex;
+            flex-direction: column;
+        }
+        #timeline {
+            flex: 1;
+            min-height: 0;
+            overflow-x: auto;
+            overflow-y: auto;   /* v0.9.38f：兜底（stage 借到保底 180 仍不够时的极端场景）；常规下 timeline 高恒 ≥ clip 需要高 */
+            position: relative;
+        }
+        /* v0.9.53 舞台淡出遮罩：两侧各 15% 渐隐带——镜头块滚入带内被渐变盖住（z 高于 clip 2/台词条 1/拖拽态 60，pointer-events 穿透不挡交互） */
+        #tlFadeL, #tlFadeR {
+            position: absolute;
+            top: 0;
+            bottom: 0;
+            width: 15%;
+            pointer-events: none;
+            z-index: 70;
+        }
+        #tlFadeL { left: 0; background: linear-gradient(to right, var(--bg-body), transparent); }
+        #tlFadeR { right: 0; background: linear-gradient(to left, var(--bg-body), transparent); }
+        .tl-inner {
+            /* v0.9.38e：absolute inset 0——flex item 的百分比高度在 main size indefinite 时解析为 auto（塌 0），
+               inset 定位不受影响 */
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            min-width: 100%;
+        }
+        .tl-lane {
+            position: absolute;
+            left: 0;
+            right: 0;
+        }
+        /* v0.9.38：台词轨道挪到镜头轨道上方（用户拍板：台词块放镜头块上面）——
+           台词 lane top:0 高 34，镜头 lane 下移 38px（34 + 4 间距）；
+           v0.9.38b：镜头 lane 高 JS 动态设（缩略图等比缩放，clip 高 = (clipW-2)×3/4 + 22） */
+        .tl-shot-lane { top: 38px; }
+        .tl-dlg-lane { top: 0; height: 34px; }
+        .timeline-clip {
+            position: absolute;
+            bottom: 0;   /* v0.9.38e：下沿对齐（clip 底部贴缩略图区域底部，放大向上长） */
+            /* v0.9.38b：height 由 JS 动态设（缩略图等比缩放，clip 高 = (clipW-2)×3/4 + 22） */
+            z-index: 2;  /* v0.9.44b：层级在台词条之上——台词开关动画从镜头块后面钻出/钻入（用户拍板） */
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            cursor: default;
+            transition: box-shadow 0.15s;
+            box-sizing: border-box;
+        }
+        .timeline-clip:hover {
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+        }
+        .timeline-clip.selected {
+            border-color: var(--accent);
+            box-shadow: 0 0 0 1px var(--accent);
+        }
+        /* v0.9.48：时间线展开态焦点对齐宫格——镜头选中表达下沉到帧格底衬
+           （宫格 frame-cell 同款：border:none + 深灰底衬 + 选中深蓝灰变色）；
+           展开态 clip 外框隐藏（帧格是焦点主体，折叠态 clip 外框保留） */
+        .timeline-clip:has(.tl-expand-row).selected {
+            border-color: transparent;
+            box-shadow: none;
+        }
+        .timeline-clip .tl-expand-row {
+            background: var(--bg-frame-cell);   /* 连片底衬（帧格间距/折叠按钮位同底色，连成一体） */
+        }
+        .timeline-clip .tl-expand-cell .tl-expand-name {
+            background: transparent;  /* v0.9.48 已并入原规则（v0.9.50 修正：此处规则被原规则后定义覆盖，无效——见原规则注释） */
+        }
+        .timeline-clip:has(.tl-expand-row).selected .tl-expand-row {
+            background: var(--bg-frame-selected);  /* 选中底衬变深蓝灰（宫格 .frame-cell.selected 同款） */
+        }
+        /* v0.9.49：选中态子帧露边同步深蓝灰（含图露边融入总底，不残留深灰子底） */
+        .timeline-clip:has(.tl-expand-row).selected .tl-expand-cell .frame-img {
+            background: var(--bg-frame-selected);
+        }
+        .timeline-clip .tl-clip-thumb {
+            /* v0.9.51：区域比例 4:3 → 16:9（对齐宫格 --aspect 与画面真实比例，contain 零露边）；
+               v0.9.38：完整显示（contain）+ 左对齐 + 宽 100% 跟随 clip；
+               v0.9.38b：等比缩放——高随宽自动（不再固定 78） */
+            width: 100%;
+            aspect-ratio: 16 / 9;
+            margin: 4px 0 0;
+            object-fit: contain;
+            object-position: left center;
+            display: block;
+            border-radius: 4px;
+            background: var(--bg-card);
+            flex-shrink: 0;
+        }
+        .timeline-clip .tl-clip-nothumb {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 11px;
+            color: var(--text-secondary);
+            flex-shrink: 0;
+        }
+        .timeline-clip .tl-clip-bottom {
+            display: flex;
+            align-items: baseline;
+            height: 18px;
+            line-height: 18px;
+            /* v0.9.59：镜头号上下加间隔——padding 5px 上下与 .tl-clip-name padding-left 5px
+               同源对称（文字与缩略图/镜头块下缘的间隔 = 与左缘的间隔） */
+            padding: 5px 0;
+            background: var(--bg-card);
+            flex-shrink: 0;
+        }
+        .timeline-clip .tl-clip-name {
+            flex: 1;
+            min-width: 0;
+            height: 18px;
+            line-height: 18px;
+            font-size: 13px;   /* v0.9.58：对齐宫格 .shot-name（13px/600） */
+            font-weight: 600;
+            padding: 0 0 0 5px;
+            overflow: hidden;
+            white-space: nowrap;
+            text-overflow: ellipsis;
+            color: var(--text);
+            flex-shrink: 0;
+        }
+        .timeline-clip .tl-clip-meta {
+            font-size: 11px;
+            color: var(--text-secondary);
+            padding: 0 5px 0 6px;
+            white-space: nowrap;
+            flex-shrink: 0;
+        }
+        /* 时间线 clip 内改名输入框（复用 startRename，窄条适配；v0.9.58：字号对齐宫格 13px + flex 容器适配） */
+        .timeline-clip .shot-name-input {
+            height: 18px;
+            flex: 1;
+            width: auto;
+            min-width: 0;
+            font-size: 13px;
+            padding: 0 4px;
+            box-sizing: border-box;
+        }
+        /* v0.9.63：时间线 clip 内时长编辑输入框（复用 startFieldEdit，与改名输入框同款 flex 适配） */
+        .timeline-clip .field-input {
+            height: 18px;
+            flex: 1;
+            width: auto;
+            min-width: 0;
+            margin-bottom: 0;
+            font-size: 13px;
+            font-weight: 400;
+            padding: 0 4px;
+            box-sizing: border-box;
+        }
+        .tl-dlg-clip {
+            position: absolute;
+            top: 0;
+            height: 34px;
+            z-index: 1;  /* v0.9.44b：常态/动画态在镜头块（z 2）下一层；拖拽态 .dlg-dragging z-index 60 仍覆盖 */
+            background: var(--bg-dialogue);   /* v0.9.57：常态低调（与宫格台词条同色系），只有选中才 accent 高亮 */
+            border: 1px solid var(--border-dialogue);
+            border-radius: 4px;
+            font-size: 11px;
+            line-height: 32px;
+            padding: 0 6px;
+            /* v0.9.41：overflow 移到 .tl-dlg-text——块自身 overflow:hidden 会裁掉右缘外的拖宽手柄图标（right:-7.8px） */
+            color: var(--text);
+            box-sizing: border-box;
+        }
+        /* v0.9.57：时间线台词条只有选中的才高亮——选中态 = 原常驻 accent 底衬+蓝边框；
+           不加 box-shadow（同特异性 (0,2,0) 后定义会盖掉 .tl-dlg-clip.dlg-drop-target 焦点环，属性不重叠才可共存） */
+        .tl-dlg-clip.selected {
+            background: rgba(var(--accent-rgb), 0.14);
+            border-color: var(--accent);
+        }
+        .tl-dlg-clip .tl-dlg-text {
+            display: block;
+            overflow: hidden;
+            white-space: nowrap;
+            text-overflow: ellipsis;
+        }
+        /* v0.9.40：时间线台词编辑态——input 撑满块（单行，无换行），编辑中高亮边框 */
+        .tl-dlg-clip.editing {
+            border-color: var(--accent);
+            box-shadow: 0 0 0 1px var(--accent);
+        }
+        .tl-dlg-clip .tl-dlg-edit {
+            display: block;
+            width: 100%;
+            height: 100%;
+            border: none;
+            background: transparent;
+            color: var(--text);
+            font: inherit;
+            line-height: 32px;
+            padding: 0 0;
+            margin: 0;
+            box-sizing: border-box;
+            outline: none;
+            text-overflow: ellipsis;
+        }
+        /* v0.9.45 时间线多图展开/折叠：帧格横排连片（宫格同款语义），折叠态右上角帧数角标 */
+        .timeline-clip .tl-expand-row {
+            display: flex;
+            height: 100%;
+            padding-right: 9px;   /* 右缘留折叠按钮位（9px，与帧格间距同宽） */
+            box-sizing: border-box;
+        }
+        .timeline-clip .tl-expand-cell {
+            flex: 0 0 auto;
+            display: flex;
+            flex-direction: column;
+            margin-right: 9px;    /* 帧格间距 9px（宫格外沿同款） */
+            box-sizing: border-box;
+        }
+        .timeline-clip .tl-expand-cell:last-child { margin-right: 0; }
+        .timeline-clip .tl-expand-cell .frame-img {
+            width: 100%;
+            aspect-ratio: 16 / 9;  /* v0.9.51：4:3 → 16:9（对齐宫格 --aspect/画面比例，contain 零露边，文字条贴画面下沿） */
+            object-fit: contain;
+            object-position: left center;
+            display: block;
+            border-radius: 4px;
+            background: var(--bg-frame-cell);  /* v0.9.49：子帧露边与总底同色（contain 露边融入连片，消除两层底；宫格 cover 无露边天然单层） */
+            flex-shrink: 0;
+            box-sizing: border-box;
+        }
+        /* 焦点帧蓝框（宫格展开帧格同款 border 方案：替换元素 inset shadow 不可见） */
+        .timeline-clip .tl-expand-cell .frame-img.frame-focused {
+            border: 2px solid var(--accent);
+        }
+        .timeline-clip .tl-expand-cell .frame-img.frame-missing {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 11px;
+            color: var(--text-secondary);
+            background: var(--bg-thumb);
+            border-radius: 4px;
+        }
+        .timeline-clip .tl-expand-cell .tl-expand-name {
+            height: 18px;
+            line-height: 18px;
+            font-size: 11px;
+            padding: 0 5px;
+            overflow: hidden;
+            white-space: nowrap;
+            text-overflow: ellipsis;
+            color: var(--text);
+            /* v0.9.50：透底衬（宫格 shot-info 同款）——v0.9.48 曾加 transparent 覆盖规则但
+               同特异性 (0,3,0) 且插在本规则前，被后定义的 --bg-card 赢 → 大灰条残留（用户实测抓包）。
+               正确姿势 = 直接改本规则，别加同特异性覆盖 */
+            background: transparent;
+            flex-shrink: 0;
+        }
+        /* 折叠态帧数角标（复用 .stack-badge 语义；时间线固定尺寸右上角，覆盖宫格左上包角定位） */
+        .timeline-clip .stack-badge {
+            top: 4px;
+            right: 4px;
+            left: auto;
+            width: 22px;
+            height: 22px;
+            padding: 0;
+            font-size: 11px;
+            border-radius: 6px;
+            background: var(--accent);
+            color: var(--text-strong);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            line-height: 1;
+        }
+        /* 展开态折叠按钮（复用 .collapse-btn：右缘间隔内垂直居中；宫格 top 偏移基于 info 区，时间线无 info 区改 -8px） */
+        .timeline-clip .collapse-btn {
+            top: calc(50% - 8px);
+        }
+        /* 时间线视图下侧边预览框不参与（决策 3A：时间线自带顶部预览区） */
+        body:has(#grid.timeline-mode) .preview-panel {
+            display: none !important;
+        }
+        /* 缩放控件禁用态（时间线刻度固定，决策 5A） */
+        .zoom-bar input:disabled,
+        .zoom-bar button:disabled {
+            opacity: 0.35;
+            cursor: default;
+        }

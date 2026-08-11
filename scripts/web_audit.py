@@ -15,6 +15,10 @@
 """
 import json, subprocess, tempfile, os, sys, time, urllib.request
 
+# v0.9.71：公共层抽 audit_lib（print_record 打印逻辑一份实现）
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from audit_lib import print_record
+
 LOCK = os.path.join(tempfile.gettempdir(), 'sb_audit.lock')
 
 def acquire_lock():
@@ -75,8 +79,7 @@ def key_press(key, code=None):
 
 def record(name, ok, detail=""):
     RESULTS.append((name, ok, detail))
-    ts = time.strftime('%H:%M:%S')
-    print(f"  [{ts}] [{'PASS' if ok else 'FAIL'}] {name}" + (f" -- {detail}" if detail else ""))
+    print_record(name, ok, detail)
 
 # ---------------- 工具 ----------------
 

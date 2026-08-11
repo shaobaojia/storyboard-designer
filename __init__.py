@@ -1,7 +1,7 @@
 bl_info = {
     "name": "Storyboard Designer",
     "author": "邵保家",
-    "version": (0, 9, 70),
+    "version": (0, 9, 73),
     "blender": (4, 5, 0),
     "location": "View3D > Sidebar > Storyboard",
     "description": "Quick previs/storyboard design system",
@@ -46,16 +46,18 @@ class STORYBOARD_OT_sync_scenes(bpy.types.Operator):
     bl_options = {'REGISTER'}
 
     def execute(self, context):
-        removed, orphans, deduped, dirs_removed, dirs_migrated, frames_removed = sync_scenes_with_db()
+        # v0.9.71：解构补 registered（v0.9.63 加第 7 返回值时漏改这里，点按钮 ValueError）；
+        # dirs_migrated 报告删除（恒 0，legacy 目录迁移已退役）
+        removed, orphans, deduped, dirs_removed, _migrated, frames_removed, registered = sync_scenes_with_db()
         msg = f"Removed {removed} orphan records"
         if deduped:
             msg += f", deduped {deduped} duplicates"
         if dirs_removed:
             msg += f", cleaned {dirs_removed} orphan dirs"
-        if dirs_migrated:
-            msg += f", migrated {dirs_migrated} legacy dirs"
         if frames_removed:
             msg += f", cleaned {frames_removed} orphan frames"
+        if registered:
+            msg += f", registered {registered} other scenes"
         if orphans:
             msg += f", found {len(orphans)} unmanaged scenes"
         self.report({'INFO'}, msg)

@@ -1,4 +1,4 @@
-"""Shared render logic: still.png + thumb.jpg generation.
+"""Shared render logic: still.jpg + thumb.jpg generation.
 
 Single source of truth used by BOTH the Blender panel operator
 (STORYBOARD_OT_render_shot) and the web-queue path (cmd_rerender_shot).
@@ -9,15 +9,15 @@ import bpy
 
 
 def render_shot_files(scene, shot_dir, thumb_width=320, frame_no=None):
-    """Render still.png and thumb.jpg for a scene into shot_dir.
+    """Render still.jpg and thumb.jpg for a scene into shot_dir.
 
     Uses viewport OpenGL render ("视图渲染图像") — WYSIWYG, what you see in
     the viewport is what you get. Requires a valid 3D viewport context, so
     must be called from the Blender main thread with a window.
 
-    frame_no=None renders the legacy still.png/thumb.jpg pair (single-frame
-    shots, backward compatible). With frame_no set, the timeline jumps to
-    that frame first and outputs fNNNNN_still.png / fNNNNN_thumb.jpg.
+    frame_no=None renders the still.jpg/thumb.jpg pair (cover frame). With
+    frame_no set, the timeline jumps to that frame first and outputs
+    fNNNNN_still.jpg / fNNNNN_thumb.jpg.
 
     Returns dict with still_path and thumb_path.
     """
