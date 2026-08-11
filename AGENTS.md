@@ -4,9 +4,10 @@
 > 2026-08-11 维护：v0.9.72 时间线台词条拖宽动态钳制记入刚做完；CSS 拆分方案 A 拍板（下个对话执行）。
 > 2026-08-11 二次维护：CSS 2255 行拆分（方案 A）已执行完毕记入刚做完；下一步 CSS 拆分待办划掉。
 > 2026-08-11 三次维护：queue.py 拆分（方案 B）执行完毕记入刚做完；下一步 queue 拆分待办划掉；正式工程全量审计两个环境观察记入坑。
+> 2026-08-11 四次维护：v0.9.73 已推 GitHub（2026-08-11，干净库全量 89/89 全 PASS）。
 > 2026-08-10 十一次维护：预览小图尺寸修复记入刚做完；待推标记合并三项。
 
-## 刚做完（queue.py 拆分 + CSS 2255 行拆分 + v0.9.72 一项 + 屎山治理批 A + v0.9.70 一项 + v0.9.69 一项 + v0.9.68 一项 + v0.9.67 一项 + v0.9.66 一项 + v0.9.65 一项 + v0.9.64 五项，2026-08-11/10，未推）
+## 刚做完（queue.py 拆分 + CSS 2255 行拆分 + v0.9.72 一项 + 屎山治理批 A + v0.9.70 一项 + v0.9.69 一项 + v0.9.68 一项 + v0.9.67 一项 + v0.9.66 一项 + v0.9.65 一项 + v0.9.64 五项，2026-08-11/10，已推 v0.9.73）
 
 **queue.py 953 行拆分（2026-08-11，未推，方案 B 三拆）**：queue.py 瘦身至 ~200 行（队列机制 + COMMANDS 注册表 + re-export 兼容层），命令实现按域拆两个新文件——core/commands_shots.py（镜头域 16 命令 + _cover_frame_no 私有副本，~480 行）+ core/commands_frames.py（帧域 render_frame/set_cover_frame/delete_frame + _switch_scene/_restore_scene，~150 行）。死函数 _render_frame_of（全仓无调用者）按用户拍板删除。依赖方向单向无环（queue → commands_shots → commands_frames → core 叶子；函数内 import 提升到模块级）。**公开 API 面 10 符号全保**（queue_command/ensure_timer/redraw_view3d/panel_db_cache/queue_idle/recent_errors/execute_command/process_queue + cmd_render_frame/cmd_delete_frame/cmd_delete_shot/_cover_frame_no re-export）→ __init__.py / actions.py 零改动。**验证**：ast 保真核对 30 函数（5 个差异全归类为五代退役改动/import 提升/_shutil→shutil 等价改写）+ 机制函数逐行一致 + 干净库全量 89/89 全 PASS（47+12+30）。版本号不升
 
@@ -109,7 +110,7 @@
 
 ## 正在做
 
-- **v0.9.41 ~ v0.9.70 已推 GitHub**（v0.9.70，2026-08-10：推前干净库 audit_clean.blend 全量 77/77 全 PASS（42+12+23，~3min），版本号 0.9.40→0.9.70（bl_info+index.html 徽章两处））；**审计脚本增强已推**（2026-08-10：s13 move_dialogue 段 + timeline 段 + cleanup 时序修复，推前全量 89/89 全 PASS，版本号不升——无产品功能改动）；**屎山治理批 A + 五代退役 + 预览小图修复 + CSS 拆分 + queue 拆分 + v0.9.72 待推**（2026-08-10/11：inline_edit.js + audit_lib.py + handler 表化 + 五代兼容层全删 + aspect.js 预览小图放大 + style.css 拆 4 part + queue.py 三拆 + 拖宽动态钳制，验证全过，版本号不升）
+- **v0.9.41 ~ v0.9.73 已推 GitHub**（v0.9.73，2026-08-11：推前干净库全量 89/89 全 PASS（47+12+30），版本号 0.9.70→0.9.73（bl_info+index.html 徽章两处）；批次含屎山治理批 A（inline_edit.js + audit_lib.py + handler 表化）+ 五代兼容层退役 + 预览小图修复 + CSS 2255 行拆 4 part + queue.py 三拆 + v0.9.72 拖宽动态钳制；**审计脚本增强已推**（2026-08-10：s13 move_dialogue 段 + timeline 段 + cleanup 时序修复，版本号不升）
 - 待办，等用户逐项指派：宫格缩略图下缘黑条（观察项，先不动）；需求池 Phase 2 未勾项已全部回勾（474/476/477/478/473 均 [x]，2026-08-10 开局核对）；Phase 3 四大项（VSE 串片/animatic 预览/垃圾桶其它侧边栏/实时视口零延时）为长期大项，不在当前范围
 - 盘点未补 3 项已全部补齐（v0.9.64）：时间线右键菜单展开/折叠、外部图片拖入、中键/右键滑动翻面横滚时间线
 
